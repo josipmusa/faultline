@@ -1,0 +1,55 @@
+# Go
+/bin/
+/dist/
+*.exe
+*.test
+*.out
+coverage.*
+vendor/
+
+# UI (Next.js)
+web/node_modules/
+web/.next/
+web/out/
+web/.turbo/
+web/next-env.d.ts
+web/*.tsbuildinfo
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# TypeScript client
+clients/ts/node_modules/
+clients/ts/dist/
+
+# Examples
+examples/**/node_modules/
+examples/**/dist/
+examples/**/build/
+examples/**/target/
+examples/**/.gradle/
+
+# Local state and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.jks
+faultline.local.yaml
+docker-compose.faultline.yml
+
+# IDEs and editors
+.idea/
+*.iml
+.vscode/
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Agent scratch
+.claude/settings.local.json
