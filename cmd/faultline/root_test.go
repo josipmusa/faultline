@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -21,6 +22,29 @@ func runCmd(t *testing.T, args ...string) string {
 	}
 
 	return out.String()
+}
+
+// runCmdErr runs a command that is expected to fail and returns its error.
+func runCmdErr(t *testing.T, args ...string) error {
+	t.Helper()
+
+	var out bytes.Buffer
+	root := newRootCmd()
+	root.SetOut(&out)
+	root.SetErr(&out)
+	root.SetArgs(args)
+
+	return root.Execute()
+}
+
+// mustParse is the URL helper the route tests share.
+func mustParse(t *testing.T, raw string) *url.URL {
+	t.Helper()
+	u, err := url.Parse(raw)
+	if err != nil {
+		t.Fatalf("parsing %q: %v", raw, err)
+	}
+	return u
 }
 
 func TestVersionCommandPrintsVersion(t *testing.T) {

@@ -72,6 +72,15 @@ JSON, snake_case. A rule looks like:
 
 Errors are `{ "error": "human readable", "field": "fault.ms" }` with 400 for validation, 404 for unknown ids, 409 for conflicts.
 
+Every message on the `/api/events/stream` WebSocket is a tagged envelope, so clients switch on `type` instead of sniffing for fields:
+
+```json
+{ "type": "event", "event": { "id": "1", "host": "api.stripe.com", "method": "GET", "faulted": true, "tier": "plain" } }
+{ "type": "rules_changed" }
+```
+
+`rules_changed` says a cached rule list is stale; the client re-reads `GET /api/rules`. Rules themselves never travel over the socket, and no ordering is promised between an event and a notice. Add a new message kind by adding a `type` and its own optional payload field, never by widening an existing payload.
+
 ## Code conventions
 
 - Domain values are immutable. Updates return new copies. Stores are the only mutable things and are guarded by mutexes.
