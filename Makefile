@@ -17,8 +17,10 @@ lint:
 	go vet ./...
 	$(GOBIN)/golangci-lint run
 
+# Pinned to the last release that builds with the go.mod Go version (1.25);
+# v2.13.x requires Go 1.26 and CI runs with GOTOOLCHAIN=local.
 tools:
-	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2
+	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.0
 
 run: build
 	./$(BIN) serve
