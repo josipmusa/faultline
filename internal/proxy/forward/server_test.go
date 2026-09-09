@@ -66,13 +66,19 @@ type proxyFixture struct {
 
 func newFixture(t *testing.T) *proxyFixture {
 	t.Helper()
+	return newFixtureWith(t, nil)
+}
+
+// newFixtureWith is newFixture with a bypass list.
+func newFixtureWith(t *testing.T, bypass *Bypass) *proxyFixture {
+	t.Helper()
 	store := rules.New()
 	rec := events.NewRecorder(events.DefaultSize)
 	t.Cleanup(rec.Close)
 
 	transport := faults.New(nil, store, rec, events.TierPlain)
 	dialer := faults.NewDialer(store, rec)
-	srv := httptest.NewServer(NewServer(transport, dialer, quietLogger()))
+	srv := httptest.NewServer(NewServer(transport, dialer, nil, bypass, quietLogger()))
 	t.Cleanup(srv.Close)
 
 	return &proxyFixture{proxy: srv, store: store, recorder: rec}
@@ -295,7 +301,7 @@ func TestAnswers502WhenTheUpstreamIsUnreachable(t *testing.T) {
 
 func TestStartListensAndShutdownStops(t *testing.T) {
 	up := newUpstream(t)
-	srv := NewServer(faults.New(nil, rules.New(), nil, events.TierPlain), nil, quietLogger())
+	srv := NewServer(faults.New(nil, rules.New(), nil, events.TierPlain), nil, nil, nil, quietLogger())
 
 	if err := srv.Start(0); err != nil {
 		t.Fatalf("starting: %v", err)

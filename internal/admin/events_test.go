@@ -2,10 +2,12 @@ package admin
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/josipmusa/faultline/internal/events"
+	"github.com/josipmusa/faultline/internal/proxy/forward"
 )
 
 // seed records three events: two plain calls to httpbin, one of them faulted,
@@ -156,5 +158,39 @@ func TestListUpstreamsStartsEmpty(t *testing.T) {
 	wantStatus(t, w, http.StatusOK)
 	if got := w.Body.String(); got != "[]\n" {
 		t.Errorf("body = %q, want an empty JSON array", got)
+	}
+}
+
+// Bypassed hosts never produce events, so the upstreams list is where the
+// operator learns that a host was seen and deliberately skipped.
+func TestListUpstreamsIncludesBypassedHosts(t *testing.T) {
+	bypass, err := forward.NewBypass([]string{"localhost"})
+	if err != nil {
+		t.Fatalf("NewBypass: %v", err)
+	}
+	s := newTestServerWith(t, bypass)
+	seed(t, s)
+	bypass.Saw("localhost:8080")
+	bypass.Saw("localhost:8080")
+
+	w := do(t, s, http.MethodGet, "/api/upstreams", "")
+
+	wantStatus(t, w, http.StatusOK)
+	got := decodeBody[[]Upstream](t, w)
+	if len(got) != 3 {
+		t.Fatalf("got %d upstreams, want 3: %+v", len(got), got)
+	}
+	if got[0].Host != "api.stripe.com" || got[1].Host != "httpbin.org" || got[2].Host != "localhost:8080" {
+		t.Fatalf("hosts = %q, %q, %q, want them sorted together", got[0].Host, got[1].Host, got[2].Host)
+	}
+	if got[0].Bypassed || got[1].Bypassed {
+		t.Errorf("recorded upstreams are marked bypassed: %+v", got[:2])
+	}
+	local := got[2]
+	if !local.Bypassed || local.Requests != 2 || local.Faulted != 0 || local.Tier != "" || local.LastSeen.IsZero() {
+		t.Errorf("localhost = %+v, want bypassed, two requests, no tier, a last_seen", local)
+	}
+	if !strings.Contains(w.Body.String(), `"bypassed":false`) || strings.Contains(w.Body.String(), `"tier":""`) {
+		t.Errorf("body = %s, want bypassed always present and an empty tier omitted", w.Body.String())
 	}
 }

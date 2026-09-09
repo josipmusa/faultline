@@ -46,7 +46,7 @@ func NewDialer(store *rules.Store, rec *events.Recorder) *Dialer {
 // during a delay, and the dial error when the upstream is unreachable.
 func (d *Dialer) Dial(ctx context.Context, addr string) (net.Conn, error) {
 	start := time.Now()
-	host := stripDefaultPort(addr)
+	host := StripDefaultPort(addr)
 
 	e := events.Event{
 		ID:     events.NextID(),

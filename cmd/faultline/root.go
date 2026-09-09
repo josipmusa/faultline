@@ -13,7 +13,8 @@ func newRootCmd() *cobra.Command {
 		Long: "Faultline is an HTTP and HTTPS fault-injection proxy for development and testing.\n" +
 			"It sits between an application and its dependencies, shows every outbound call,\n" +
 			"and can degrade those calls on purpose.",
-		SilenceUsage: true,
+		SilenceUsage:  true,
+		SilenceErrors: true, // main prints the error once, prefixed with the program name
 	}
 
 	root.AddCommand(
@@ -21,7 +22,7 @@ func newRootCmd() *cobra.Command {
 		placeholder("run", "Start an application with Faultline in front of it"),
 		placeholder("rule", "Manage fault rules"),
 		placeholder("scenario", "Manage scenarios"),
-		placeholder("ca", "Manage the TLS interception certificate authority"),
+		newCACmd(),
 		placeholder("mcp", "Serve the MCP interface for coding agents"),
 		newVersionCmd(),
 	)

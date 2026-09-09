@@ -4,8 +4,10 @@
 // A forward proxy request carries its destination in the request line, in
 // absolute form (`GET http://api.stripe.com/v1/charges HTTP/1.1`) for plain
 // HTTP, or as a bare host:port behind CONNECT for HTTPS. Plain requests go
-// through the fault transport exactly as an explicit route does; CONNECT opens
-// a tunnel through the fault dialer, which can only see the host.
+// through the fault transport exactly as an explicit route does. CONNECT either
+// opens a tunnel through the fault dialer, which can only see the host, or,
+// when interception is on, terminates the TLS inside the tunnel and sends the
+// requests through the intercepted-tier transport.
 package forward
 
 import (
@@ -36,9 +38,12 @@ const readHeaderTimeout = 10 * time.Second
 // Server is the forward proxy. Build it with NewServer; it is a plain
 // http.Handler until Start binds a port.
 type Server struct {
-	handler http.Handler
-	dialer  *faults.Dialer
-	log     *slog.Logger
+	handler   http.Handler
+	untouched http.Handler // the bypass path: forwards with no rules and no events
+	dialer    *faults.Dialer
+	intercept *Interceptor
+	bypass    *Bypass
+	log       *slog.Logger
 
 	mu   sync.Mutex
 	http *http.Server
@@ -47,16 +52,26 @@ type Server struct {
 }
 
 // NewServer wires the forward proxy onto the fault pipeline: the transport
-// for plain requests, the dialer for CONNECT tunnels. A nil dialer tunnels
-// without rules or events; a nil logger means slog.Default.
-func NewServer(transport http.RoundTripper, dialer *faults.Dialer, logger *slog.Logger) *Server {
+// for plain requests, the dialer for CONNECT tunnels, and the interceptor for
+// terminating the TLS inside them. Hosts on the bypass list skip all three. A
+// nil interceptor tunnels every CONNECT blindly; a nil dialer tunnels without
+// rules or events; a nil bypass bypasses nothing; a nil logger means
+// slog.Default.
+func NewServer(transport http.RoundTripper, dialer *faults.Dialer, intercept *Interceptor, bypass *Bypass, logger *slog.Logger) *Server {
 	if dialer == nil {
 		dialer = faults.NewDialer(nil, nil)
 	}
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Server{handler: proxyHandler(transport, logger), dialer: dialer, log: logger}
+	return &Server{
+		handler:   proxyHandler(transport, logger),
+		untouched: proxyHandler(bareTransport(), logger),
+		dialer:    dialer,
+		intercept: intercept,
+		bypass:    bypass,
+		log:       logger,
+	}
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -68,7 +83,33 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "faultline: "+err.message, err.status)
 		return
 	}
+	if s.bypassed(r.URL.Host) {
+		s.untouched.ServeHTTP(w, r)
+		return
+	}
 	s.handler.ServeHTTP(w, r)
+}
+
+// bypassed reports whether the upstream at addr is on the bypass list, and
+// notes the sighting when it is, so the operator can find out why nothing is
+// being recorded for it.
+func (s *Server) bypassed(addr string) bool {
+	host := faults.StripDefaultPort(addr)
+	if !s.bypass.Matches(host) {
+		return false
+	}
+	s.bypass.Saw(host)
+	s.log.Debug("bypassed", "upstream", host)
+	return true
+}
+
+// bareTransport is what bypassed plain requests travel over: the standard
+// transport with nothing of Faultline's in it.
+func bareTransport() http.RoundTripper {
+	if t, ok := http.DefaultTransport.(*http.Transport); ok {
+		return t.Clone()
+	}
+	return http.DefaultTransport
 }
 
 // Start binds the forward proxy port on localhost and serves in the background.

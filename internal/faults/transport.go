@@ -125,12 +125,14 @@ func hostOf(req *http.Request) string {
 	if host == "" {
 		host = req.Host
 	}
-	return stripDefaultPort(host)
+	return StripDefaultPort(host)
 }
 
-// stripDefaultPort drops :80 and :443 from a host:port and leaves any other
-// port in place.
-func stripDefaultPort(host string) string {
+// StripDefaultPort drops :80 and :443 from a host:port and leaves any other
+// port in place, so one rule for `api.stripe.com` covers both schemes and a
+// rule can still target `localhost:8080`. The proxies use it too, so every
+// event names an upstream the same way.
+func StripDefaultPort(host string) string {
 	name, port, err := net.SplitHostPort(host)
 	if err != nil {
 		return host // no port to strip

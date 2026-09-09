@@ -11,14 +11,21 @@ import (
 	"testing"
 
 	"github.com/josipmusa/faultline/internal/events"
+	"github.com/josipmusa/faultline/internal/proxy/forward"
 	"github.com/josipmusa/faultline/internal/rules"
 )
 
 func newTestServer(t *testing.T) *Server {
 	t.Helper()
+	return newTestServerWith(t, nil)
+}
+
+// newTestServerWith is newTestServer with the forward proxy's bypass list.
+func newTestServerWith(t *testing.T, bypass *forward.Bypass) *Server {
+	t.Helper()
 	rec := events.NewRecorder(events.DefaultSize)
 	t.Cleanup(rec.Close)
-	s := NewServer(rules.New(), rec, slog.New(slog.DiscardHandler))
+	s := NewServer(rules.New(), rec, bypass, slog.New(slog.DiscardHandler))
 	t.Cleanup(func() { _ = s.Shutdown(context.Background()) })
 	return s
 }

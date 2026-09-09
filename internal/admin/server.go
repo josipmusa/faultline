@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/josipmusa/faultline/internal/events"
+	"github.com/josipmusa/faultline/internal/proxy/forward"
 	"github.com/josipmusa/faultline/internal/rules"
 )
 
@@ -26,6 +27,7 @@ const readHeaderTimeout = 10 * time.Second
 type Server struct {
 	rules   *rules.Store
 	events  *events.Recorder
+	bypass  *forward.Bypass
 	log     *slog.Logger
 	mux     *http.ServeMux
 	watcher *ruleWatcher
@@ -38,15 +40,17 @@ type Server struct {
 	wg       sync.WaitGroup
 }
 
-// NewServer wires the API onto a rule store and an event recorder. Nothing is
-// listening until Start is called; the Server is a plain http.Handler until then.
-func NewServer(store *rules.Store, rec *events.Recorder, logger *slog.Logger) *Server {
+// NewServer wires the API onto a rule store, an event recorder and the forward
+// proxy's bypass list, which may be nil. Nothing is listening until Start is
+// called; the Server is a plain http.Handler until then.
+func NewServer(store *rules.Store, rec *events.Recorder, bypass *forward.Bypass, logger *slog.Logger) *Server {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	s := &Server{
 		rules:   store,
 		events:  rec,
+		bypass:  bypass,
 		log:     logger,
 		mux:     http.NewServeMux(),
 		watcher: newRuleWatcher(store.Changes()),

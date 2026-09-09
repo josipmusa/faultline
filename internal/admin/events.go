@@ -10,15 +10,19 @@ import (
 	"time"
 
 	"github.com/josipmusa/faultline/internal/events"
+	"github.com/josipmusa/faultline/internal/proxy/forward"
 )
 
 // Upstream is one distinct host Faultline has seen, with how much of it it
-// could see and how much traffic went through it.
+// could see and how much traffic went through it. A bypassed host was passed
+// through on purpose: nothing was recorded for it, so it has no tier and its
+// requests are the ones the forward proxy let by.
 type Upstream struct {
 	Host     string      `json:"host"`
-	Tier     events.Tier `json:"tier"`
+	Tier     events.Tier `json:"tier,omitempty"`
 	Requests int         `json:"requests"`
 	Faulted  int         `json:"faulted"`
+	Bypassed bool        `json:"bypassed"`
 	LastSeen time.Time   `json:"last_seen"`
 }
 
@@ -43,7 +47,7 @@ func (s *Server) clearEvents(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) listUpstreams(w http.ResponseWriter, _ *http.Request) {
-	s.writeJSON(w, http.StatusOK, upstreamsOf(s.events.Events()))
+	s.writeJSON(w, http.StatusOK, upstreamsOf(s.events.Events(), s.bypass.Seen()))
 }
 
 func parseEventQuery(v url.Values) (eventQuery, error) {
@@ -88,10 +92,12 @@ func (q eventQuery) apply(all []events.Event) []events.Event {
 	return out
 }
 
-// upstreamsOf folds the recorded events into one row per host. The tier is the
-// one from the most recent event, so a host moves from encrypted to intercepted
-// as soon as interception starts working for it.
-func upstreamsOf(all []events.Event) []Upstream {
+// upstreamsOf folds the recorded events into one row per host, then adds a
+// row for every bypassed host the forward proxy has seen. The tier is the one
+// from the most recent event, so a host moves from encrypted to intercepted as
+// soon as interception starts working for it. A bypassed host has no events,
+// so the two sets never overlap.
+func upstreamsOf(all []events.Event, bypassed []forward.Bypassed) []Upstream {
 	byHost := make(map[string]*Upstream)
 
 	for _, e := range all {
@@ -109,9 +115,12 @@ func upstreamsOf(all []events.Event) []Upstream {
 		}
 	}
 
-	out := make([]Upstream, 0, len(byHost))
+	out := make([]Upstream, 0, len(byHost)+len(bypassed))
 	for _, u := range byHost {
 		out = append(out, *u)
+	}
+	for _, b := range bypassed {
+		out = append(out, Upstream{Host: b.Host, Requests: b.Requests, Bypassed: true, LastSeen: b.LastSeen})
 	}
 	slices.SortFunc(out, func(a, b Upstream) int { return cmp.Compare(a.Host, b.Host) })
 	return out

@@ -43,5 +43,10 @@ type Event struct {
 	Faulted bool   `json:"faulted"`
 	RuleID  string `json:"rule_id,omitempty"`
 
+	// Error says why the request never reached the upstream when that is
+	// worth explaining, such as a client refusing the interception certificate.
+	// Empty when the request went through.
+	Error string `json:"error,omitempty"`
+
 	Tier Tier `json:"tier"`
 }
