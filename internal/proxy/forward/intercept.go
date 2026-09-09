@@ -1,7 +1,6 @@
 package forward
 
 import (
-	"bufio"
 	"context"
 	"crypto/tls"
 	"errors"
@@ -52,14 +51,12 @@ func NewInterceptor(issuer *tlsmitm.Issuer, transport http.RoundTripper, rec *ev
 }
 
 // serve runs one intercepted tunnel to completion: handshake with the client
-// as target, then serve its requests until it hangs up. clientReader stands in
-// for client when reading, since the server may have buffered bytes the client
-// sent right behind its CONNECT.
-func (i *Interceptor) serve(ctx context.Context, client net.Conn, clientReader *bufio.Reader, target string) {
+// as target, then serve its requests until it hangs up.
+func (i *Interceptor) serve(ctx context.Context, client net.Conn, target string) {
 	start := time.Now()
 	host := faults.StripDefaultPort(target)
 
-	tlsConn := tls.Server(&bufferedConn{Conn: client, r: clientReader}, i.issuer.ServerConfig(target))
+	tlsConn := tls.Server(client, i.issuer.ServerConfig(target))
 	handshakeCtx, cancel := context.WithTimeout(ctx, handshakeTimeout)
 	err := tlsConn.HandshakeContext(handshakeCtx)
 	cancel()
@@ -141,14 +138,6 @@ func describeHandshakeError(err error) string {
 	}
 	return "TLS handshake failed: " + err.Error()
 }
-
-// bufferedConn is a connection whose reads drain an existing buffer first.
-type bufferedConn struct {
-	net.Conn
-	r *bufio.Reader
-}
-
-func (c *bufferedConn) Read(p []byte) (int, error) { return c.r.Read(p) }
 
 // oneConnListener hands out a single connection, then blocks until that
 // connection has been served and reports itself closed.

@@ -177,3 +177,49 @@ func TestRejectsConnectWithoutAPort(t *testing.T) {
 		t.Errorf("body = %q, want a message saying CONNECT needs host:port", body)
 	}
 }
+
+// TestTunnelCarriesBytesSentBehindConnect writes the CONNECT request and the
+// first bytes of what follows it in a single write, so both land in the
+// serving server's read buffer together. Those bytes belong to the tunnel, and
+// the tunnel has to deliver them rather than lose them with the reader they
+// arrived in.
+func TestTunnelCarriesBytesSentBehindConnect(t *testing.T) {
+	f := newFixture(t)
+
+	// A plain upstream, so what travels through the tunnel is readable here
+	// and the test does not depend on TLS framing.
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "hello through the tunnel")
+	}))
+	t.Cleanup(up.Close)
+	upAddr := up.Listener.Addr().String()
+
+	proxyURL, err := url.Parse(f.proxy.URL)
+	if err != nil {
+		t.Fatalf("parsing proxy url: %v", err)
+	}
+	conn, err := net.Dial("tcp", proxyURL.Host)
+	if err != nil {
+		t.Fatalf("dialing the proxy: %v", err)
+	}
+	defer func() { _ = conn.Close() }()
+	if err := conn.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		t.Fatalf("setting deadline: %v", err)
+	}
+
+	if _, err := io.WriteString(conn, "CONNECT "+upAddr+" HTTP/1.1\r\nHost: "+upAddr+"\r\n\r\n"+
+		"GET /orders HTTP/1.1\r\nHost: "+upAddr+"\r\nConnection: close\r\n\r\n"); err != nil {
+		t.Fatalf("writing CONNECT and the request behind it: %v", err)
+	}
+
+	got, err := io.ReadAll(conn)
+	if err != nil {
+		t.Fatalf("reading the tunnel: %v", err)
+	}
+	if !strings.Contains(string(got), "200 Connection established") {
+		t.Fatalf("no tunnel was opened, got %q", got)
+	}
+	if !strings.Contains(string(got), "hello through the tunnel") {
+		t.Errorf("the request sent behind CONNECT never reached the upstream, got %q", got)
+	}
+}

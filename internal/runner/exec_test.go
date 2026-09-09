@@ -84,13 +84,21 @@ func TestRunInterruptsTheChildWhenTheContextIsCancelled(t *testing.T) {
 		cancel()
 	}()
 
+	// sleep is run directly rather than through `sh -c`, so the process the
+	// interrupt is aimed at is the one that has to act on it. A shell in
+	// between makes the test measure the shell: bash execs a lone command and
+	// so dies of the interrupt itself, while dash forks and waits, leaving
+	// nothing for the interrupt to end. Run only ever signals its own child,
+	// which is what this asserts.
 	start := time.Now()
-	code, err := Run(ctx, []string{"sh", "-c", "sleep 30"}, nil, nil, nil, nil)
+	code, err := Run(ctx, []string{"sleep", "30"}, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if elapsed := time.Since(start); elapsed > 10*time.Second {
-		t.Fatalf("the child ran for %s; it should have been interrupted", elapsed)
+	// Comfortably inside the grace period, so being killed at the end of it
+	// fails here rather than passing as an interrupt that worked.
+	if elapsed := time.Since(start); elapsed > gracePeriod/2 {
+		t.Fatalf("the child ran for %s; it should have been interrupted well inside the %s grace period", elapsed, gracePeriod)
 	}
 	if code == 0 {
 		t.Errorf("exit code = 0, want the interrupted child's non-zero code")

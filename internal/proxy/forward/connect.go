@@ -3,6 +3,7 @@ package forward
 import (
 	"bufio"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -30,12 +31,12 @@ func (s *Server) tunnel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if s.intercept != nil {
-		client, buffered, ok := s.open(w, addr)
+		client, ok := s.open(w, addr)
 		if !ok {
 			return
 		}
 		defer func() { _ = client.Close() }()
-		s.intercept.serve(r.Context(), client, buffered, addr)
+		s.intercept.serve(r.Context(), client, addr)
 		return
 	}
 
@@ -46,13 +47,13 @@ func (s *Server) tunnel(w http.ResponseWriter, r *http.Request) {
 	}
 	defer func() { _ = upstream.Close() }()
 
-	client, buffered, ok := s.open(w, addr)
+	client, ok := s.open(w, addr)
 	if !ok {
 		return
 	}
 	defer func() { _ = client.Close() }()
 
-	pipe(client, buffered, upstream)
+	pipe(client, upstream)
 }
 
 // tunnelUntouched is the bypass path for CONNECT: dial the upstream directly,
@@ -65,13 +66,13 @@ func (s *Server) tunnelUntouched(w http.ResponseWriter, r *http.Request, addr st
 	}
 	defer func() { _ = upstream.Close() }()
 
-	client, buffered, ok := s.open(w, addr)
+	client, ok := s.open(w, addr)
 	if !ok {
 		return
 	}
 	defer func() { _ = client.Close() }()
 
-	pipe(client, buffered, upstream)
+	pipe(client, upstream)
 }
 
 // bareDialer opens bypassed tunnels, with the same patience as the fault dialer
@@ -80,28 +81,73 @@ var bareDialer = &net.Dialer{Timeout: 30 * time.Second}
 
 // open takes over the client connection and tells the client its tunnel is
 // ready. It reports false, having already answered, when that is not possible.
-// The reader may hold bytes the client sent right behind its CONNECT, so
-// callers read through it rather than from the connection.
-func (s *Server) open(w http.ResponseWriter, addr string) (net.Conn, *bufio.Reader, bool) {
+//
+// The returned connection is the hijacked one with any bytes the client sent
+// right behind its CONNECT put back in front of it, so callers read from a
+// plain net.Conn and never from the reader Hijack handed over. That reader is
+// still plumbed through the serving server's own connection reader, which
+// reads a deliberate read-deadline abort as the client having gone away and
+// cancels the context this request descends from; a tunnel outlives its
+// CONNECT request, so it must not depend on that reader at all.
+func (s *Server) open(w http.ResponseWriter, addr string) (net.Conn, bool) {
 	hijacker, ok := w.(http.Hijacker)
 	if !ok {
 		s.log.Error("cannot tunnel: response writer does not support hijacking", "upstream", addr)
 		http.Error(w, "faultline: this server cannot open tunnels", http.StatusInternalServerError)
-		return nil, nil, false
+		return nil, false
 	}
 	client, buffered, err := hijacker.Hijack()
 	if err != nil {
 		s.log.Error("hijacking the client connection", "upstream", addr, "err", err)
 		http.Error(w, "faultline: could not take over the connection", http.StatusInternalServerError)
-		return nil, nil, false
+		return nil, false
+	}
+
+	pending, err := drainBuffered(buffered.Reader)
+	if err != nil {
+		s.log.Error("reading what the client sent behind its CONNECT", "upstream", addr, "err", err)
+		_ = client.Close()
+		return nil, false
 	}
 
 	if _, err := io.WriteString(client, "HTTP/1.1 200 Connection established\r\n\r\n"); err != nil {
 		s.log.Debug("client went away before the tunnel opened", "upstream", addr, "err", err)
 		_ = client.Close()
-		return nil, nil, false
+		return nil, false
 	}
-	return client, buffered.Reader, true
+	return &bufferedConn{Conn: client, pending: pending}, true
+}
+
+// drainBuffered takes the bytes already sitting in r without reading anything
+// new. bufio.Reader serves a read from its buffer whenever the buffer holds
+// something, so asking for exactly what it has buffered never reaches the
+// reader underneath.
+func drainBuffered(r *bufio.Reader) ([]byte, error) {
+	n := r.Buffered()
+	if n == 0 {
+		return nil, nil
+	}
+	pending := make([]byte, n)
+	if _, err := io.ReadFull(r, pending); err != nil {
+		return nil, fmt.Errorf("draining %d buffered bytes: %w", n, err)
+	}
+	return pending, nil
+}
+
+// bufferedConn is the hijacked client connection with the bytes that arrived
+// behind the CONNECT served first.
+type bufferedConn struct {
+	net.Conn
+	pending []byte
+}
+
+func (c *bufferedConn) Read(p []byte) (int, error) {
+	if len(c.pending) > 0 {
+		n := copy(p, c.pending)
+		c.pending = c.pending[n:]
+		return n, nil
+	}
+	return c.Conn.Read(p)
 }
 
 // answerDialError tells the client why its tunnel did not open. A refusal by a
@@ -119,13 +165,11 @@ func (s *Server) answerDialError(w http.ResponseWriter, addr string, err error) 
 }
 
 // pipe copies bytes between the two ends of a tunnel until one of them closes,
-// then closes the other so the remaining copy ends too. clientReader is used in
-// place of client for reading, because the server may already have buffered
-// bytes the client sent right behind its CONNECT.
-func pipe(client net.Conn, clientReader *bufio.Reader, upstream net.Conn) {
+// then closes the other so the remaining copy ends too.
+func pipe(client, upstream net.Conn) {
 	done := make(chan struct{}, 2)
 	go func() {
-		_, _ = io.Copy(upstream, clientReader)
+		_, _ = io.Copy(upstream, client)
 		done <- struct{}{}
 	}()
 	go func() {

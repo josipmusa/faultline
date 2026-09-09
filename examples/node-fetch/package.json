@@ -1,0 +1,13 @@
+{
+  "name": "faultline-example-node-fetch",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Calls a URL in a loop with Node's native fetch",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node index.js"
+  }
+}

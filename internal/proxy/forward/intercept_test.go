@@ -294,3 +294,31 @@ func TestDescribeHandshakeError(t *testing.T) {
 		})
 	}
 }
+
+// TestInterceptReusedConnection sends two requests through one intercepted
+// tunnel, the way any client with keep-alive enabled does. The second request
+// travels on the connection the first one opened, so it must succeed on its
+// own terms rather than inherit anything the first request finished with.
+func TestInterceptReusedConnection(t *testing.T) {
+	f := newInterceptFixture(t)
+	client := f.trustingClient(t)
+
+	for n := 1; n <= 2; n++ {
+		resp, err := client.Get(f.upstream.URL + "/get")
+		if err != nil {
+			t.Fatalf("request %d: %v", n, err)
+		}
+		body, err := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if err != nil {
+			t.Fatalf("request %d reading body: %v", n, err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("request %d: status %d, body %q, want 200", n, resp.StatusCode, body)
+		}
+	}
+
+	if hits := f.upstream.hits.Load(); hits != 2 {
+		t.Fatalf("upstream saw %d requests, want 2", hits)
+	}
+}
