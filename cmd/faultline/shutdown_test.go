@@ -85,7 +85,7 @@ func TestServeShutsDownGracefullyOnSignal(t *testing.T) {
 	served := make(chan error, 1)
 	go func() {
 		// Port 0 everywhere: the test must not fight a real faultline for 9000.
-		served <- serve(context.Background(), out, 0, []reverse.Route{{Name: "slow", Upstream: mustParse(t, up.URL)}})
+		served <- serve(context.Background(), out, 0, 0, []reverse.Route{{Name: "slow", Upstream: mustParse(t, up.URL)}})
 	}()
 	adminAddr, routeAddr := addrs(t, out, "slow")
 

@@ -18,6 +18,7 @@ import (
 	"github.com/josipmusa/faultline/internal/admin"
 	"github.com/josipmusa/faultline/internal/events"
 	"github.com/josipmusa/faultline/internal/faults"
+	"github.com/josipmusa/faultline/internal/proxy/forward"
 	"github.com/josipmusa/faultline/internal/proxy/reverse"
 	"github.com/josipmusa/faultline/internal/rules"
 )
@@ -27,19 +28,20 @@ const shutdownTimeout = 10 * time.Second
 
 func newServeCmd() *cobra.Command {
 	var routeSpecs, portSpecs []string
+	var proxyPort int
 
 	cmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Run the admin server and proxies",
-		Long: "Serve starts the admin API and a listener for every explicit route, so an\n" +
-			"application can point at localhost instead of the real upstream and have its\n" +
-			"traffic observed.",
+		Long: "Serve starts the admin API, the forward proxy, and a listener for every\n" +
+			"explicit route, so an application can send its traffic through Faultline\n" +
+			"either by setting HTTP_PROXY or by pointing at a route's local port.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			routes, err := parseRoutes(routeSpecs, portSpecs)
 			if err != nil {
 				return err
 			}
-			return serve(cmd.Context(), cmd.OutOrStdout(), admin.DefaultPort, routes)
+			return serve(cmd.Context(), cmd.OutOrStdout(), admin.DefaultPort, proxyPort, routes)
 		},
 	}
 
@@ -47,12 +49,14 @@ func newServeCmd() *cobra.Command {
 		"explicit route as name=url, repeatable (--route stripe=https://api.stripe.com)")
 	cmd.Flags().StringArrayVar(&portSpecs, "route-port", nil,
 		"local port for a route as name=port, repeatable (--route-port stripe=9100)")
+	cmd.Flags().IntVar(&proxyPort, "proxy-port", forward.DefaultPort,
+		"port for the forward proxy, the one HTTP_PROXY points at")
 
 	return cmd
 }
 
-// serve runs every route until the process is interrupted.
-func serve(ctx context.Context, out io.Writer, adminPort int, routes []reverse.Route) error {
+// serve runs the forward proxy and every route until the process is interrupted.
+func serve(ctx context.Context, out io.Writer, adminPort, proxyPort int, routes []reverse.Route) error {
 	// Install the signal handler before anything is listening, so an interrupt
 	// during startup shuts the parts that are already up down in order instead
 	// of killing the process where it stands.
@@ -63,22 +67,46 @@ func serve(ctx context.Context, out io.Writer, adminPort int, routes []reverse.R
 	recorder := events.NewRecorder(events.DefaultSize)
 	defer recorder.Close()
 
-	server, err := reverse.NewServer(routes, faults.New(nil, store, recorder, events.TierPlain), nil)
-	if err != nil {
-		return err
-	}
-	if err := server.Start(); err != nil {
-		return err
+	pipeline := faults.New(nil, store, recorder, events.TierPlain)
+
+	// Routes are optional now that the forward proxy is always there: setting
+	// HTTP_PROXY is reason enough to run Faultline.
+	var server *reverse.Server
+	if len(routes) > 0 {
+		var err error
+		server, err = reverse.NewServer(routes, pipeline, nil)
+		if err != nil {
+			return err
+		}
+		if err := server.Start(); err != nil {
+			return err
+		}
 	}
 
+	proxy := forward.NewServer(pipeline, nil)
 	api := admin.NewServer(store, recorder, nil)
-	if err := api.Start(adminPort); err != nil {
-		_ = server.Shutdown(context.Background())
+
+	stopAll := func() {
+		if server != nil {
+			_ = server.Shutdown(context.Background())
+		}
+		_ = proxy.Shutdown(context.Background())
 		_ = api.Shutdown(context.Background())
+	}
+
+	if err := proxy.Start(proxyPort); err != nil {
+		stopAll()
+		return err
+	}
+	if err := api.Start(adminPort); err != nil {
+		stopAll()
 		return err
 	}
 
 	if _, err := fmt.Fprintf(out, "admin: http://%s\n", api.Addr()); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "proxy: http://%s\n", proxy.Addr()); err != nil {
 		return err
 	}
 	for _, r := range routes {
@@ -99,25 +127,26 @@ func serve(ctx context.Context, out io.Writer, adminPort int, routes []reverse.R
 	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
 	defer cancel()
 
-	// Routes first: the requests they are still serving produce the last
+	// Proxies first: the requests they are still serving produce the last
 	// events, and those should reach the streams before the admin server
 	// closes them.
-	if err := errors.Join(server.Shutdown(shutdownCtx), api.Shutdown(shutdownCtx)); err != nil {
+	var routeErr error
+	if server != nil {
+		routeErr = server.Shutdown(shutdownCtx)
+	}
+	if err := errors.Join(routeErr, proxy.Shutdown(shutdownCtx), api.Shutdown(shutdownCtx)); err != nil {
 		return err
 	}
 
-	_, err = fmt.Fprintln(out, "shutdown complete")
+	_, err := fmt.Fprintln(out, "shutdown complete")
 	return err
 }
 
-// parseRoutes turns the --route and --route-port flags into routes. Routes with
-// no port of their own are numbered from reverse.FirstPort, skipping any port
-// already claimed, so ports stay predictable across runs.
+// parseRoutes turns the --route and --route-port flags into routes. There may
+// be none: the forward proxy runs either way. Routes with no port of their own
+// are numbered from reverse.FirstPort, skipping any port already claimed, so
+// ports stay predictable across runs.
 func parseRoutes(routeSpecs, portSpecs []string) ([]reverse.Route, error) {
-	if len(routeSpecs) == 0 {
-		return nil, fmt.Errorf("serve needs at least one --route, for example --route stripe=https://api.stripe.com")
-	}
-
 	routes := make([]reverse.Route, 0, len(routeSpecs))
 	seen := make(map[string]bool, len(routeSpecs))
 

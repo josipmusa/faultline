@@ -1,8 +1,14 @@
 package main
 
 import (
+	"context"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/josipmusa/faultline/internal/proxy/reverse"
 )
@@ -80,7 +86,6 @@ func TestParseRoutesRejectsBadInput(t *testing.T) {
 		ports  []string
 		want   string
 	}{
-		{"no routes at all", nil, nil, "--route"},
 		{"missing equals", []string{"stripe"}, nil, "name=url"},
 		{"empty name", []string{"=https://api.stripe.com"}, nil, "name"},
 		{"empty url", []string{"stripe="}, nil, "url"},
@@ -106,13 +111,13 @@ func TestParseRoutesRejectsBadInput(t *testing.T) {
 	}
 }
 
-func TestServeRequiresARoute(t *testing.T) {
-	err := runCmdErr(t, "serve")
-	if err == nil {
-		t.Fatal("serve started with no routes")
+func TestParseRoutesAcceptsNoRoutes(t *testing.T) {
+	got, err := parseRoutes(nil, nil)
+	if err != nil {
+		t.Fatalf("parseRoutes: %v", err)
 	}
-	if !strings.Contains(err.Error(), "--route") {
-		t.Errorf("err = %q, want it to point at --route", err)
+	if len(got) != 0 {
+		t.Errorf("got %d routes, want none: the forward proxy is reason enough to serve", len(got))
 	}
 }
 
@@ -126,11 +131,90 @@ func TestServeRejectsABadRouteBeforeBinding(t *testing.T) {
 	}
 }
 
+func TestServeHelpDocumentsTheProxyPortFlag(t *testing.T) {
+	got := runCmd(t, "serve", "--help")
+	if !strings.Contains(got, "--proxy-port") {
+		t.Errorf("serve help is missing --proxy-port:\n%s", got)
+	}
+}
+
 func TestServeHelpDocumentsTheRouteFlags(t *testing.T) {
 	got := runCmd(t, "serve", "--help")
 	for _, want := range []string{"--route", "--route-port", "name=url", "name=port"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("serve help is missing %q:\n%s", want, got)
 		}
+	}
+}
+
+// waitForAddr reads an address serve printed, waiting for the line to appear.
+func waitForAddr(t *testing.T, out *syncWriter, prefix string) string {
+	t.Helper()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		for line := range strings.SplitSeq(out.String(), "\n") {
+			if rest, ok := strings.CutPrefix(line, prefix); ok {
+				addr, _, _ := strings.Cut(rest, " ")
+				return addr
+			}
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	t.Fatalf("serve never printed a line starting %q:\n%s", prefix, out.String())
+	return ""
+}
+
+// TestServeRunsTheForwardProxy is 2.1 end to end: no routes at all, a client
+// that only knows HTTP_PROXY, and an event to show for it.
+func TestServeRunsTheForwardProxy(t *testing.T) {
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "upstream")
+	}))
+	defer up.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	out := &syncWriter{}
+	served := make(chan error, 1)
+	go func() {
+		// Port 0 everywhere: the test must not fight a real faultline.
+		served <- serve(ctx, out, 0, 0, nil)
+	}()
+
+	adminAddr := waitForAddr(t, out, "admin: http://")
+	proxyAddr := waitForAddr(t, out, "proxy: http://")
+
+	client := &http.Client{
+		Transport: &http.Transport{Proxy: http.ProxyURL(&url.URL{Scheme: "http", Host: proxyAddr})},
+		Timeout:   5 * time.Second,
+	}
+	resp, err := client.Get(up.URL + "/orders")
+	if err != nil {
+		t.Fatalf("request through the forward proxy: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || string(body) != "upstream" {
+		t.Fatalf("got %d %q, want 200 %q", resp.StatusCode, body, "upstream")
+	}
+
+	events, err := http.Get("http://" + adminAddr + "/api/events")
+	if err != nil {
+		t.Fatalf("reading events: %v", err)
+	}
+	recorded, _ := io.ReadAll(events.Body)
+	_ = events.Body.Close()
+	for _, want := range []string{`"path":"/orders"`, `"tier":"plain"`} {
+		if !strings.Contains(string(recorded), want) {
+			t.Errorf("events are missing %s:\n%s", want, recorded)
+		}
+	}
+
+	cancel()
+	if err := <-served; err != nil {
+		t.Fatalf("serve: %v", err)
 	}
 }
