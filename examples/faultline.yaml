@@ -1,0 +1,52 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/josipmusa/faultline/main/schema/faultline.schema.json
+#
+# A Faultline configuration. Copy it next to your application as faultline.yaml
+# and edit the hosts to the ones your application calls. The schema line above
+# lets an editor with the YAML extension check the file while you write it.
+
+# Explicit routes are for clients that ignore HTTP_PROXY: Faultline listens
+# locally and forwards to the upstream. Point the client's base URL at the local
+# address. Leave the port out and Faultline picks one from 9100 up.
+routes:
+  - name: stripe
+    upstream: https://api.stripe.com
+    port: 9100
+
+# Hosts to pass through untouched: no rules, no events, no interception, the way
+# NO_PROXY works. localhost is always on the list.
+bypass:
+  - "*.internal"
+
+# Rules written here are on as soon as the file is read, unless enabled says
+# otherwise. Everything left out of match matches everything.
+rules:
+  - id: slow-stripe
+    name: Stripe is slow
+    enabled: false
+    match:
+      host: api.stripe.com
+      method: POST
+      path: /v1/charges/*
+    fault:
+      type: delay
+      ms: 2000
+      jitter_ms: 500
+
+# A scenario is a situation you want to rehearse. Its rules go on and off
+# together. Name a rule declared above, or write one out here: a rule written
+# inside a scenario waits until the scenario is activated.
+scenarios:
+  - name: payments-down
+    rules:
+      - slow-stripe
+      - id: stripe-503
+        name: Stripe answers 503
+        match:
+          host: api.stripe.com
+        fault:
+          type: status
+          code: 503
+          body: '{"error":"service unavailable"}'
+        behavior:
+          type: percent
+          percent: 50

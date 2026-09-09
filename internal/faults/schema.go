@@ -18,14 +18,17 @@ const (
 	scopeBehavior = "behavior"
 )
 
-// kind is the shape a parameter value must have.
-type kind string
+// Kind is what one parameter holds. It is exported so that anything publishing
+// the catalogue, like the JSON Schema for faultline.yaml, can describe a
+// parameter without a second list of what parameters there are.
+type Kind string
 
+// The kinds a parameter can be.
 const (
-	kindInt     kind = "integer"
-	kindStr     kind = "string"
-	kindStrMap  kind = "string map"
-	kindStrList kind = "string list"
+	KindInt     Kind = "integer"
+	KindStr     Kind = "string"
+	KindStrMap  Kind = "string map"
+	KindStrList Kind = "string list"
 )
 
 // Field is one parameter a fault accepts, with the constraints it must meet.
@@ -33,7 +36,7 @@ const (
 // methods; a Field is a value, so each of them returns a new copy.
 type Field struct {
 	name     string
-	kind     kind
+	kind     Kind
 	required bool
 	min, max *int
 	// chars, when set, is the only characters a string value may contain.
@@ -48,19 +51,19 @@ type Field struct {
 
 // Int declares an integer parameter. A value arrives as a float64 from JSON and
 // as an int from YAML; both are accepted as long as they are whole.
-func Int(name string) Field { return Field{name: name, kind: kindInt} }
+func Int(name string) Field { return Field{name: name, kind: KindInt} }
 
 // Str declares a string parameter.
-func Str(name string) Field { return Field{name: name, kind: kindStr} }
+func Str(name string) Field { return Field{name: name, kind: KindStr} }
 
 // StrMap declares a parameter holding names mapped to values, such as the
 // response headers to set. It must not be empty: a fault with nothing to do is
 // a rule that does not say what its author meant.
-func StrMap(name string) Field { return Field{name: name, kind: kindStrMap} }
+func StrMap(name string) Field { return Field{name: name, kind: KindStrMap} }
 
 // StrList declares a parameter holding a list of names, such as the response
 // headers to remove. It must not be empty, for the same reason as StrMap.
-func StrList(name string) Field { return Field{name: name, kind: kindStrList} }
+func StrList(name string) Field { return Field{name: name, kind: KindStrList} }
 
 // Required says the parameter must be present. Everything else is optional and
 // means the zero value of its kind.
@@ -83,7 +86,43 @@ func (f Field) Or(other string) Field { f.partner = other; return f }
 func (f Field) Xor(other string) Field { f.partner, f.exclusive = other, true; return f }
 
 // Name is the parameter's name as it appears in the API.
+// The builders above are how a fault declares a parameter. The readers below
+// are how anything else asks what was declared, without this package knowing
+// what the answer is for.
+
+// Name is what the parameter is called in a rule.
 func (f Field) Name() string { return f.name }
+
+// Kind is what the parameter holds.
+func (f Field) Kind() Kind { return f.kind }
+
+// IsRequired reports whether a rule has to set the parameter.
+func (f Field) IsRequired() bool { return f.required }
+
+// MinValue reports the lowest a whole number parameter may be, and whether
+// there is a bound at all.
+func (f Field) MinValue() (int, bool) {
+	if f.min == nil {
+		return 0, false
+	}
+	return *f.min, true
+}
+
+// MaxValue reports the highest it may be, the same way.
+func (f Field) MaxValue() (int, bool) {
+	if f.max == nil {
+		return 0, false
+	}
+	return *f.max, true
+}
+
+// AllowedChars is the alphabet a text parameter is spelled with, case
+// insensitively, or empty when any text will do.
+func (f Field) AllowedChars() string { return f.chars }
+
+// Partner is the other parameter this one is written with: exclusive means
+// exactly one of the two, otherwise at least one.
+func (f Field) Partner() (name string, exclusive bool) { return f.partner, f.exclusive }
 
 // Schema is everything a fault accepts, in the order it is declared. It is the
 // one description of a fault's parameters: validation reads it, and so will the
@@ -206,17 +245,17 @@ func (s Schema) describe() string {
 
 func (f Field) validate(scope string, value any) error {
 	switch f.kind {
-	case kindStr:
+	case KindStr:
 		text, ok := value.(string)
 		if !ok {
 			return scopedErr(scope, f.name, "%s must be a string", f.name)
 		}
 		return f.validateChars(scope, text)
-	case kindStrMap:
+	case KindStrMap:
 		return f.validateStrMap(scope, value)
-	case kindStrList:
+	case KindStrList:
 		return f.validateStrList(scope, value)
-	case kindInt:
+	case KindInt:
 		n, ok := wholeNumber(value)
 		if !ok {
 			return scopedErr(scope, f.name, "%s must be a whole number", f.name)

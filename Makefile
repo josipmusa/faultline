@@ -6,7 +6,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 GOBIN   := $(shell go env GOPATH)/bin
 GOLANGCI_VERSION := v2.13.2
 
-.PHONY: build test lint tools run clean
+.PHONY: build test lint tools run schema clean
 
 build:
 	go build -ldflags "-X main.version=$(VERSION)" -o $(BIN) $(PKG)
@@ -26,6 +26,12 @@ lint:
 tools:
 	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/$(GOLANGCI_VERSION)/install.sh \
 		| sh -s -- -b $(GOBIN) $(GOLANGCI_VERSION)
+
+# schema/faultline.schema.json is generated from the fault catalogue, so a new
+# fault reaches editors without anyone writing it out twice. A test fails when
+# the checked in copy is stale.
+schema:
+	go test ./internal/config -run TestPublishedSchemaIsUpToDate -update
 
 run: build
 	./$(BIN) serve

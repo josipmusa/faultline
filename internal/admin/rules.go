@@ -169,7 +169,7 @@ func slugify(name string) string {
 	dash := false
 
 	for _, r := range strings.ToLower(name) {
-		if b.Len() >= maxIDLen {
+		if b.Len() >= rules.MaxIDLen {
 			break
 		}
 		switch {

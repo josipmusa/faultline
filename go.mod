@@ -5,6 +5,7 @@ go 1.25
 require (
 	github.com/coder/websocket v1.8.15
 	github.com/spf13/cobra v1.10.2
+	go.yaml.in/yaml/v3 v3.0.5
 )
 
 require (

@@ -1,0 +1,509 @@
+{
+  "$defs": {
+    "behavior": {
+      "description": "The behavior and its parameters. The type says which parameters there are.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "n": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "type": {
+              "const": "first_n"
+            }
+          },
+          "required": [
+            "type",
+            "n"
+          ],
+          "title": "first_n",
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "sec": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "type": {
+              "const": "for_duration"
+            }
+          },
+          "required": [
+            "type",
+            "sec"
+          ],
+          "title": "for_duration",
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "pattern": {
+              "pattern": "^[FfPp]+$",
+              "type": "string"
+            },
+            "type": {
+              "const": "pattern"
+            }
+          },
+          "required": [
+            "type",
+            "pattern"
+          ],
+          "title": "pattern",
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "percent": {
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "type": {
+              "const": "percent"
+            }
+          },
+          "required": [
+            "type",
+            "percent"
+          ],
+          "title": "percent",
+          "type": "object"
+        }
+      ],
+      "required": [
+        "type"
+      ],
+      "type": "object"
+    },
+    "fault": {
+      "description": "The fault and its parameters. The type says which parameters there are.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "A response tier fault.",
+          "properties": {
+            "percent": {
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "type": {
+              "const": "corrupt"
+            }
+          },
+          "required": [
+            "type",
+            "percent"
+          ],
+          "title": "corrupt",
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A connection tier fault.",
+          "properties": {
+            "jitter_ms": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "ms": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "type": {
+              "const": "delay"
+            }
+          },
+          "required": [
+            "type",
+            "ms"
+          ],
+          "title": "delay",
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A connection tier fault.",
+          "properties": {
+            "max_ms": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "type": {
+              "const": "hang"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "title": "hang",
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "allOf": [
+            {
+              "anyOf": [
+                {
+                  "required": [
+                    "set"
+                  ]
+                },
+                {
+                  "required": [
+                    "remove"
+                  ]
+                }
+              ]
+            }
+          ],
+          "description": "A response tier fault.",
+          "properties": {
+            "remove": {
+              "items": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            "set": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "minProperties": 1,
+              "type": "object"
+            },
+            "type": {
+              "const": "headers"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "title": "headers",
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A response tier fault.",
+          "properties": {
+            "retry_after_sec": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "rate_limit"
+            }
+          },
+          "required": [
+            "type",
+            "retry_after_sec"
+          ],
+          "title": "rate_limit",
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A connection tier fault.",
+          "properties": {
+            "type": {
+              "const": "refuse"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "title": "refuse",
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A connection tier fault.",
+          "properties": {
+            "after_bytes": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "reset"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "title": "reset",
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A response tier fault.",
+          "properties": {
+            "ms": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "type": {
+              "const": "slow_body"
+            }
+          },
+          "required": [
+            "type",
+            "ms"
+          ],
+          "title": "slow_body",
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A response tier fault.",
+          "properties": {
+            "body": {
+              "type": "string"
+            },
+            "code": {
+              "maximum": 599,
+              "minimum": 100,
+              "type": "integer"
+            },
+            "type": {
+              "const": "status"
+            }
+          },
+          "required": [
+            "type",
+            "code"
+          ],
+          "title": "status",
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A connection tier fault.",
+          "properties": {
+            "bytes_per_sec": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "type": {
+              "const": "throttle"
+            }
+          },
+          "required": [
+            "type",
+            "bytes_per_sec"
+          ],
+          "title": "throttle",
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "allOf": [
+            {
+              "oneOf": [
+                {
+                  "required": [
+                    "after_bytes"
+                  ]
+                },
+                {
+                  "required": [
+                    "percent"
+                  ]
+                }
+              ]
+            }
+          ],
+          "description": "A response tier fault.",
+          "properties": {
+            "after_bytes": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "percent": {
+              "maximum": 99,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "type": {
+              "const": "truncate"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "title": "truncate",
+          "type": "object"
+        }
+      ],
+      "required": [
+        "type"
+      ],
+      "type": "object"
+    },
+    "match": {
+      "additionalProperties": false,
+      "description": "Which requests the rule applies to. Everything left out matches everything.",
+      "properties": {
+        "header": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Header names and the values they must have.",
+          "minProperties": 1,
+          "type": "object"
+        },
+        "host": {
+          "description": "A hostname like api.stripe.com, not a URL.",
+          "type": "string"
+        },
+        "method": {
+          "description": "An HTTP method like GET or POST.",
+          "pattern": "^[A-Za-z]+$",
+          "type": "string"
+        },
+        "path": {
+          "description": "A path, with * standing in for the rest: /v1/charges/*.",
+          "pattern": "^[/*]",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "route": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "description": "What this route is called.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "port": {
+          "description": "The local port to listen on. Left out, Faultline assigns one from 9100 up.",
+          "maximum": 65535,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "upstream": {
+          "description": "The upstream, as an absolute URL: https://api.stripe.com.",
+          "pattern": "^https?://",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "upstream"
+      ],
+      "type": "object"
+    },
+    "rule": {
+      "additionalProperties": false,
+      "properties": {
+        "behavior": {
+          "$ref": "#/$defs/behavior"
+        },
+        "enabled": {
+          "description": "Whether the rule applies. Rules written inside a scenario default to false.",
+          "type": "boolean"
+        },
+        "fault": {
+          "$ref": "#/$defs/fault"
+        },
+        "id": {
+          "description": "How everything else names this rule.",
+          "maxLength": 64,
+          "pattern": "^[A-Za-z0-9._-]+$",
+          "type": "string"
+        },
+        "match": {
+          "$ref": "#/$defs/match"
+        },
+        "name": {
+          "description": "What this rule is for, in a few words.",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "fault"
+      ],
+      "type": "object"
+    },
+    "scenario": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "description": "How the scenario is turned on and off.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "rules": {
+          "description": "The rules this scenario turns on, named by id or written out in full.",
+          "items": {
+            "oneOf": [
+              {
+                "description": "The id of a rule declared under rules.",
+                "type": "string"
+              },
+              {
+                "$ref": "#/$defs/rule"
+              }
+            ]
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://raw.githubusercontent.com/josipmusa/faultline/main/schema/faultline.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The routes, bypass list, rules, and scenarios of one Faultline setup.",
+  "properties": {
+    "bypass": {
+      "description": "Hosts the forward proxy passes through untouched: no rules, no events, no interception.",
+      "items": {
+        "description": "A host (api.stripe.com), a host and port (localhost:9000), or a domain suffix (*.internal).",
+        "minLength": 1,
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "routes": {
+      "description": "Explicit routes: an upstream reachable on a local port, for clients that ignore proxy settings.",
+      "items": {
+        "$ref": "#/$defs/route"
+      },
+      "type": "array"
+    },
+    "rules": {
+      "description": "Rules applied to matching traffic. A rule at the top level is on unless it says otherwise.",
+      "items": {
+        "$ref": "#/$defs/rule"
+      },
+      "type": "array"
+    },
+    "scenarios": {
+      "description": "Named situations: sets of rules that go on and off together.",
+      "items": {
+        "$ref": "#/$defs/scenario"
+      },
+      "type": "array"
+    }
+  },
+  "title": "Faultline configuration",
+  "type": "object"
+}
