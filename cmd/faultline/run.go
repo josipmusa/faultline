@@ -34,6 +34,9 @@ func newRunCmd() *cobra.Command {
 			"is through the variables Go, OpenSSL, Python, curl, Node and git read.\n" +
 			"The CA is created on the first run if there is none yet; trusting it\n" +
 			"system-wide stays a separate, explicit `faultline ca install`.\n\n" +
+			"Node's native fetch ignores the proxy variables on its own, so\n" +
+			"NODE_USE_ENV_PROXY is set for it; a Node too old to know that variable\n" +
+			"sends fetch calls direct and they will not appear in Faultline.\n\n" +
 			"The child owns stdin, stdout and stderr, interrupts are handed to it\n" +
 			"rather than acted on here, and Faultline exits with the child's own exit\n" +
 			"code. Everything Faultline itself prints goes to stderr.\n\n" +

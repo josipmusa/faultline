@@ -20,15 +20,24 @@ var proxyVars = []string{"HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy
 // real ones and its own bundle is still the right answer.
 var trustVars = []string{"SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE", "NODE_EXTRA_CA_CERTS", "GIT_SSL_CAINFO"}
 
+// nodeEnvProxy is Node's opt-in to reading the proxy variables from its
+// native fetch. Node's own http and https modules, and everything built on
+// them, need nothing; undici behind fetch ignores the variables until this is
+// set. It landed in Node 24 and is backported to recent 22.x, and versions
+// without it ignore an unknown variable, so it is always set and the value is
+// always 1: there is nothing to decide per child, whose runtime is unknown
+// anyway.
+const nodeEnvProxy = "NODE_USE_ENV_PROXY"
+
 // Env builds the child environment from base, usually os.Environ(). proxyURL
 // is the address of the forward proxy, noProxy the hosts the child should
 // reach directly, written the way NO_PROXY wants them, and caPath the
 // certificate the intercepting CA signs with, empty when HTTPS is passed
 // through untouched.
 func Env(base []string, proxyURL string, noProxy []string, caPath string) []string {
-	names := proxyVars
+	names := append(append([]string{}, proxyVars...), nodeEnvProxy)
 	if caPath != "" {
-		names = append(append([]string{}, proxyVars...), trustVars...)
+		names = append(names, trustVars...)
 	}
 
 	owned := make(map[string]bool, len(names))
@@ -53,6 +62,7 @@ func Env(base []string, proxyURL string, noProxy []string, caPath string) []stri
 		}
 		env = append(env, name+"="+value)
 	}
+	env = append(env, nodeEnvProxy+"=1")
 	if caPath != "" {
 		for _, name := range trustVars {
 			env = append(env, name+"="+caPath)

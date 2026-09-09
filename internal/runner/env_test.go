@@ -121,3 +121,31 @@ func TestEnvWithoutACALeavesTrustVariablesAlone(t *testing.T) {
 		t.Errorf("NODE_EXTRA_CA_CERTS = %q, want it unset when there is no CA", got)
 	}
 }
+
+// Node's native fetch ignores the proxy variables unless this is set. The
+// variable exists in Node 24 and is backported to recent 22.x; older versions
+// ignore it, so it is set whatever the child turns out to be.
+func TestEnvTellsNodeToReadTheProxyVariables(t *testing.T) {
+	env := Env(nil, "http://127.0.0.1:9001", nil, "")
+
+	if got, ok := lookup(env, "NODE_USE_ENV_PROXY"); !ok || got != "1" {
+		t.Errorf("NODE_USE_ENV_PROXY = %q (set: %t), want %q", got, ok, "1")
+	}
+}
+
+func TestEnvReplacesNodeUseEnvProxyTheChildAlreadyHad(t *testing.T) {
+	env := Env([]string{"NODE_USE_ENV_PROXY=0"}, "http://127.0.0.1:9001", nil, "")
+
+	if got, _ := lookup(env, "NODE_USE_ENV_PROXY"); got != "1" {
+		t.Errorf("NODE_USE_ENV_PROXY = %q, want Faultline's value to win", got)
+	}
+	seen := 0
+	for _, kv := range env {
+		if k, _, _ := strings.Cut(kv, "="); k == "NODE_USE_ENV_PROXY" {
+			seen++
+		}
+	}
+	if seen != 1 {
+		t.Errorf("NODE_USE_ENV_PROXY appears %d times, want once", seen)
+	}
+}
