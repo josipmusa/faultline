@@ -1,0 +1,174 @@
+# The command line
+
+Everything the web UI does, the command line does, against the same running
+instance and the same state. `faultline serve` and `faultline run` start
+Faultline; the commands here talk to one that is already running, over its HTTP
+API.
+
+```
+faultline rule      list | add | rm | enable | disable
+faultline scenario  list | on | off
+faultline events    tail | export
+faultline upstreams
+```
+
+## Two flags everything takes
+
+`--admin` is the address of the instance, `http://localhost:9000` unless you
+say otherwise. A bare host and port is read as http, so `--admin
+localhost:9100` works too.
+
+`--json` prints the API's own JSON instead of a table. Use it for anything that
+reads the output with a program; the tables are for people and their columns
+are not a promise.
+
+A command that cannot reach an instance says so in one line and exits non-zero:
+
+```
+$ faultline rule list
+faultline: no Faultline is listening at http://localhost:9000; start one with `faultline serve`
+```
+
+A refusal from the API is printed as the sentence the API wrote, with the field
+it named in brackets:
+
+```
+$ faultline rule add --host httpbin.org --fault delay --set ms=soon
+faultline: ms must be a whole number (fault.ms)
+```
+
+## Rules
+
+```
+$ faultline rule list
+ID               ENABLED  MATCH             FAULT            BEHAVIOR     NAME
+httpbin-is-slow  yes      httpbin.org       delay ms=2000    -            Httpbin is slow
+echo-is-down     yes      postman-echo.com  status code=503  first_n n=2  Echo is down
+```
+
+`rule add` writes one rule. The match has a flag per field, and both
+catalogues - faults and behaviors - are reached the same way, by naming a type
+and setting its parameters, so a fault added to Faultline later needs no new
+flag here:
+
+```
+faultline rule add --host api.stripe.com --fault delay --set ms=2000
+
+faultline rule add \
+  --name "Charges fail twice" \
+  --host api.stripe.com --method POST --path '/v1/charges/*' \
+  --fault status --set code=503 \
+  --behavior first_n --behavior-set n=2
+```
+
+| Flag | What it does |
+| --- | --- |
+| `--id` | the rule's id; left out, Faultline makes one from the name |
+| `--name` | what the rule is for; left out, it is named after the fault and the host |
+| `--host`, `--method`, `--path` | the match; anything left out matches everything |
+| `--header name=value` | a request header the rule matches, repeatable |
+| `--fault <type>` | the fault to inject |
+| `--set name=value` | a fault parameter, repeatable |
+| `--behavior <type>` | the behavior that gates the fault |
+| `--behavior-set name=value` | a behavior parameter, repeatable |
+| `--disabled` | add the rule turned off |
+| `--from <file>` | read the whole rule as JSON instead, `-` for standard input |
+
+A `--set` value is read as JSON when it is JSON, and as text when it is not.
+`ms=2000` is the number, `set={"X-Test":"1"}` is a map, `remove=["Server"]` is
+a list, and `body=not found` is the text. Quoting is how you write text that
+looks like a number: `--set 'body="200"'`.
+
+Faultline validates the parameters, not the command line, so the catalogue
+never has to be described in two places. What comes back names the field:
+`fault.ms`, `behavior.n`, `match.host`.
+
+`--from` reads a whole rule as the API takes it, which is the way to write one
+a script generated:
+
+```
+faultline rule add --from rule.json
+jq '.rules[0]' scenarios.json | faultline rule add --from -
+```
+
+It replaces the flags above rather than mixing with them, and an absent
+`enabled` means the same as it does over the API: the rule arrives on.
+
+`rule enable` and `rule disable` take an id. Either one starts the rule's
+behavior state over, so a `first_n: 2` rule fails its first two requests again.
+`rule rm` takes one or more ids.
+
+## Scenarios
+
+Scenarios are declared in `faultline.yaml` and committed with the repository;
+the command line turns them on and off.
+
+```
+$ faultline scenario list
+NAME            ACTIVE  RULES
+echo-throttled  no      echo-rate-limited
+
+$ faultline scenario on echo-throttled
+NAME            ACTIVE  RULES
+echo-throttled  yes     echo-rate-limited
+```
+
+Only one scenario is on at a time, so turning one on turns off whichever was.
+Turning one on also starts its rules' behavior state over, which is how you
+rerun a rehearsal from the beginning: turn on the one that is already on.
+
+## Events
+
+`events tail` follows the live stream and prints a line per call until you
+interrupt it. It is read-only - nothing you type reaches Faultline.
+
+```
+$ faultline events tail
+TIME      METHOD  HOST                      PATH        STATUS       MS  TIER   RULE
+22:34:55  GET     httpbin.org               /get           200     2582  plain  httpbin-is-slow
+22:34:55  GET     postman-echo.com          /get           503        0  plain  echo-is-down
+-- rules changed
+```
+
+`-- rules changed` is the notice that says a cached rule list is stale; read
+`faultline rule list` again if you are holding one. With `--json` every message
+is printed as the API sends it, one envelope per line, so a program can switch
+on `type`.
+
+`events export` writes what the ring buffer holds. The default is JSON Lines,
+one event object per line:
+
+```
+$ faultline events export --host httpbin.org --faulted -o events.ndjson
+wrote 2 events to events.ndjson
+```
+
+JSON Lines because the file is meant for another tool: it streams, it appends,
+`wc -l` counts it, `grep` filters it, and `jq -c` reads it a line at a time
+without holding the whole run in memory. Each line is the same object
+`events tail --json` prints inside its envelope. `--json` writes the API's own
+array instead, for a reader that wants one document.
+
+`--host`, `--faulted` and `--limit` narrow what is written. `--faulted=false`
+asks for the calls nothing touched.
+
+## Upstreams
+
+```
+$ faultline upstreams
+HOST              TIER   REQUESTS  FAULTED  LAST SEEN  NOTE
+httpbin.org       plain  1         1        22:34:55   -
+postman-echo.com  plain  3         3        22:35:41   -
+```
+
+The tier says how much Faultline could see: `plain`, `intercepted`, or
+`encrypted`, which takes connection faults only. The note says when something
+is in the way - a host on the bypass list, or a client that did not trust the
+Faultline CA, which [docs/trust.md](trust.md) explains.
+
+## In tests
+
+The commands are a thin layer over the Go client in
+[clients/go](../clients/go), which is the same client the CLI uses. A test that
+wants to add a rule, exercise its own code and assert on what Faultline
+observed can use it directly rather than shelling out.

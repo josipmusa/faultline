@@ -20,8 +20,10 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(
 		newServeCmd(),
 		newRunCmd(),
-		placeholder("rule", "Manage fault rules"),
-		placeholder("scenario", "Manage scenarios"),
+		newRuleCmd(),
+		newScenarioCmd(),
+		newEventsCmd(),
+		newUpstreamsCmd(),
 		newCACmd(),
 		placeholder("mcp", "Serve the MCP interface for coding agents"),
 		newVersionCmd(),

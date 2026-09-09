@@ -7,26 +7,26 @@ import (
 	"github.com/josipmusa/faultline/internal/rules"
 )
 
-// scenarioResponse is a scenario on the wire: what the configuration file
-// declared, plus whether this is the one that is on.
-type scenarioResponse struct {
+// Scenario is a scenario on the wire: what the configuration file declared,
+// plus whether this is the one that is on.
+type Scenario struct {
 	Name   string   `json:"name"`
 	Rules  []string `json:"rules"`
 	Active bool     `json:"active"`
 }
 
-func scenarioView(s rules.Scenario, active bool) scenarioResponse {
+func scenarioView(s rules.Scenario, active bool) Scenario {
 	ids := s.Rules
 	if ids == nil {
 		ids = []string{} // a scenario with no rules is an empty list, not null
 	}
-	return scenarioResponse{Name: s.Name, Rules: ids, Active: active}
+	return Scenario{Name: s.Name, Rules: ids, Active: active}
 }
 
 func (s *Server) listScenarios(w http.ResponseWriter, _ *http.Request) {
 	list, active := s.scenarios.List()
 
-	out := make([]scenarioResponse, 0, len(list))
+	out := make([]Scenario, 0, len(list))
 	for _, scenario := range list {
 		out = append(out, scenarioView(scenario, scenario.Name == active))
 	}

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	client "github.com/josipmusa/faultline/clients/go"
 	"github.com/josipmusa/faultline/internal/config"
 	"github.com/josipmusa/faultline/internal/proxy/reverse"
 	"github.com/josipmusa/faultline/internal/rules"
@@ -163,5 +164,59 @@ func post(t *testing.T, adminAddr, path string) {
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("POST %s = %d: %s", path, resp.StatusCode, body)
+	}
+}
+
+func TestScenarioListOnAndOff(t *testing.T) {
+	i := newInstance(t)
+
+	slow := rules.Rule{
+		ID:      "slow",
+		Name:    "Httpbin is slow",
+		Match:   rules.Match{Host: "httpbin.org"},
+		Fault:   rules.Fault{Type: "delay", Params: rules.Params{"ms": 2000}},
+		Enabled: false,
+	}
+	i.rules.Replace([]rules.Rule{slow})
+	i.scenarios.Replace([]rules.Scenario{{Name: "api-slow", Rules: []string{"slow"}}})
+
+	wantLine(t, i.run(t, "scenario", "list"), "api-slow", "no", "slow")
+
+	wantLine(t, i.run(t, "scenario", "on", "api-slow"), "api-slow", "yes")
+	if rule, _ := i.rules.Get("slow"); !rule.Enabled {
+		t.Error("the scenario's rule is off after activating it")
+	}
+
+	wantLine(t, i.run(t, "scenario", "off", "api-slow"), "api-slow", "no")
+	if rule, _ := i.rules.Get("slow"); rule.Enabled {
+		t.Error("the scenario's rule is on after deactivating it")
+	}
+}
+
+func TestScenarioListJSONIsTheAPIsOwnShape(t *testing.T) {
+	i := newInstance(t)
+	i.scenarios.Replace([]rules.Scenario{{Name: "api-slow"}})
+
+	list := decodeJSON[[]client.Scenario](t, i.run(t, "scenario", "list", "--json"))
+
+	if len(list) != 1 || list[0].Name != "api-slow" || list[0].Active {
+		t.Fatalf("scenario list --json = %+v, want one inactive api-slow", list)
+	}
+}
+
+func TestScenarioOnReportsAnUnknownName(t *testing.T) {
+	i := newInstance(t)
+
+	err := i.runErr(t, "scenario", "on", "ghost")
+	if err == nil || !strings.Contains(err.Error(), `no scenario named "ghost"`) {
+		t.Fatalf("error = %v, want the API's own message", err)
+	}
+}
+
+func TestScenarioListWithNoScenariosSaysSo(t *testing.T) {
+	i := newInstance(t)
+
+	if out := i.run(t, "scenario", "list"); !strings.Contains(out, "no scenarios") {
+		t.Errorf("scenario list printed %q, want it to say there are none", out)
 	}
 }

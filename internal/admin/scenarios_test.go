@@ -52,7 +52,7 @@ func TestListScenariosKeepsFileOrderAndMarksTheActiveOne(t *testing.T) {
 	s := newTestServer(t)
 	twoScenarios(t, s)
 
-	got := decodeBody[[]scenarioResponse](t, do(t, s, http.MethodGet, "/api/scenarios", ""))
+	got := decodeBody[[]Scenario](t, do(t, s, http.MethodGet, "/api/scenarios", ""))
 
 	if len(got) != 2 || got[0].Name != "payments-down" || got[1].Name != "orders-flaky" {
 		t.Fatalf("list = %+v, want the order the file wrote", got)
@@ -66,7 +66,7 @@ func TestListScenariosKeepsFileOrderAndMarksTheActiveOne(t *testing.T) {
 
 	wantStatus(t, do(t, s, http.MethodPost, "/api/scenarios/orders-flaky/activate", ""), http.StatusOK)
 
-	got = decodeBody[[]scenarioResponse](t, do(t, s, http.MethodGet, "/api/scenarios", ""))
+	got = decodeBody[[]Scenario](t, do(t, s, http.MethodGet, "/api/scenarios", ""))
 	if got[0].Active || !got[1].Active {
 		t.Errorf("list = %+v, want only orders-flaky active", got)
 	}
@@ -78,7 +78,7 @@ func TestActivateEnablesTheScenariosRulesAndActivatingAnotherFlipsThem(t *testin
 
 	w := do(t, s, http.MethodPost, "/api/scenarios/payments-down/activate", "")
 	wantStatus(t, w, http.StatusOK)
-	if got := decodeBody[scenarioResponse](t, w); !got.Active || got.Name != "payments-down" {
+	if got := decodeBody[Scenario](t, w); !got.Active || got.Name != "payments-down" {
 		t.Errorf("response = %+v, want the scenario, active", got)
 	}
 	if got := enabledIDs(t, s); !slices.Equal(got, []string{"slow", "flaky"}) {
@@ -121,7 +121,7 @@ func TestDeactivateTurnsTheScenariosRulesOff(t *testing.T) {
 	w := do(t, s, http.MethodPost, "/api/scenarios/payments-down/deactivate", "")
 
 	wantStatus(t, w, http.StatusOK)
-	if got := decodeBody[scenarioResponse](t, w); got.Active {
+	if got := decodeBody[Scenario](t, w); got.Active {
 		t.Errorf("response = %+v, want it reported as no longer active", got)
 	}
 	if got := enabledIDs(t, s); got != nil {
@@ -160,7 +160,7 @@ func TestDeletingARuleDropsItFromEveryScenario(t *testing.T) {
 
 	wantStatus(t, do(t, s, http.MethodDelete, "/api/rules/flaky", ""), http.StatusNoContent)
 
-	got := decodeBody[[]scenarioResponse](t, do(t, s, http.MethodGet, "/api/scenarios", ""))
+	got := decodeBody[[]Scenario](t, do(t, s, http.MethodGet, "/api/scenarios", ""))
 	if !slices.Equal(got[0].Rules, []string{"slow"}) || !slices.Equal(got[1].Rules, []string{"down"}) {
 		t.Errorf("scenarios = %+v, still name a rule that is gone", got)
 	}
