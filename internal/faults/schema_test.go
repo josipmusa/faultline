@@ -2,6 +2,7 @@ package faults
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/josipmusa/faultline/internal/rules"
@@ -94,5 +95,106 @@ func TestSchemaNames(t *testing.T) {
 	got := s.Names()
 	if len(got) != 2 || got[0] != "ms" || got[1] != "jitter_ms" {
 		t.Errorf("Names() = %v, want the fields in declaration order", got)
+	}
+}
+
+func TestSchemaValidateAcceptsMapsAndLists(t *testing.T) {
+	s := Schema{StrMap("set"), StrList("remove")}
+
+	tests := []struct {
+		name   string
+		params rules.Params
+	}{
+		{"decoded from JSON", rules.Params{
+			"set":    map[string]any{"X-Test": "1"},
+			"remove": []any{"ETag"},
+		}},
+		{"written in Go", rules.Params{
+			"set":    map[string]string{"X-Test": "1"},
+			"remove": []string{"ETag"},
+		}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := s.Validate(tt.params); err != nil {
+				t.Errorf("Validate: %v", err)
+			}
+		})
+	}
+}
+
+func TestSchemaValidateNamesTheBadMapOrList(t *testing.T) {
+	s := Schema{StrMap("set"), StrList("remove")}
+
+	tests := []struct {
+		name   string
+		params rules.Params
+		field  string
+	}{
+		{"map that is not a map", rules.Params{"set": "X-Test: 1"}, "set"},
+		{"map with a non-string value", rules.Params{"set": map[string]any{"X-Test": 1}}, "set"},
+		{"map with an empty name", rules.Params{"set": map[string]any{"": "1"}}, "set"},
+		{"empty map", rules.Params{"set": map[string]any{}}, "set"},
+		{"list that is not a list", rules.Params{"remove": "ETag"}, "remove"},
+		{"list with a non-string entry", rules.Params{"remove": []any{1}}, "remove"},
+		{"list with an empty entry", rules.Params{"remove": []any{""}}, "remove"},
+		{"empty list", rules.Params{"remove": []any{}}, "remove"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := s.Validate(tt.params)
+			var pe *ParamError
+			if !errors.As(err, &pe) {
+				t.Fatalf("err = %v, want a *ParamError", err)
+			}
+			if pe.Field != tt.field {
+				t.Errorf("field = %q, want %q", pe.Field, tt.field)
+			}
+		})
+	}
+}
+
+func TestSchemaOrWantsAtLeastOneOfThePair(t *testing.T) {
+	s := Schema{Int("a").Or("b"), Int("b")}
+
+	for _, params := range []rules.Params{{"a": 1}, {"b": 2}, {"a": 1, "b": 2}} {
+		if err := s.Validate(params); err != nil {
+			t.Errorf("Validate(%v): %v", params, err)
+		}
+	}
+
+	err := s.Validate(rules.Params{})
+	var pe *ParamError
+	if !errors.As(err, &pe) {
+		t.Fatalf("err = %v, want a *ParamError", err)
+	}
+	if pe.Field != "a" {
+		t.Errorf("field = %q, want %q", pe.Field, "a")
+	}
+	if !strings.Contains(pe.Message, "b") {
+		t.Errorf("message %q does not mention the alternative", pe.Message)
+	}
+}
+
+func TestSchemaXorWantsExactlyOneOfThePair(t *testing.T) {
+	s := Schema{Int("a").Xor("b"), Int("b")}
+
+	for _, params := range []rules.Params{{"a": 1}, {"b": 2}} {
+		if err := s.Validate(params); err != nil {
+			t.Errorf("Validate(%v): %v", params, err)
+		}
+	}
+
+	for _, params := range []rules.Params{{}, {"a": 1, "b": 2}} {
+		err := s.Validate(params)
+		var pe *ParamError
+		if !errors.As(err, &pe) {
+			t.Fatalf("Validate(%v) = %v, want a *ParamError", params, err)
+		}
+		if pe.Field != "a" {
+			t.Errorf("field = %q, want %q", pe.Field, "a")
+		}
 	}
 }

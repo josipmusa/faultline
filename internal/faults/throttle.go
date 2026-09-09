@@ -131,18 +131,5 @@ func (p *pacer) wait(n int) error {
 	p.read += int64(n)
 
 	due := p.started.Add(time.Duration(float64(p.read) / float64(p.rate) * float64(time.Second)))
-	delay := time.Until(due)
-	if delay <= 0 {
-		return nil
-	}
-
-	timer := time.NewTimer(delay)
-	defer timer.Stop()
-
-	select {
-	case <-p.ctx.Done():
-		return p.ctx.Err()
-	case <-timer.C:
-		return nil
-	}
+	return waitUntil(p.ctx, due)
 }

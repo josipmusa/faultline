@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"sync/atomic"
 )
 
 // ErrClientReset says a fault has already reset the client connection, so
@@ -92,15 +93,27 @@ type aborterKey struct{}
 // WithAbort wraps h so the faults acting on its requests can reset the client
 // connection. A fault owns neither end of that connection, so every proxy edge
 // that serves requests through the pipeline installs this.
+//
+// A fault asks for the reset while the response is still being copied, but the
+// reset happens once the handler has unwound: the proxy underneath flushes the
+// response from a goroutine of its own, and taking the connection out from
+// under it mid-copy is a race. Nothing reaches the client in between, because a
+// fault that asks for a reset also fails the read or the round trip.
 func WithAbort(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx := context.WithValue(r.Context(), aborterKey{}, func() { AbortResponse(w) })
+		var requested atomic.Bool
+		defer func() {
+			if requested.Load() {
+				AbortResponse(w)
+			}
+		}()
+		ctx := context.WithValue(r.Context(), aborterKey{}, func() { requested.Store(true) })
 		h.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
-// abortClient resets the client connection this request arrived on, reporting
-// whether it could. It is false only where no edge installed an aborter, which
+// abortClient asks for the client connection this request arrived on to be
+// reset, reporting whether it could. It is false only where no edge installed an aborter, which
 // leaves the fault to fail the request in the ordinary way.
 func abortClient(ctx context.Context) bool {
 	abort, ok := ctx.Value(aborterKey{}).(func())

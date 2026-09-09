@@ -87,6 +87,10 @@ func (i *Interceptor) handler(target string) http.Handler {
 		},
 		Transport: i.transport,
 		ErrorLog:  slog.NewLogLogger(i.log.Handler(), slog.LevelDebug),
+		// Flush every write instead of waiting for a buffer to fill, so a fault
+		// that paces or cuts a body reaches the client as it happens rather
+		// than all at once at the end.
+		FlushInterval: -1,
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 			if errors.Is(err, faults.ErrClientReset) {
 				return // a rule already reset the connection; there is nobody left to tell

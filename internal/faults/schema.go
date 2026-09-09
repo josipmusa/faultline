@@ -12,18 +12,26 @@ import (
 type kind string
 
 const (
-	kindInt kind = "integer"
-	kindStr kind = "string"
+	kindInt     kind = "integer"
+	kindStr     kind = "string"
+	kindStrMap  kind = "string map"
+	kindStrList kind = "string list"
 )
 
 // Field is one parameter a fault accepts, with the constraints it must meet.
-// Build one with Int or Str and narrow it with the chained methods; a Field is
-// a value, so each of them returns a new copy.
+// Build one with Int, Str, StrMap or StrList and narrow it with the chained
+// methods; a Field is a value, so each of them returns a new copy.
 type Field struct {
 	name     string
 	kind     kind
 	required bool
 	min, max *int
+	// partner names a sibling field this one is paired with: at least one of
+	// the two must be present, and exactly one when exclusive. It is declared
+	// on one side of the pair only, so a broken pair names one field to fix
+	// rather than two.
+	partner   string
+	exclusive bool
 }
 
 // Int declares an integer parameter. A value arrives as a float64 from JSON and
@@ -32,6 +40,15 @@ func Int(name string) Field { return Field{name: name, kind: kindInt} }
 
 // Str declares a string parameter.
 func Str(name string) Field { return Field{name: name, kind: kindStr} }
+
+// StrMap declares a parameter holding names mapped to values, such as the
+// response headers to set. It must not be empty: a fault with nothing to do is
+// a rule that does not say what its author meant.
+func StrMap(name string) Field { return Field{name: name, kind: kindStrMap} }
+
+// StrList declares a parameter holding a list of names, such as the response
+// headers to remove. It must not be empty, for the same reason as StrMap.
+func StrList(name string) Field { return Field{name: name, kind: kindStrList} }
 
 // Required says the parameter must be present. Everything else is optional and
 // means the zero value of its kind.
@@ -42,6 +59,12 @@ func (f Field) Min(n int) Field { f.min = &n; return f }
 
 // Max sets the largest accepted value of an integer parameter.
 func (f Field) Max(n int) Field { f.max = &n; return f }
+
+// Or pairs the parameter with another, of which at least one is required.
+func (f Field) Or(other string) Field { f.partner = other; return f }
+
+// Xor pairs the parameter with another, of which exactly one is required.
+func (f Field) Xor(other string) Field { f.partner, f.exclusive = other, true; return f }
 
 // Name is the parameter's name as it appears in the API.
 func (f Field) Name() string { return f.name }
@@ -101,7 +124,30 @@ func (s Schema) Validate(params rules.Params) error {
 			return err
 		}
 	}
+
+	for _, f := range s {
+		if err := f.validatePair(params); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+// validatePair checks a field declared with Or or Xor against its partner.
+func (f Field) validatePair(params rules.Params) error {
+	if f.partner == "" {
+		return nil
+	}
+	_, has := params[f.name]
+	_, hasPartner := params[f.partner]
+	switch {
+	case f.exclusive && has && hasPartner:
+		return paramErr(f.name, "%s and %s cannot both be set; pick one", f.name, f.partner)
+	case !has && !hasPartner:
+		return paramErr(f.name, "%s or %s is required", f.name, f.partner)
+	default:
+		return nil
+	}
 }
 
 // describe names the parameters a fault takes, for an unknown parameter's error.
@@ -126,6 +172,10 @@ func (f Field) validate(value any) error {
 			return paramErr(f.name, "%s must be a string", f.name)
 		}
 		return nil
+	case kindStrMap:
+		return f.validateStrMap(value)
+	case kindStrList:
+		return f.validateStrList(value)
 	case kindInt:
 		n, ok := wholeNumber(value)
 		if !ok {
@@ -140,6 +190,84 @@ func (f Field) validate(value any) error {
 		return nil
 	default:
 		return paramErr(f.name, "%s has an unknown kind %q", f.name, f.kind)
+	}
+}
+
+// validateStrMap accepts a mapping of non-empty names to string values, as it
+// arrives from JSON (map[string]any) or written in Go (map[string]string).
+func (f Field) validateStrMap(value any) error {
+	entries, ok := stringMap(value)
+	if !ok {
+		return paramErr(f.name, "%s must be a mapping of names to text values", f.name)
+	}
+	if len(entries) == 0 {
+		return paramErr(f.name, "%s must name at least one entry", f.name)
+	}
+	for name := range entries {
+		if name == "" {
+			return paramErr(f.name, "%s has an entry with no name", f.name)
+		}
+	}
+	return nil
+}
+
+// validateStrList accepts a list of non-empty names, as it arrives from JSON
+// ([]any) or written in Go ([]string).
+func (f Field) validateStrList(value any) error {
+	names, ok := stringList(value)
+	if !ok {
+		return paramErr(f.name, "%s must be a list of names", f.name)
+	}
+	if len(names) == 0 {
+		return paramErr(f.name, "%s must name at least one entry", f.name)
+	}
+	for _, name := range names {
+		if name == "" {
+			return paramErr(f.name, "%s has an entry with no name", f.name)
+		}
+	}
+	return nil
+}
+
+// stringMap reads a mapping of strings out of a value decoded from JSON or
+// YAML, or written in Go by a test or an embedded caller.
+func stringMap(value any) (map[string]string, bool) {
+	switch m := value.(type) {
+	case map[string]string:
+		return m, true
+	case map[string]any:
+		out := make(map[string]string, len(m))
+		for name, v := range m {
+			text, ok := v.(string)
+			if !ok {
+				return nil, false
+			}
+			out[name] = text
+		}
+		return out, true
+	default:
+		return nil, false
+	}
+}
+
+// stringList reads a list of strings out of a value decoded from JSON or YAML,
+// or written in Go by a test or an embedded caller.
+func stringList(value any) ([]string, bool) {
+	switch l := value.(type) {
+	case []string:
+		return l, true
+	case []any:
+		out := make([]string, 0, len(l))
+		for _, v := range l {
+			text, ok := v.(string)
+			if !ok {
+				return nil, false
+			}
+			out = append(out, text)
+		}
+		return out, true
+	default:
+		return nil, false
 	}
 }
 
