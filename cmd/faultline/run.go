@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -29,6 +30,10 @@ func newRunCmd() *cobra.Command {
 			"start command as a child with the proxy variables set, so its outbound\n" +
 			"HTTP and HTTPS calls pass through Faultline without changing anything in\n" +
 			"the application.\n\n" +
+			"HTTPS is intercepted, so the child is also told where the Faultline CA\n" +
+			"is through the variables Go, OpenSSL, Python, curl, Node and git read.\n" +
+			"The CA is created on the first run if there is none yet; trusting it\n" +
+			"system-wide stays a separate, explicit `faultline ca install`.\n\n" +
 			"The child owns stdin, stdout and stderr, interrupts are handed to it\n" +
 			"rather than acted on here, and Faultline exits with the child's own exit\n" +
 			"code. Everything Faultline itself prints goes to stderr.\n\n" +
@@ -44,7 +49,7 @@ func newRunCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			ca, err := resolveInterception(caDir, false, true)
+			ca, err := ensureCA(caDir, cmd.ErrOrStderr())
 			if err != nil {
 				return err
 			}
@@ -81,7 +86,11 @@ func run(ctx context.Context, out, errOut io.Writer, in io.Reader, adminPort, pr
 		return 1, err
 	}
 
-	env := runner.Env(os.Environ(), s.proxyURL(), noProxy(bypass))
+	caPath := ""
+	if ca != nil {
+		caPath = ca.CertPath
+	}
+	env := runner.Env(os.Environ(), s.proxyURL(), noProxy(bypass), caPath)
 	code, runErr := runner.Run(ctx, args, env, in, out, errOut)
 
 	// The child is gone, so nothing new will arrive; the timeout is only there
@@ -94,6 +103,26 @@ func run(ctx context.Context, out, errOut io.Writer, in io.Reader, adminPort, pr
 		return code, runErr
 	}
 	return code, stopErr
+}
+
+// ensureCA loads the interception CA, creating it the first time `run` is
+// used so wrapping a command needs no setup step. The notice goes out only on
+// the run that created it, on one line, because from then on it is not news.
+func ensureCA(dir string, notice io.Writer) (*tlsmitm.CA, error) {
+	ca, err := tlsmitm.Load(dir)
+	if !errors.Is(err, tlsmitm.ErrNotFound) {
+		return ca, err
+	}
+
+	ca, err = tlsmitm.Create(dir)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := fmt.Fprintf(notice, "ca: created %s, valid until %s\n",
+		ca.CertPath, ca.Cert.NotAfter.Format("2006-01-02")); err != nil {
+		return nil, err
+	}
+	return ca, nil
 }
 
 // noProxy renders the bypass list the way NO_PROXY wants it, so the child

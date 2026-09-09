@@ -13,16 +13,30 @@ import (
 // had cannot shadow ours.
 var proxyVars = []string{"HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "NO_PROXY", "no_proxy"}
 
+// trustVars point a runtime at a CA bundle: Go and OpenSSL read
+// SSL_CERT_FILE, Python's requests REQUESTS_CA_BUNDLE, curl CURL_CA_BUNDLE,
+// Node NODE_EXTRA_CA_CERTS, and git GIT_SSL_CAINFO. Faultline owns them only
+// while it is intercepting; otherwise the certificates the child sees are the
+// real ones and its own bundle is still the right answer.
+var trustVars = []string{"SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE", "NODE_EXTRA_CA_CERTS", "GIT_SSL_CAINFO"}
+
 // Env builds the child environment from base, usually os.Environ(). proxyURL
-// is the address of the forward proxy, and noProxy the hosts the child should
-// reach directly, written the way NO_PROXY wants them.
-func Env(base []string, proxyURL string, noProxy []string) []string {
-	owned := make(map[string]bool, len(proxyVars))
-	for _, name := range proxyVars {
+// is the address of the forward proxy, noProxy the hosts the child should
+// reach directly, written the way NO_PROXY wants them, and caPath the
+// certificate the intercepting CA signs with, empty when HTTPS is passed
+// through untouched.
+func Env(base []string, proxyURL string, noProxy []string, caPath string) []string {
+	names := proxyVars
+	if caPath != "" {
+		names = append(append([]string{}, proxyVars...), trustVars...)
+	}
+
+	owned := make(map[string]bool, len(names))
+	for _, name := range names {
 		owned[strings.ToLower(name)] = true
 	}
 
-	env := make([]string, 0, len(base)+len(proxyVars))
+	env := make([]string, 0, len(base)+len(names))
 	for _, kv := range base {
 		key, _, ok := strings.Cut(kv, "=")
 		if ok && owned[strings.ToLower(key)] {
@@ -38,6 +52,11 @@ func Env(base []string, proxyURL string, noProxy []string) []string {
 			value = bypass
 		}
 		env = append(env, name+"="+value)
+	}
+	if caPath != "" {
+		for _, name := range trustVars {
+			env = append(env, name+"="+caPath)
+		}
 	}
 
 	return env

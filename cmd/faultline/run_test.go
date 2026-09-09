@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/josipmusa/faultline/internal/proxy/forward"
+	"github.com/josipmusa/faultline/internal/tlsmitm"
 )
 
 func TestRunGivesTheChildTheProxy(t *testing.T) {
@@ -115,4 +116,58 @@ func bannerValue(t *testing.T, banner, prefix string) string {
 		}
 	}
 	return ""
+}
+
+func TestRunGivesTheChildTheCA(t *testing.T) {
+	ca, err := tlsmitm.Create(t.TempDir())
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	var out, errOut bytes.Buffer
+	code, err := run(context.Background(), &out, &errOut, nil, 0, 0, ca, nil,
+		[]string{"sh", "-c", "echo $SSL_CERT_FILE; echo $NODE_EXTRA_CA_CERTS"})
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0", code)
+	}
+
+	for _, line := range strings.Split(strings.TrimSpace(out.String()), "\n") {
+		if line != ca.CertPath {
+			t.Errorf("child saw %q, want the CA path %q", line, ca.CertPath)
+		}
+	}
+}
+
+func TestEnsureCACreatesOneOnFirstRunAndSaysSo(t *testing.T) {
+	dir := t.TempDir()
+
+	var notice bytes.Buffer
+	ca, err := ensureCA(dir, &notice)
+	if err != nil {
+		t.Fatalf("ensureCA: %v", err)
+	}
+	if ca == nil {
+		t.Fatal("ensureCA returned no CA")
+	}
+	if lines := strings.Count(strings.TrimSpace(notice.String()), "\n"); lines != 0 {
+		t.Errorf("notice = %q, want a single line", notice.String())
+	}
+	if !strings.Contains(notice.String(), ca.CertPath) {
+		t.Errorf("notice = %q, want it to name %q", notice.String(), ca.CertPath)
+	}
+
+	var second bytes.Buffer
+	again, err := ensureCA(dir, &second)
+	if err != nil {
+		t.Fatalf("ensureCA on an existing CA: %v", err)
+	}
+	if again.CertPath != ca.CertPath {
+		t.Errorf("second call loaded %q, want %q", again.CertPath, ca.CertPath)
+	}
+	if second.Len() != 0 {
+		t.Errorf("second call printed %q, want nothing; the CA was already there", second.String())
+	}
 }

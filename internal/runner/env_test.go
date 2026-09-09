@@ -16,7 +16,7 @@ func lookup(env []string, key string) (string, bool) {
 }
 
 func TestEnvPointsEveryProxyVariableAtTheProxy(t *testing.T) {
-	env := Env(nil, "http://127.0.0.1:9001", []string{"localhost", "127.0.0.1"})
+	env := Env(nil, "http://127.0.0.1:9001", []string{"localhost", "127.0.0.1"}, "")
 
 	for _, key := range []string{"HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"} {
 		got, ok := lookup(env, key)
@@ -41,7 +41,7 @@ func TestEnvPointsEveryProxyVariableAtTheProxy(t *testing.T) {
 }
 
 func TestEnvKeepsEverythingElse(t *testing.T) {
-	env := Env([]string{"PATH=/bin", "HOME=/home/dev"}, "http://127.0.0.1:9001", nil)
+	env := Env([]string{"PATH=/bin", "HOME=/home/dev"}, "http://127.0.0.1:9001", nil, "")
 
 	for _, want := range []string{"PATH=/bin", "HOME=/home/dev"} {
 		if !slices.Contains(env, want) {
@@ -52,7 +52,7 @@ func TestEnvKeepsEverythingElse(t *testing.T) {
 
 func TestEnvReplacesProxyVariablesTheChildAlreadyHad(t *testing.T) {
 	base := []string{"HTTP_PROXY=http://corp:8080", "https_proxy=http://corp:8080", "no_proxy=example.com"}
-	env := Env(base, "http://127.0.0.1:9001", []string{"localhost"})
+	env := Env(base, "http://127.0.0.1:9001", []string{"localhost"}, "")
 
 	for _, kv := range env {
 		if strings.Contains(kv, "corp:8080") || kv == "no_proxy=example.com" {
@@ -69,5 +69,55 @@ func TestEnvReplacesProxyVariablesTheChildAlreadyHad(t *testing.T) {
 		if n != 1 {
 			t.Errorf("%s appears %d times, want once", k, n)
 		}
+	}
+}
+
+func TestEnvPointsEveryTrustVariableAtTheCA(t *testing.T) {
+	env := Env(nil, "http://127.0.0.1:9001", nil, "/home/dev/.config/faultline/ca.pem")
+
+	for _, key := range []string{"SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE", "NODE_EXTRA_CA_CERTS", "GIT_SSL_CAINFO"} {
+		got, ok := lookup(env, key)
+		if !ok {
+			t.Errorf("%s is not set", key)
+			continue
+		}
+		if got != "/home/dev/.config/faultline/ca.pem" {
+			t.Errorf("%s = %q, want the CA path", key, got)
+		}
+	}
+}
+
+func TestEnvReplacesTrustVariablesTheChildAlreadyHad(t *testing.T) {
+	base := []string{"SSL_CERT_FILE=/etc/corp/bundle.pem", "NODE_EXTRA_CA_CERTS=/etc/corp/bundle.pem"}
+	env := Env(base, "http://127.0.0.1:9001", nil, "/ca.pem")
+
+	for _, kv := range env {
+		if strings.Contains(kv, "/etc/corp/bundle.pem") {
+			t.Errorf("the child inherited %q; Faultline's CA must win", kv)
+		}
+	}
+	seen := make(map[string]int)
+	for _, kv := range env {
+		k, _, _ := strings.Cut(kv, "=")
+		seen[k]++
+	}
+	for k, n := range seen {
+		if n != 1 {
+			t.Errorf("%s appears %d times, want once", k, n)
+		}
+	}
+}
+
+// Without interception the upstream certificates are the real ones, so the
+// developer's own bundle is still the right answer and Faultline says nothing.
+func TestEnvWithoutACALeavesTrustVariablesAlone(t *testing.T) {
+	base := []string{"SSL_CERT_FILE=/etc/corp/bundle.pem"}
+	env := Env(base, "http://127.0.0.1:9001", nil, "")
+
+	if got, _ := lookup(env, "SSL_CERT_FILE"); got != "/etc/corp/bundle.pem" {
+		t.Errorf("SSL_CERT_FILE = %q, want the value the child came with", got)
+	}
+	if got, ok := lookup(env, "NODE_EXTRA_CA_CERTS"); ok {
+		t.Errorf("NODE_EXTRA_CA_CERTS = %q, want it unset when there is no CA", got)
 	}
 }
