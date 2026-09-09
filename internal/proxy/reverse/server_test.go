@@ -89,7 +89,7 @@ func startRoutes(t *testing.T, store *rules.Store, rec *events.Recorder, upstrea
 		routes = append(routes, Route{Name: name, Upstream: mustURL(t, raw)})
 	}
 
-	srv, err := NewServer(routes, faults.New(nil, store, rec, events.TierPlain), quietLogger())
+	srv, err := NewServer(routes, faults.New(nil, store, rec, events.TierPlain, nil), quietLogger())
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
@@ -323,7 +323,7 @@ func TestUnreachableUpstreamReturns502(t *testing.T) {
 func TestShutdownStopsListening(t *testing.T) {
 	up := newUpstream(t, "stripe")
 	routes := []Route{{Name: "stripe", Upstream: mustURL(t, up.URL)}}
-	srv, err := NewServer(routes, faults.New(nil, rules.New(), events.NewRecorder(10), events.TierPlain), nil)
+	srv, err := NewServer(routes, faults.New(nil, rules.New(), events.NewRecorder(10), events.TierPlain, nil), nil)
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
@@ -366,7 +366,7 @@ func TestStartFailsWhenAPortIsTaken(t *testing.T) {
 	srv, err := NewServer([]Route{
 		{Name: "ok", Upstream: mustURL(t, free.URL)},
 		{Name: "clash", Port: p, Upstream: mustURL(t, up.URL)},
-	}, faults.New(nil, rules.New(), events.NewRecorder(10), events.TierPlain), nil)
+	}, faults.New(nil, rules.New(), events.NewRecorder(10), events.TierPlain, nil), nil)
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}

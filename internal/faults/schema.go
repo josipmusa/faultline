@@ -4,8 +4,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"strings"
+	"unicode"
 
 	"github.com/josipmusa/faultline/internal/rules"
+)
+
+// A schema validates the parameters of a fault or of a behavior. The scope is
+// the word for which of the two, and the first half of the field path an error
+// carries, so the API can point at fault.ms or behavior.n.
+const (
+	scopeFault    = "fault"
+	scopeBehavior = "behavior"
 )
 
 // kind is the shape a parameter value must have.
@@ -26,6 +36,8 @@ type Field struct {
 	kind     kind
 	required bool
 	min, max *int
+	// chars, when set, is the only characters a string value may contain.
+	chars string
 	// partner names a sibling field this one is paired with: at least one of
 	// the two must be present, and exactly one when exclusive. It is declared
 	// on one side of the pair only, so a broken pair names one field to fix
@@ -60,6 +72,10 @@ func (f Field) Min(n int) Field { f.min = &n; return f }
 // Max sets the largest accepted value of an integer parameter.
 func (f Field) Max(n int) Field { f.max = &n; return f }
 
+// Chars restricts a string parameter to the characters given, ignoring case,
+// and rejects an empty one.
+func (f Field) Chars(allowed string) Field { f.chars = allowed; return f }
+
 // Or pairs the parameter with another, of which at least one is required.
 func (f Field) Or(other string) Field { f.partner = other; return f }
 
@@ -83,24 +99,47 @@ func (s Schema) Names() []string {
 	return out
 }
 
-// ParamError says one fault parameter is wrong and which. The API boundary
-// turns it into the error body's field, prefixed with `fault.`.
+// ParamError says one parameter of a fault or a behavior is wrong and which.
+// The API boundary turns it into the error body's field, which is what Path
+// spells: `fault.ms`, `behavior.n`.
 type ParamError struct {
+	// Scope is fault or behavior. Empty reads as fault, so the faults that
+	// raise most of these say nothing.
+	Scope   string
 	Field   string
 	Message string
 }
 
-func (e *ParamError) Error() string { return fmt.Sprintf("fault.%s: %s", e.Field, e.Message) }
-
-func paramErr(field, format string, args ...any) *ParamError {
-	return &ParamError{Field: field, Message: fmt.Sprintf(format, args...)}
+// Path names the parameter the way the API's error body does.
+func (e *ParamError) Path() string {
+	scope := e.Scope
+	if scope == "" {
+		scope = scopeFault
+	}
+	return scope + "." + e.Field
 }
 
-// Validate checks params against the schema, naming the first field that is
-// wrong. A parameter the schema does not declare is an error: it is the sign of
-// a value meant for a different fault, or of a typo that would otherwise be
-// silently ignored.
+func (e *ParamError) Error() string { return e.Path() + ": " + e.Message }
+
+func paramErr(field, format string, args ...any) *ParamError {
+	return scopedErr(scopeFault, field, format, args...)
+}
+
+func scopedErr(scope, field, format string, args ...any) *ParamError {
+	return &ParamError{Scope: scope, Field: field, Message: fmt.Sprintf(format, args...)}
+}
+
+// Validate checks a fault's params against the schema, naming the first field
+// that is wrong. A parameter the schema does not declare is an error: it is the
+// sign of a value meant for a different fault, or of a typo that would
+// otherwise be silently ignored.
 func (s Schema) Validate(params rules.Params) error {
+	return s.validate(scopeFault, params)
+}
+
+// validate is Validate for either scope. A behavior's parameters are checked
+// exactly like a fault's; only the words in the error differ.
+func (s Schema) validate(scope string, params rules.Params) error {
 	declared := make(map[string]Field, len(s))
 	for _, f := range s {
 		declared[f.name] = f
@@ -108,7 +147,7 @@ func (s Schema) Validate(params rules.Params) error {
 
 	for name := range params {
 		if _, ok := declared[name]; !ok {
-			return paramErr(name, "unknown parameter %q; this fault takes %s", name, s.describe())
+			return scopedErr(scope, name, "unknown parameter %q; this %s takes %s", name, scope, s.describe())
 		}
 	}
 
@@ -116,17 +155,17 @@ func (s Schema) Validate(params rules.Params) error {
 		value, ok := params[f.name]
 		if !ok {
 			if f.required {
-				return paramErr(f.name, "%s is required", f.name)
+				return scopedErr(scope, f.name, "%s is required", f.name)
 			}
 			continue
 		}
-		if err := f.validate(value); err != nil {
+		if err := f.validate(scope, value); err != nil {
 			return err
 		}
 	}
 
 	for _, f := range s {
-		if err := f.validatePair(params); err != nil {
+		if err := f.validatePair(scope, params); err != nil {
 			return err
 		}
 	}
@@ -134,7 +173,7 @@ func (s Schema) Validate(params rules.Params) error {
 }
 
 // validatePair checks a field declared with Or or Xor against its partner.
-func (f Field) validatePair(params rules.Params) error {
+func (f Field) validatePair(scope string, params rules.Params) error {
 	if f.partner == "" {
 		return nil
 	}
@@ -142,15 +181,15 @@ func (f Field) validatePair(params rules.Params) error {
 	_, hasPartner := params[f.partner]
 	switch {
 	case f.exclusive && has && hasPartner:
-		return paramErr(f.name, "%s and %s cannot both be set; pick one", f.name, f.partner)
+		return scopedErr(scope, f.name, "%s and %s cannot both be set; pick one", f.name, f.partner)
 	case !has && !hasPartner:
-		return paramErr(f.name, "%s or %s is required", f.name, f.partner)
+		return scopedErr(scope, f.name, "%s or %s is required", f.name, f.partner)
 	default:
 		return nil
 	}
 }
 
-// describe names the parameters a fault takes, for an unknown parameter's error.
+// describe names the parameters accepted, for an unknown parameter's error.
 func (s Schema) describe() string {
 	if len(s) == 0 {
 		return "no parameters"
@@ -165,47 +204,100 @@ func (s Schema) describe() string {
 	return out
 }
 
-func (f Field) validate(value any) error {
+func (f Field) validate(scope string, value any) error {
 	switch f.kind {
 	case kindStr:
-		if _, ok := value.(string); !ok {
-			return paramErr(f.name, "%s must be a string", f.name)
+		text, ok := value.(string)
+		if !ok {
+			return scopedErr(scope, f.name, "%s must be a string", f.name)
 		}
-		return nil
+		return f.validateChars(scope, text)
 	case kindStrMap:
-		return f.validateStrMap(value)
+		return f.validateStrMap(scope, value)
 	case kindStrList:
-		return f.validateStrList(value)
+		return f.validateStrList(scope, value)
 	case kindInt:
 		n, ok := wholeNumber(value)
 		if !ok {
-			return paramErr(f.name, "%s must be a whole number", f.name)
+			return scopedErr(scope, f.name, "%s must be a whole number", f.name)
 		}
 		if f.min != nil && n < *f.min {
-			return paramErr(f.name, "%s must be %d or more", f.name, *f.min)
+			return scopedErr(scope, f.name, "%s must be %d or more", f.name, *f.min)
 		}
 		if f.max != nil && n > *f.max {
-			return paramErr(f.name, "%s must be %d or less", f.name, *f.max)
+			return scopedErr(scope, f.name, "%s must be %d or less", f.name, *f.max)
 		}
 		return nil
 	default:
-		return paramErr(f.name, "%s has an unknown kind %q", f.name, f.kind)
+		return scopedErr(scope, f.name, "%s has an unknown kind %q", f.name, f.kind)
 	}
+}
+
+// validateChars holds a string to the characters the field allows, ignoring
+// case. A field that allows any character declares none.
+func (f Field) validateChars(scope, text string) error {
+	if f.chars == "" {
+		return nil
+	}
+	allowed := strings.ToUpper(f.chars)
+	if text == "" {
+		return scopedErr(scope, f.name, "%s is empty; it is written as %s", f.name, listChars(f.chars))
+	}
+	for _, r := range text {
+		if !strings.ContainsRune(allowed, unicode.ToUpper(r)) {
+			return scopedErr(scope, f.name, "%s may only contain %s, not %q", f.name, listChars(f.chars), string(r))
+		}
+	}
+	return nil
+}
+
+// listOf writes items as a human list: "a", "a or b", "a, b or c".
+func listOf(items []string) string {
+	out := ""
+	for i, item := range items {
+		switch {
+		case i == 0:
+		case i == len(items)-1:
+			out += " or "
+		default:
+			out += ", "
+		}
+		out += item
+	}
+	return out
+}
+
+// quotedAll quotes each item, for a list of names in an error message.
+func quotedAll(items []string) []string {
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		out = append(out, fmt.Sprintf("%q", item))
+	}
+	return out
+}
+
+// listChars writes the characters a field allows as a human list.
+func listChars(chars string) string {
+	out := make([]string, 0, len(chars))
+	for _, r := range chars {
+		out = append(out, string(r))
+	}
+	return listOf(out)
 }
 
 // validateStrMap accepts a mapping of non-empty names to string values, as it
 // arrives from JSON (map[string]any) or written in Go (map[string]string).
-func (f Field) validateStrMap(value any) error {
+func (f Field) validateStrMap(scope string, value any) error {
 	entries, ok := stringMap(value)
 	if !ok {
-		return paramErr(f.name, "%s must be a mapping of names to text values", f.name)
+		return scopedErr(scope, f.name, "%s must be a mapping of names to text values", f.name)
 	}
 	if len(entries) == 0 {
-		return paramErr(f.name, "%s must name at least one entry", f.name)
+		return scopedErr(scope, f.name, "%s must name at least one entry", f.name)
 	}
 	for name := range entries {
 		if name == "" {
-			return paramErr(f.name, "%s has an entry with no name", f.name)
+			return scopedErr(scope, f.name, "%s has an entry with no name", f.name)
 		}
 	}
 	return nil
@@ -213,17 +305,17 @@ func (f Field) validateStrMap(value any) error {
 
 // validateStrList accepts a list of non-empty names, as it arrives from JSON
 // ([]any) or written in Go ([]string).
-func (f Field) validateStrList(value any) error {
+func (f Field) validateStrList(scope string, value any) error {
 	names, ok := stringList(value)
 	if !ok {
-		return paramErr(f.name, "%s must be a list of names", f.name)
+		return scopedErr(scope, f.name, "%s must be a list of names", f.name)
 	}
 	if len(names) == 0 {
-		return paramErr(f.name, "%s must name at least one entry", f.name)
+		return scopedErr(scope, f.name, "%s must name at least one entry", f.name)
 	}
 	for _, name := range names {
 		if name == "" {
-			return paramErr(f.name, "%s has an entry with no name", f.name)
+			return scopedErr(scope, f.name, "%s has an entry with no name", f.name)
 		}
 	}
 	return nil

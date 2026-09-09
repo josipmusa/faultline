@@ -54,7 +54,7 @@ func withHost(r rules.Rule, host string) rules.Rule {
 func TestDialWithNoRuleConnectsAndRecordsAnEncryptedEvent(t *testing.T) {
 	addr := tcpUpstream(t)
 	rec := events.NewRecorder(10)
-	d := NewDialer(rules.New(), rec)
+	d := NewDialer(rules.New(), rec, nil)
 
 	conn, err := d.Dial(context.Background(), addr)
 	if err != nil {
@@ -87,7 +87,7 @@ func TestDialRefusesWhenARuleSaysSo(t *testing.T) {
 	rec := events.NewRecorder(10)
 	// No upstream exists for this name; a refused connection is never dialed,
 	// and the default port is dropped so the rule matches the bare host.
-	d := NewDialer(storeWith(t, withHost(refuseRule("stripe-down"), "api.stripe.invalid")), rec)
+	d := NewDialer(storeWith(t, withHost(refuseRule("stripe-down"), "api.stripe.invalid")), rec, nil)
 
 	conn, err := d.Dial(context.Background(), "api.stripe.invalid:443")
 	if conn != nil {
@@ -120,7 +120,7 @@ func TestDialRefusesWhenARuleSaysSo(t *testing.T) {
 func TestDialHoldsTheConnectionForADelayRule(t *testing.T) {
 	addr := tcpUpstream(t)
 	rec := events.NewRecorder(10)
-	d := NewDialer(storeWith(t, delayRule("slow", 200)), rec)
+	d := NewDialer(storeWith(t, delayRule("slow", 200)), rec, nil)
 
 	start := time.Now()
 	conn, err := d.Dial(context.Background(), addr)
@@ -147,7 +147,7 @@ func TestDialHoldsTheConnectionForADelayRule(t *testing.T) {
 func TestDialGivesUpTheDelayWhenTheClientGoesAway(t *testing.T) {
 	addr := tcpUpstream(t)
 	rec := events.NewRecorder(10)
-	d := NewDialer(storeWith(t, delayRule("slow", 10_000)), rec)
+	d := NewDialer(storeWith(t, delayRule("slow", 10_000)), rec, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
@@ -178,7 +178,7 @@ func TestDialIgnoresRulesThatCannotBeSeenOnAConnection(t *testing.T) {
 	methodDelay := delayRule("method-rule", 5_000)
 	methodDelay.Match.Method = "GET"
 
-	d := NewDialer(storeWith(t, pathRefuse, methodDelay), rec)
+	d := NewDialer(storeWith(t, pathRefuse, methodDelay), rec, nil)
 
 	start := time.Now()
 	conn, err := d.Dial(context.Background(), addr)
@@ -198,7 +198,7 @@ func TestDialSkipsAResponseFaultAndTakesTheNextConnectionFault(t *testing.T) {
 	rec := events.NewRecorder(10)
 	// A status fault needs to see the request, which a tunnel hides. It steps
 	// aside rather than blocking the refuse rule behind it.
-	d := NewDialer(storeWith(t, statusRule("status-first", 503, ""), refuseRule("refuse-second")), rec)
+	d := NewDialer(storeWith(t, statusRule("status-first", 503, ""), refuseRule("refuse-second")), rec, nil)
 
 	conn, err := d.Dial(context.Background(), "api.stripe.invalid:443")
 	if conn != nil {
@@ -212,7 +212,7 @@ func TestDialSkipsAResponseFaultAndTakesTheNextConnectionFault(t *testing.T) {
 
 func TestDialReportsAnUnreachableUpstream(t *testing.T) {
 	rec := events.NewRecorder(10)
-	d := NewDialer(rules.New(), rec)
+	d := NewDialer(rules.New(), rec, nil)
 
 	conn, err := d.Dial(context.Background(), closedPort(t))
 	if conn != nil {

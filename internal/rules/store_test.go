@@ -1,8 +1,10 @@
 package rules
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -326,5 +328,88 @@ func drain(ch <-chan struct{}) {
 	select {
 	case <-ch:
 	default:
+	}
+}
+
+func TestRevisionChangesOnEveryWrite(t *testing.T) {
+	st := New()
+	mustAdd(t, st, rule("a"))
+
+	added, err := st.Get("a")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if added.Revision == 0 {
+		t.Fatal("Add left the revision at zero")
+	}
+
+	if err := st.Disable("a"); err != nil {
+		t.Fatalf("Disable: %v", err)
+	}
+	disabled, err := st.Get("a")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if disabled.Revision == added.Revision {
+		t.Errorf("Disable kept revision %d", disabled.Revision)
+	}
+
+	if err := st.Enable("a"); err != nil {
+		t.Fatalf("Enable: %v", err)
+	}
+	enabled, err := st.Get("a")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if enabled.Revision == disabled.Revision || enabled.Revision == added.Revision {
+		t.Errorf("Enable reused revision %d, so a rule turned off and on again would keep its state", enabled.Revision)
+	}
+
+	if err := st.Update(rule("a")); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	updated, err := st.Get("a")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if updated.Revision == enabled.Revision {
+		t.Errorf("Update kept revision %d", updated.Revision)
+	}
+}
+
+func TestRevisionIsPerRule(t *testing.T) {
+	st := New()
+	mustAdd(t, st, rule("a"), rule("b"))
+
+	before, err := st.Get("a")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if err := st.Update(rule("b")); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	after, err := st.Get("a")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if after.Revision != before.Revision {
+		t.Errorf("writing b changed a's revision from %d to %d", before.Revision, after.Revision)
+	}
+}
+
+func TestRevisionIsNotOnTheWire(t *testing.T) {
+	st := New()
+	mustAdd(t, st, rule("a"))
+
+	got, err := st.Get("a")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	out, err := json.Marshal(got)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if strings.Contains(string(out), "revision") {
+		t.Errorf("revision reached the wire: %s", out)
 	}
 }

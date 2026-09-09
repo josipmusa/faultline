@@ -21,13 +21,19 @@ type Dialer struct {
 	dial   func(ctx context.Context, network, addr string) (net.Conn, error)
 	rules  *rules.Store
 	events *events.Recorder
+	gate   *Gate
 }
 
 // NewDialer builds a Dialer over the rule store and recorder. A nil store means
-// nothing ever matches; a nil recorder means nothing is recorded.
-func NewDialer(store *rules.Store, rec *events.Recorder) *Dialer {
+// nothing ever matches; a nil recorder means nothing is recorded. The gate is
+// the one the transports over the same store use, so a rule counts one dial and
+// one request alike; nil gives the dialer behavior state of its own.
+func NewDialer(store *rules.Store, rec *events.Recorder, gate *Gate) *Dialer {
 	d := &net.Dialer{Timeout: 30 * time.Second}
-	return &Dialer{dial: d.DialContext, rules: store, events: rec}
+	if gate == nil {
+		gate = NewGate()
+	}
+	return &Dialer{dial: d.DialContext, rules: store, events: rec, gate: gate}
 }
 
 // Dial connects to addr, a host:port from a CONNECT request line, after
@@ -45,7 +51,7 @@ func (d *Dialer) Dial(ctx context.Context, addr string) (net.Conn, error) {
 		Tier:   events.TierEncrypted,
 	}
 
-	if rule, applier, ok := d.match(host); ok {
+	if rule, applier, ok := d.match(host); ok && d.gate.Applies(rule) {
 		e.Faulted, e.RuleID = true, rule.ID
 
 		conn, err := applier.Dial(ctx, rule.ID, addr, d.dial)

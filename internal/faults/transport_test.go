@@ -98,7 +98,7 @@ func statusRule(id string, code int, body string) rules.Rule {
 func TestNoRulePassesTrafficUnchanged(t *testing.T) {
 	up, hits := upstream(t)
 	rec := events.NewRecorder(10)
-	tr := New(http.DefaultTransport, rules.New(), rec, events.TierPlain)
+	tr := New(http.DefaultTransport, rules.New(), rec, events.TierPlain, nil)
 
 	resp, err := tr.RoundTrip(mustRequest(context.Background(), t, http.MethodGet, up.URL+"/orders/1", ""))
 	if err != nil {
@@ -145,7 +145,7 @@ func TestDelayRuleAddsAtLeastTheConfiguredDelay(t *testing.T) {
 	const delay = 60 * time.Millisecond
 	up, hits := upstream(t)
 	rec := events.NewRecorder(10)
-	tr := New(http.DefaultTransport, storeWith(t, delayRule("slow", 60)), rec, events.TierPlain)
+	tr := New(http.DefaultTransport, storeWith(t, delayRule("slow", 60)), rec, events.TierPlain, nil)
 
 	start := time.Now()
 	resp, err := tr.RoundTrip(mustRequest(context.Background(), t, http.MethodGet, up.URL+"/", ""))
@@ -177,7 +177,7 @@ func TestDelayRuleAddsAtLeastTheConfiguredDelay(t *testing.T) {
 func TestDelayIsCancelledPromptlyWithTheRequestContext(t *testing.T) {
 	up, hits := upstream(t)
 	rec := events.NewRecorder(10)
-	tr := New(http.DefaultTransport, storeWith(t, delayRule("very-slow", 30_000)), rec, events.TierPlain)
+	tr := New(http.DefaultTransport, storeWith(t, delayRule("very-slow", 30_000)), rec, events.TierPlain, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
@@ -216,7 +216,7 @@ func TestDelayIsCancelledPromptlyWithTheRequestContext(t *testing.T) {
 func TestStatusRuleShortCircuitsWithoutHittingUpstream(t *testing.T) {
 	up, hits := upstream(t)
 	rec := events.NewRecorder(10)
-	tr := New(http.DefaultTransport, storeWith(t, statusRule("gateway-down", 503, "upstream is down")), rec, events.TierPlain)
+	tr := New(http.DefaultTransport, storeWith(t, statusRule("gateway-down", 503, "upstream is down")), rec, events.TierPlain, nil)
 
 	resp, err := tr.RoundTrip(mustRequest(context.Background(), t, http.MethodGet, up.URL+"/charges", ""))
 	if err != nil {
@@ -249,7 +249,7 @@ func TestStatusRuleShortCircuitsWithoutHittingUpstream(t *testing.T) {
 
 func TestStatusRuleWithoutABodyReturnsAnEmptyBody(t *testing.T) {
 	up, _ := upstream(t)
-	tr := New(http.DefaultTransport, storeWith(t, statusRule("empty", 500, "")), events.NewRecorder(10), events.TierPlain)
+	tr := New(http.DefaultTransport, storeWith(t, statusRule("empty", 500, "")), events.NewRecorder(10), events.TierPlain, nil)
 
 	resp, err := tr.RoundTrip(mustRequest(context.Background(), t, http.MethodGet, up.URL+"/", ""))
 	if err != nil {
@@ -271,7 +271,7 @@ func TestDisabledRuleIsIgnored(t *testing.T) {
 	rec := events.NewRecorder(10)
 	r := statusRule("off", 503, "")
 	r.Enabled = false
-	tr := New(http.DefaultTransport, storeWith(t, r), rec, events.TierPlain)
+	tr := New(http.DefaultTransport, storeWith(t, r), rec, events.TierPlain, nil)
 
 	resp, err := tr.RoundTrip(mustRequest(context.Background(), t, http.MethodGet, up.URL+"/", ""))
 	if err != nil {
@@ -290,7 +290,7 @@ func TestNonMatchingRuleIsIgnored(t *testing.T) {
 	up, hits := upstream(t)
 	r := statusRule("stripe-only", 503, "")
 	r.Match = rules.Match{Host: "api.stripe.com"}
-	tr := New(http.DefaultTransport, storeWith(t, r), events.NewRecorder(10), events.TierPlain)
+	tr := New(http.DefaultTransport, storeWith(t, r), events.NewRecorder(10), events.TierPlain, nil)
 
 	resp, err := tr.RoundTrip(mustRequest(context.Background(), t, http.MethodGet, up.URL+"/", ""))
 	if err != nil {
@@ -307,7 +307,7 @@ func TestFirstMatchingRuleWins(t *testing.T) {
 	rec := events.NewRecorder(10)
 	tr := New(http.DefaultTransport,
 		storeWith(t, statusRule("first", 503, ""), statusRule("second", 500, "")),
-		rec, events.TierPlain)
+		rec, events.TierPlain, nil)
 
 	resp, err := tr.RoundTrip(mustRequest(context.Background(), t, http.MethodGet, up.URL+"/", ""))
 	if err != nil {
@@ -326,7 +326,7 @@ func TestRuleMatchesOnPathAndMethod(t *testing.T) {
 	up, hits := upstream(t)
 	r := statusRule("post-orders", 503, "")
 	r.Match = rules.Match{Method: "POST", Path: "/orders/*"}
-	tr := New(http.DefaultTransport, storeWith(t, r), events.NewRecorder(10), events.TierPlain)
+	tr := New(http.DefaultTransport, storeWith(t, r), events.NewRecorder(10), events.TierPlain, nil)
 
 	resp, err := tr.RoundTrip(mustRequest(context.Background(), t, http.MethodGet, up.URL+"/orders/1", ""))
 	if err != nil {
@@ -354,7 +354,7 @@ func TestRuleMatchesOnHeader(t *testing.T) {
 	up, _ := upstream(t)
 	r := statusRule("tagged", 503, "")
 	r.Match = rules.Match{Header: map[string]string{"X-Test": "1"}}
-	tr := New(http.DefaultTransport, storeWith(t, r), events.NewRecorder(10), events.TierPlain)
+	tr := New(http.DefaultTransport, storeWith(t, r), events.NewRecorder(10), events.TierPlain, nil)
 
 	req := mustRequest(context.Background(), t, http.MethodGet, up.URL+"/", "")
 	req.Header.Set("X-Test", "1")
@@ -376,7 +376,7 @@ func (e errTransport) RoundTrip(*http.Request) (*http.Response, error) { return 
 func TestUpstreamErrorIsRecordedAndReturned(t *testing.T) {
 	boom := errors.New("dial tcp: connection refused")
 	rec := events.NewRecorder(10)
-	tr := New(errTransport{err: boom}, rules.New(), rec, events.TierPlain)
+	tr := New(errTransport{err: boom}, rules.New(), rec, events.TierPlain, nil)
 
 	resp, err := tr.RoundTrip(mustRequest(context.Background(), t, http.MethodGet, "http://api.example.com/x", ""))
 	if err == nil {
@@ -406,7 +406,7 @@ func TestUnknownFaultTypePassesTrafficThrough(t *testing.T) {
 	up, hits := upstream(t)
 	rec := events.NewRecorder(10)
 	r := rules.Rule{ID: "weird", Enabled: true, Fault: rules.Fault{Type: "teleport"}}
-	tr := New(http.DefaultTransport, storeWith(t, r), rec, events.TierPlain)
+	tr := New(http.DefaultTransport, storeWith(t, r), rec, events.TierPlain, nil)
 
 	resp, err := tr.RoundTrip(mustRequest(context.Background(), t, http.MethodGet, up.URL+"/", ""))
 	if err != nil {
@@ -424,7 +424,7 @@ func TestUnknownFaultTypePassesTrafficThrough(t *testing.T) {
 func TestEventCarriesTheConfiguredTier(t *testing.T) {
 	up, _ := upstream(t)
 	rec := events.NewRecorder(10)
-	tr := New(http.DefaultTransport, rules.New(), rec, events.TierIntercepted)
+	tr := New(http.DefaultTransport, rules.New(), rec, events.TierIntercepted, nil)
 
 	resp, err := tr.RoundTrip(mustRequest(context.Background(), t, http.MethodGet, up.URL+"/", ""))
 	if err != nil {
@@ -439,7 +439,7 @@ func TestEventCarriesTheConfiguredTier(t *testing.T) {
 func TestEventCountsKnownBodyLengths(t *testing.T) {
 	up, _ := upstream(t)
 	rec := events.NewRecorder(10)
-	tr := New(http.DefaultTransport, rules.New(), rec, events.TierPlain)
+	tr := New(http.DefaultTransport, rules.New(), rec, events.TierPlain, nil)
 
 	resp, err := tr.RoundTrip(mustRequest(context.Background(), t, http.MethodPost, up.URL+"/", "hello"))
 	if err != nil {
@@ -464,7 +464,7 @@ func TestUnknownBodyLengthsCountAsZero(t *testing.T) {
 	defer chunked.Close()
 
 	rec := events.NewRecorder(10)
-	tr := New(http.DefaultTransport, rules.New(), rec, events.TierPlain)
+	tr := New(http.DefaultTransport, rules.New(), rec, events.TierPlain, nil)
 	resp, err := tr.RoundTrip(mustRequest(context.Background(), t, http.MethodGet, chunked.URL+"/", ""))
 	if err != nil {
 		t.Fatalf("RoundTrip: %v", err)
@@ -478,7 +478,7 @@ func TestUnknownBodyLengthsCountAsZero(t *testing.T) {
 
 func TestNewFillsInDefaults(t *testing.T) {
 	up, _ := upstream(t)
-	tr := New(nil, nil, nil, "")
+	tr := New(nil, nil, nil, "", nil)
 
 	resp, err := tr.RoundTrip(mustRequest(context.Background(), t, http.MethodGet, up.URL+"/", ""))
 	if err != nil {
@@ -526,7 +526,7 @@ func TestRoundTripIsSafeForConcurrentUse(t *testing.T) {
 	up, _ := upstream(t)
 	store := storeWith(t, delayRule("slow", 1))
 	rec := events.NewRecorder(200)
-	tr := New(http.DefaultTransport, store, rec, events.TierPlain)
+	tr := New(http.DefaultTransport, store, rec, events.TierPlain, nil)
 
 	var wg sync.WaitGroup
 	for range 20 {
@@ -567,7 +567,7 @@ func refuseRule(id string) rules.Rule {
 func TestRefuseFaultAnswersABadGatewayWithoutCallingUpstream(t *testing.T) {
 	up, hits := upstream(t)
 	rec := events.NewRecorder(10)
-	tr := New(http.DefaultTransport, storeWith(t, refuseRule("stripe-down")), rec, events.TierPlain)
+	tr := New(http.DefaultTransport, storeWith(t, refuseRule("stripe-down")), rec, events.TierPlain, nil)
 
 	resp, err := tr.RoundTrip(mustRequest(context.Background(), t, http.MethodGet, up.URL+"/orders/1", ""))
 	if err != nil {

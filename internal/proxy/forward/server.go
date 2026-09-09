@@ -60,7 +60,7 @@ type Server struct {
 // slog.Default.
 func NewServer(transport http.RoundTripper, dialer *faults.Dialer, intercept *Interceptor, bypass *Bypass, logger *slog.Logger) *Server {
 	if dialer == nil {
-		dialer = faults.NewDialer(nil, nil)
+		dialer = faults.NewDialer(nil, nil, nil)
 	}
 	if logger == nil {
 		logger = slog.Default()

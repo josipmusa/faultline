@@ -77,8 +77,8 @@ func newFixtureWith(t *testing.T, bypass *Bypass) *proxyFixture {
 	rec := events.NewRecorder(events.DefaultSize)
 	t.Cleanup(rec.Close)
 
-	transport := faults.New(nil, store, rec, events.TierPlain)
-	dialer := faults.NewDialer(store, rec)
+	transport := faults.New(nil, store, rec, events.TierPlain, nil)
+	dialer := faults.NewDialer(store, rec, nil)
 	srv := httptest.NewServer(NewServer(transport, dialer, nil, bypass, quietLogger()))
 	srv.Config.ErrorLog = log.New(io.Discard, "", 0) // a reset connection is the point, not a failure
 	t.Cleanup(srv.Close)
@@ -303,7 +303,7 @@ func TestAnswers502WhenTheUpstreamIsUnreachable(t *testing.T) {
 
 func TestStartListensAndShutdownStops(t *testing.T) {
 	up := newUpstream(t)
-	srv := NewServer(faults.New(nil, rules.New(), nil, events.TierPlain), nil, nil, nil, quietLogger())
+	srv := NewServer(faults.New(nil, rules.New(), nil, events.TierPlain, nil), nil, nil, nil, quietLogger())
 
 	if err := srv.Start(0); err != nil {
 		t.Fatalf("starting: %v", err)

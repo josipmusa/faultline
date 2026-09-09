@@ -5,11 +5,7 @@
 package rules
 
 import (
-	"bytes"
-	"encoding/json"
-	"fmt"
 	"maps"
-	"slices"
 )
 
 // FaultType names one kind of fault. The catalogue of types lives in
@@ -17,74 +13,64 @@ import (
 // know what any fault does.
 type FaultType string
 
-// Params are a fault's parameters, keyed as they appear in the API. The domain
-// type keeps them as they arrived; the fault named by Type is the only thing
-// that knows which keys it wants, and the API boundary rejects the rest.
-type Params map[string]any
-
 // Fault is the single thing a rule does to traffic it matches.
 type Fault struct {
 	Type   FaultType
 	Params Params
 }
 
-// faultTypeKey is the one key in a fault object that is not a parameter.
-const faultTypeKey = "type"
-
 // UnmarshalJSON reads the flat wire shape, `{"type":"delay","ms":2000}`, into a
 // type and a bag of parameters.
 func (f *Fault) UnmarshalJSON(data []byte) error {
-	var raw map[string]any
-	if err := json.Unmarshal(data, &raw); err != nil {
+	name, params, err := decodeTagged(data)
+	if err != nil {
 		return err
 	}
-
-	*f = Fault{}
-	if t, ok := raw[faultTypeKey].(string); ok {
-		f.Type = FaultType(t)
-	}
-	delete(raw, faultTypeKey)
-	if len(raw) > 0 {
-		f.Params = raw
-	}
+	*f = Fault{Type: FaultType(name), Params: params}
 	return nil
 }
 
 // MarshalJSON writes the flat wire shape back, with the type first and the
 // parameters after it in a stable order.
 func (f Fault) MarshalJSON() ([]byte, error) {
-	var b bytes.Buffer
-	b.WriteString(`{"` + faultTypeKey + `":`)
-
-	name, err := json.Marshal(string(f.Type))
-	if err != nil {
-		return nil, fmt.Errorf("rules: fault type: %w", err)
-	}
-	b.Write(name)
-
-	for _, key := range slices.Sorted(maps.Keys(f.Params)) {
-		value, err := json.Marshal(f.Params[key])
-		if err != nil {
-			return nil, fmt.Errorf("rules: fault parameter %q: %w", key, err)
-		}
-		b.WriteString(",")
-		b.Write(quoted(key))
-		b.WriteString(":")
-		b.Write(value)
-	}
-
-	b.WriteString("}")
-	return b.Bytes(), nil
+	return encodeTagged("fault", string(f.Type), f.Params)
 }
 
-// quoted encodes a parameter name. Names come from a JSON object, so they are
-// valid strings and cannot fail to encode.
-func quoted(key string) []byte {
-	out, err := json.Marshal(key)
+// BehaviorType names one kind of behavior. As with a fault, the catalogue that
+// knows what each type does lives in internal/faults.
+type BehaviorType string
+
+// Behavior makes a fault stateful over time. It decides, for each request the
+// rule matches, whether the fault applies at all: a share of them, the first
+// few, those inside a window, or a repeating pattern. A rule without a behavior
+// applies its fault to everything it matches.
+type Behavior struct {
+	Type   BehaviorType
+	Params Params
+}
+
+// UnmarshalJSON reads the flat wire shape, `{"type":"first_n","n":2}`.
+func (b *Behavior) UnmarshalJSON(data []byte) error {
+	name, params, err := decodeTagged(data)
 	if err != nil {
-		return []byte(`""`)
+		return err
 	}
-	return out
+	*b = Behavior{Type: BehaviorType(name), Params: params}
+	return nil
+}
+
+// MarshalJSON writes the flat wire shape back, parameters in a stable order.
+func (b Behavior) MarshalJSON() ([]byte, error) {
+	return encodeTagged("behavior", string(b.Type), b.Params)
+}
+
+// Clone returns a copy that shares no parameters with the original.
+func (b Behavior) Clone() Behavior {
+	c := b
+	if b.Params != nil {
+		c.Params = maps.Clone(b.Params)
+	}
+	return c
 }
 
 // Match decides which traffic a rule affects. Every field is optional and an
@@ -101,13 +87,21 @@ type Match struct {
 	Header map[string]string `json:"header,omitempty"`
 }
 
-// Rule is a condition plus the fault applied to traffic meeting it.
+// Rule is a condition plus the fault applied to traffic meeting it, and
+// optionally the behavior that decides when that fault applies.
 type Rule struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	Enabled bool   `json:"enabled"`
-	Match   Match  `json:"match"`
-	Fault   Fault  `json:"fault"`
+	ID       string    `json:"id"`
+	Name     string    `json:"name"`
+	Enabled  bool      `json:"enabled"`
+	Match    Match     `json:"match"`
+	Fault    Fault     `json:"fault"`
+	Behavior *Behavior `json:"behavior,omitempty"`
+
+	// Revision changes every time the store writes this rule and never
+	// repeats. Whatever keeps state for a rule between requests watches it to
+	// know the rule was edited, enabled or disabled, and starts that state
+	// over. It is store bookkeeping, so it stays off the wire.
+	Revision uint64 `json:"-"`
 }
 
 // WithEnabled returns a copy of the rule with Enabled set as given.
@@ -117,8 +111,16 @@ func (r Rule) WithEnabled(enabled bool) Rule {
 	return c
 }
 
+// WithRevision returns a copy of the rule marked as the given write.
+func (r Rule) WithRevision(revision uint64) Rule {
+	c := r.Clone()
+	c.Revision = revision
+	return c
+}
+
 // Clone returns a copy that shares nothing with the original, so neither side
-// can observe the other's changes to the header map or the fault parameters.
+// can observe the other's changes to the header map, the fault parameters or
+// the behavior.
 func (r Rule) Clone() Rule {
 	c := r
 	if r.Match.Header != nil {
@@ -126,6 +128,10 @@ func (r Rule) Clone() Rule {
 	}
 	if r.Fault.Params != nil {
 		c.Fault.Params = maps.Clone(r.Fault.Params)
+	}
+	if r.Behavior != nil {
+		behavior := r.Behavior.Clone()
+		c.Behavior = &behavior
 	}
 	return c
 }

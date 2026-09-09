@@ -22,6 +22,7 @@ var (
 type Store struct {
 	mu      sync.RWMutex
 	rules   []Rule
+	written uint64 // the last revision handed out, see Rule.Revision
 	changes chan struct{}
 }
 
@@ -75,7 +76,7 @@ func (s *Store) Add(r Rule) error {
 	if s.indexOf(r.ID) >= 0 {
 		return ErrExists
 	}
-	s.rules = append(s.rules, r.Clone())
+	s.rules = append(s.rules, s.stamp(r))
 	s.notify()
 	return nil
 }
@@ -90,7 +91,7 @@ func (s *Store) Update(r Rule) error {
 	if i < 0 {
 		return ErrNotFound
 	}
-	s.rules[i] = r.Clone()
+	s.rules[i] = s.stamp(r)
 	s.notify()
 	return nil
 }
@@ -123,9 +124,16 @@ func (s *Store) setEnabled(id string, enabled bool) error {
 	if i < 0 {
 		return ErrNotFound
 	}
-	s.rules[i] = s.rules[i].WithEnabled(enabled)
+	s.rules[i] = s.stamp(s.rules[i].WithEnabled(enabled))
 	s.notify()
 	return nil
+}
+
+// stamp gives a rule the next revision, so anything keeping state for it can
+// tell one write from the next. Callers hold the lock.
+func (s *Store) stamp(r Rule) Rule {
+	s.written++
+	return r.WithRevision(s.written)
 }
 
 // indexOf reports the position of id, or -1. Callers hold the lock.

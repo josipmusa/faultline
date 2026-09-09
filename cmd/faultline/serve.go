@@ -137,7 +137,10 @@ func start(adminPort, proxyPort int, routes []reverse.Route, ca *tlsmitm.CA, byp
 	}
 
 	store := rules.New()
-	pipeline := faults.New(nil, store, s.recorder, events.TierPlain)
+	// One gate behind every pipeline: a rule that fails the first two requests
+	// fails two altogether, not two per tier.
+	gate := faults.NewGate()
+	pipeline := faults.New(nil, store, s.recorder, events.TierPlain, gate)
 
 	fail := func(err error) (*stack, error) {
 		_ = s.stop(context.Background())
@@ -163,10 +166,10 @@ func start(adminPort, proxyPort int, routes []reverse.Route, ca *tlsmitm.CA, byp
 		if err != nil {
 			return fail(err)
 		}
-		interceptor = forward.NewInterceptor(issuer, faults.New(nil, store, s.recorder, events.TierIntercepted), s.recorder, nil)
+		interceptor = forward.NewInterceptor(issuer, faults.New(nil, store, s.recorder, events.TierIntercepted, gate), s.recorder, nil)
 	}
 
-	s.proxy = forward.NewServer(pipeline, faults.NewDialer(store, s.recorder), interceptor, bypass, nil)
+	s.proxy = forward.NewServer(pipeline, faults.NewDialer(store, s.recorder, gate), interceptor, bypass, nil)
 	s.api = admin.NewServer(store, s.recorder, bypass, trustVars, nil)
 
 	if err := s.proxy.Start(proxyPort); err != nil {

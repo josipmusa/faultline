@@ -24,21 +24,27 @@ type Transport struct {
 	rules  *rules.Store
 	events *events.Recorder
 	tier   events.Tier
+	gate   *Gate
 }
 
 // New wraps base with the fault pipeline. The tier says how much of the traffic
 // this transport can see, and is stamped on every event it records, so a fault
 // that could not apply can later explain itself. A nil base means
 // http.DefaultTransport; a nil store means nothing ever matches; a nil recorder
-// means nothing is recorded.
-func New(base http.RoundTripper, store *rules.Store, rec *events.Recorder, tier events.Tier) *Transport {
+// means nothing is recorded. The gate holds the state stateful behaviors keep;
+// pass the same one to everything reading the same store, or nil for a
+// transport that keeps behavior state of its own.
+func New(base http.RoundTripper, store *rules.Store, rec *events.Recorder, tier events.Tier, gate *Gate) *Transport {
 	if base == nil {
 		base = http.DefaultTransport
 	}
 	if tier == "" {
 		tier = events.TierPlain
 	}
-	return &Transport{base: base, rules: store, events: rec, tier: tier}
+	if gate == nil {
+		gate = NewGate()
+	}
+	return &Transport{base: base, rules: store, events: rec, tier: tier, gate: gate}
 }
 
 // RoundTrip applies the first matching rule and forwards the request unless a
@@ -59,7 +65,10 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	next := t.upstream(host)
 
 	if rule, ok := t.match(host, req); ok {
-		if applier, ok := t.build(rule); ok {
+		// The first matching rule decides, behavior included: a rule whose
+		// behavior passes this request passes it upstream rather than handing
+		// it to the next rule.
+		if applier, ok := t.build(rule); ok && t.gate.Applies(rule) {
 			e.Faulted, e.RuleID = true, rule.ID
 
 			resp, err := applier.Respond(rule.ID, req, next)

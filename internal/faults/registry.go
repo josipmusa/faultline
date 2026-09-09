@@ -129,22 +129,11 @@ func Build(f rules.Fault) (Applier, error) {
 	return def.New(f.Params)
 }
 
-// listNames renders the registered names for an error message.
+// listNames renders the registered fault names for an error message.
 func listNames() string {
 	names := Names()
 	if len(names) == 0 {
 		return "no fault type"
 	}
-	out := ""
-	for i, n := range names {
-		switch {
-		case i == 0:
-		case i == len(names)-1:
-			out += " or "
-		default:
-			out += ", "
-		}
-		out += fmt.Sprintf("%q", n)
-	}
-	return out
+	return listOf(quotedAll(names))
 }

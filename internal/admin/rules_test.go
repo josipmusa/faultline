@@ -127,6 +127,12 @@ func TestCreateRuleRejectsBadInput(t *testing.T) {
 		{"refuse with jitter", `{"name":"x","fault":{"type":"refuse","jitter_ms":10}}`, "fault.jitter_ms"},
 		{"refuse with a status code", `{"name":"x","fault":{"type":"refuse","code":503}}`, "fault.code"},
 		{"refuse with a body", `{"name":"x","fault":{"type":"refuse","body":"nope"}}`, "fault.body"},
+		{"no behavior type", `{"name":"x","fault":{"type":"status","code":503},"behavior":{"n":2}}`, "behavior.type"},
+		{"unknown behavior type", `{"name":"x","fault":{"type":"status","code":503},"behavior":{"type":"sometimes"}}`, "behavior.type"},
+		{"first_n without a count", `{"name":"x","fault":{"type":"status","code":503},"behavior":{"type":"first_n"}}`, "behavior.n"},
+		{"a share above everything", `{"name":"x","fault":{"type":"status","code":503},"behavior":{"type":"percent","percent":101}}`, "behavior.percent"},
+		{"a pattern step that is neither", `{"name":"x","fault":{"type":"status","code":503},"behavior":{"type":"pattern","pattern":"FFX"}}`, "behavior.pattern"},
+		{"a behavior holding a fault parameter", `{"name":"x","fault":{"type":"status","code":503},"behavior":{"type":"first_n","n":2,"ms":10}}`, "behavior.ms"},
 	}
 
 	for _, tt := range tests {
@@ -139,6 +145,28 @@ func TestCreateRuleRejectsBadInput(t *testing.T) {
 				t.Errorf("a rejected rule reached the store: %+v", got)
 			}
 		})
+	}
+}
+
+func TestCreateRuleKeepsItsBehavior(t *testing.T) {
+	s := newTestServer(t)
+
+	w := do(t, s, http.MethodPost, "/api/rules",
+		`{"name":"Stripe fails twice","match":{"host":"api.stripe.com"},`+
+			`"fault":{"type":"status","code":503},"behavior":{"type":"first_n","n":2}}`)
+
+	wantStatus(t, w, http.StatusCreated)
+	got := decodeBody[rules.Rule](t, w)
+	if got.Behavior == nil {
+		t.Fatalf("created rule has no behavior: %+v", got)
+	}
+	if got.Behavior.Type != "first_n" || got.Behavior.Params["n"] != float64(2) {
+		t.Errorf("behavior = %+v, want first_n with n 2", got.Behavior)
+	}
+
+	stored := decodeBody[rules.Rule](t, do(t, s, http.MethodGet, "/api/rules/stripe-fails-twice", ""))
+	if stored.Behavior == nil || stored.Behavior.Type != "first_n" {
+		t.Errorf("stored rule behavior = %+v, want first_n", stored.Behavior)
 	}
 }
 
