@@ -43,4 +43,6 @@ an experimental warning about `EnvHttpProxyAgent` on the first call, which is
 expected and harmless.
 
 Native `fetch` sends even `http://` requests through the proxy as a `CONNECT`
-tunnel, which Faultline does not yet handle, so use an `https://` URL here.
+tunnel with an unencrypted request inside it. Faultline looks at what is
+actually in a tunnel rather than assuming TLS, so those calls work too and are
+recorded at the `plain` tier, with every response fault available.

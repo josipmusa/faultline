@@ -39,7 +39,8 @@ const readHeaderTimeout = 10 * time.Second
 // http.Handler until Start binds a port.
 type Server struct {
 	handler   http.Handler
-	untouched http.Handler // the bypass path: forwards with no rules and no events
+	untouched http.Handler      // the bypass path: forwards with no rules and no events
+	transport http.RoundTripper // the plain tier, for requests tunnelled in the clear
 	dialer    *faults.Dialer
 	intercept *Interceptor
 	bypass    *Bypass
@@ -67,6 +68,7 @@ func NewServer(transport http.RoundTripper, dialer *faults.Dialer, intercept *In
 	return &Server{
 		handler:   proxyHandler(transport, logger),
 		untouched: proxyHandler(bareTransport(), logger),
+		transport: transport,
 		dialer:    dialer,
 		intercept: intercept,
 		bypass:    bypass,

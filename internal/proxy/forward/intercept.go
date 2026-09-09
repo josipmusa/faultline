@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/josipmusa/faultline/internal/events"
@@ -73,23 +72,7 @@ func (i *Interceptor) serve(ctx context.Context, client net.Conn, target string)
 		return
 	}
 
-	// One http.Server per tunnel: the listener hands over the single
-	// connection and then blocks until it has been served, so Serve returns
-	// when the client is done and nothing lingers.
-	done := make(chan struct{})
-	var once sync.Once
-	srv := &http.Server{
-		Handler:           i.handler(target),
-		ReadHeaderTimeout: readHeaderTimeout,
-		BaseContext:       func(net.Listener) context.Context { return ctx },
-		ConnState: func(_ net.Conn, state http.ConnState) {
-			if state == http.StateClosed || state == http.StateHijacked {
-				once.Do(func() { close(done) })
-			}
-		},
-		ErrorLog: slog.NewLogLogger(i.log.Handler(), slog.LevelDebug),
-	}
-	_ = srv.Serve(&oneConnListener{conn: tlsConn, done: done})
+	serveOneConn(ctx, tlsConn, i.handler(target), i.log)
 }
 
 // handler forwards decrypted requests to the host the CONNECT named. The
@@ -138,24 +121,3 @@ func describeHandshakeError(err error) string {
 	}
 	return "TLS handshake failed: " + err.Error()
 }
-
-// oneConnListener hands out a single connection, then blocks until that
-// connection has been served and reports itself closed.
-type oneConnListener struct {
-	conn net.Conn
-	done <-chan struct{}
-	once sync.Once
-}
-
-func (l *oneConnListener) Accept() (net.Conn, error) {
-	var conn net.Conn
-	l.once.Do(func() { conn = l.conn })
-	if conn != nil {
-		return conn, nil
-	}
-	<-l.done
-	return nil, net.ErrClosed
-}
-
-func (l *oneConnListener) Close() error   { return nil }
-func (l *oneConnListener) Addr() net.Addr { return l.conn.LocalAddr() }

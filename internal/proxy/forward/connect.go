@@ -5,19 +5,28 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
+	"net/http/httputil"
 	"time"
 
 	"github.com/josipmusa/faultline/internal/faults"
 )
 
 // tunnel serves a CONNECT request. With an interceptor, the tunnel is opened
-// towards the client and the TLS inside it is terminated, so every request
-// goes through the intercepted-tier pipeline. Without one, the upstream is
-// dialed through the fault dialer, 200 is answered, and bytes are copied both
-// ways until either side hangs up: the encrypted tier, where the host is known
-// and everything else is opaque.
+// towards the client and what the client puts inside it decides the rest: TLS
+// is terminated and its requests go through the intercepted-tier pipeline,
+// while an unencrypted request is served through the plain-tier pipeline, the
+// same as one that arrived in absolute form. Without an interceptor, the
+// upstream is dialed through the fault dialer, 200 is answered, and bytes are
+// copied both ways until either side hangs up: the encrypted tier, where the
+// host is known and everything else is opaque.
+//
+// Only the interception path looks inside, because only there is the tunnel
+// open before the upstream is dialed. Dialing first is what lets a refuse
+// rule answer the CONNECT itself with a 502, so that ordering stays; a
+// plaintext request survives it as an opaque pipe like anything else.
 func (s *Server) tunnel(w http.ResponseWriter, r *http.Request) {
 	addr := r.Host
 	if _, _, err := net.SplitHostPort(addr); err != nil {
@@ -36,7 +45,16 @@ func (s *Server) tunnel(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		defer func() { _ = client.Close() }()
-		s.intercept.serve(r.Context(), client, addr)
+
+		kind, conn := sniffTunnel(client)
+		if kind == kindHTTP1 {
+			s.log.Debug("tunnel carries unencrypted http", "upstream", faults.StripDefaultPort(addr))
+			serveOneConn(r.Context(), conn, tunnelledHandler(s.transport, addr, s.log), s.log)
+			return
+		}
+		// Either TLS, or something Faultline cannot read: the interceptor
+		// handles the first and explains the second.
+		s.intercept.serve(r.Context(), conn, addr)
 		return
 	}
 
@@ -54,6 +72,25 @@ func (s *Server) tunnel(w http.ResponseWriter, r *http.Request) {
 	defer func() { _ = client.Close() }()
 
 	pipe(client, upstream)
+}
+
+// tunnelledHandler forwards requests that arrived unencrypted inside a
+// tunnel. They come in origin form, so the destination comes from the CONNECT
+// rather than the request line, and the Host header the client sent stays as
+// it is, the same as the intercepted handler.
+func tunnelledHandler(transport http.RoundTripper, target string, log *slog.Logger) http.Handler {
+	return &httputil.ReverseProxy{
+		Rewrite: func(r *httputil.ProxyRequest) {
+			r.Out.URL.Scheme = "http"
+			r.Out.URL.Host = target
+		},
+		Transport: transport,
+		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
+			log.Error("upstream unreachable", "upstream", faults.StripDefaultPort(target), "method", r.Method, "path", r.URL.Path, "err", err)
+			w.WriteHeader(http.StatusBadGateway)
+			_, _ = io.WriteString(w, "faultline: upstream unreachable\n")
+		},
+	}
 }
 
 // tunnelUntouched is the bypass path for CONNECT: dial the upstream directly,
