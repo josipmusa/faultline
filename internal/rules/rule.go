@@ -14,11 +14,14 @@ const (
 	FaultDelay FaultType = "delay"
 	// FaultStatus short-circuits the request with a synthetic status code.
 	FaultStatus FaultType = "status"
+	// FaultRefuse turns the connection away, as if the upstream were not
+	// listening. It has no parameters.
+	FaultRefuse FaultType = "refuse"
 )
 
 // Fault is the single thing a rule does to traffic it matches. Which fields
 // carry meaning depends on Type: MS and JitterMS for FaultDelay, Code and Body
-// for FaultStatus.
+// for FaultStatus, none for FaultRefuse.
 type Fault struct {
 	Type FaultType `json:"type"`
 
@@ -31,6 +34,18 @@ type Fault struct {
 	Code int `json:"code,omitempty"`
 	// Body is the synthetic response body, for FaultStatus.
 	Body string `json:"body,omitempty"`
+}
+
+// IsConnection reports whether the fault works on the connection rather than
+// on the request inside it. Connection faults apply to every tier, encrypted
+// traffic included; the others need Faultline to see the request.
+func (f Fault) IsConnection() bool {
+	switch f.Type {
+	case FaultDelay, FaultRefuse:
+		return true
+	default:
+		return false
+	}
 }
 
 // Match decides which traffic a rule affects. Every field is optional and an

@@ -71,7 +71,8 @@ func newFixture(t *testing.T) *proxyFixture {
 	t.Cleanup(rec.Close)
 
 	transport := faults.New(nil, store, rec, events.TierPlain)
-	srv := httptest.NewServer(NewServer(transport, quietLogger()))
+	dialer := faults.NewDialer(store, rec)
+	srv := httptest.NewServer(NewServer(transport, dialer, quietLogger()))
 	t.Cleanup(srv.Close)
 
 	return &proxyFixture{proxy: srv, store: store, recorder: rec}
@@ -95,6 +96,13 @@ func (f *proxyFixture) client(t *testing.T) *http.Client {
 // produce.
 func (f *proxyFixture) raw(t *testing.T, request string) (status int, body string) {
 	t.Helper()
+	status, _, body = f.rawFull(t, request)
+	return status, body
+}
+
+// rawFull is raw plus the response headers, for tests that look at them.
+func (f *proxyFixture) rawFull(t *testing.T, request string) (status int, header http.Header, body string) {
+	t.Helper()
 	addr := strings.TrimPrefix(f.proxy.URL, "http://")
 	conn, err := net.DialTimeout("tcp", addr, 5*time.Second)
 	if err != nil {
@@ -117,7 +125,7 @@ func (f *proxyFixture) raw(t *testing.T, request string) (status int, body strin
 	if err != nil {
 		t.Fatalf("reading response body: %v", err)
 	}
-	return resp.StatusCode, string(read)
+	return resp.StatusCode, resp.Header, string(read)
 }
 
 func TestProxiesAnAbsoluteURLRequest(t *testing.T) {
@@ -268,19 +276,6 @@ func TestRejectsANonHTTPScheme(t *testing.T) {
 	}
 }
 
-func TestRejectsConnectForNow(t *testing.T) {
-	f := newFixture(t)
-
-	status, body := f.raw(t, "CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n")
-
-	if status != http.StatusNotImplemented {
-		t.Fatalf("status = %d, want 501 until CONNECT is implemented", status)
-	}
-	if !strings.Contains(body, "CONNECT") {
-		t.Errorf("body = %q, want a message naming CONNECT", body)
-	}
-}
-
 func TestAnswers502WhenTheUpstreamIsUnreachable(t *testing.T) {
 	up := newUpstream(t)
 	target := up.URL
@@ -300,7 +295,7 @@ func TestAnswers502WhenTheUpstreamIsUnreachable(t *testing.T) {
 
 func TestStartListensAndShutdownStops(t *testing.T) {
 	up := newUpstream(t)
-	srv := NewServer(faults.New(nil, rules.New(), nil, events.TierPlain), quietLogger())
+	srv := NewServer(faults.New(nil, rules.New(), nil, events.TierPlain), nil, quietLogger())
 
 	if err := srv.Start(0); err != nil {
 		t.Fatalf("starting: %v", err)

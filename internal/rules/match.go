@@ -29,6 +29,22 @@ func (r Rule) Matches(host, method, path string, header http.Header) bool {
 	return true
 }
 
+// MatchesConnection reports whether the rule applies to a connection to the
+// given host on which nothing else can be seen. Only a rule that asks for
+// nothing but a host can say yes: a method, path or header condition can
+// neither be checked nor assumed, so such a rule stays out of the way.
+func (r Rule) MatchesConnection(host string) bool {
+	if !r.Enabled || !r.Match.hostOnly() {
+		return false
+	}
+	return r.Match.Host == "" || strings.EqualFold(r.Match.Host, host)
+}
+
+// hostOnly reports whether the match constrains nothing but the host.
+func (m Match) hostOnly() bool {
+	return m.Method == "" && m.Path == "" && len(m.Header) == 0
+}
+
 // MatchPath reports whether path satisfies the glob pattern, which must match
 // the whole path. `*` matches any run of characters within one path segment,
 // `**` matches any run of characters including `/`. Everything else is literal.

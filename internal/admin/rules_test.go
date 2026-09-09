@@ -88,6 +88,18 @@ func TestCreateRuleGivesGeneratedIDsASuffix(t *testing.T) {
 	}
 }
 
+func TestCreateRuleAcceptsARefuseFault(t *testing.T) {
+	s := newTestServer(t)
+
+	w := do(t, s, http.MethodPost, "/api/rules",
+		`{"name":"stripe is down","match":{"host":"api.stripe.com"},"fault":{"type":"refuse"}}`)
+
+	wantStatus(t, w, http.StatusCreated)
+	if got := decodeBody[rules.Rule](t, w).Fault.Type; got != rules.FaultRefuse {
+		t.Errorf("fault type = %q, want %q", got, rules.FaultRefuse)
+	}
+}
+
 func TestCreateRuleRejectsBadInput(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -111,6 +123,10 @@ func TestCreateRuleRejectsBadInput(t *testing.T) {
 		{"status without a code", `{"name":"x","fault":{"type":"status"}}`, "fault.code"},
 		{"status code out of range", `{"name":"x","fault":{"type":"status","code":99}}`, "fault.code"},
 		{"status with a delay", `{"name":"x","fault":{"type":"status","code":503,"ms":10}}`, "fault.ms"},
+		{"refuse with a delay", `{"name":"x","fault":{"type":"refuse","ms":10}}`, "fault.ms"},
+		{"refuse with jitter", `{"name":"x","fault":{"type":"refuse","jitter_ms":10}}`, "fault.jitter_ms"},
+		{"refuse with a status code", `{"name":"x","fault":{"type":"refuse","code":503}}`, "fault.code"},
+		{"refuse with a body", `{"name":"x","fault":{"type":"refuse","body":"nope"}}`, "fault.body"},
 	}
 
 	for _, tt := range tests {

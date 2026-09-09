@@ -127,3 +127,37 @@ func TestUnmarshalDoesNotAliasCallerHeader(t *testing.T) {
 		t.Error("the rule should still match the value it was built with")
 	}
 }
+
+func TestRefuseFaultJSON(t *testing.T) {
+	var f Fault
+	if err := json.Unmarshal([]byte(`{"type":"refuse"}`), &f); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if f.Type != FaultRefuse {
+		t.Errorf("type = %q, want %q", f.Type, FaultRefuse)
+	}
+	out, err := json.Marshal(f)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if string(out) != `{"type":"refuse"}` {
+		t.Errorf("marshal = %s, want only the type: a refuse fault has no parameters", out)
+	}
+}
+
+func TestIsConnectionFault(t *testing.T) {
+	tests := []struct {
+		typ  FaultType
+		want bool
+	}{
+		{FaultDelay, true},
+		{FaultRefuse, true},
+		{FaultStatus, false},
+		{FaultType("explode"), false},
+	}
+	for _, tt := range tests {
+		if got := (Fault{Type: tt.typ}).IsConnection(); got != tt.want {
+			t.Errorf("Fault{Type: %q}.IsConnection() = %v, want %v", tt.typ, got, tt.want)
+		}
+	}
+}

@@ -69,6 +69,12 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 			e.Status, e.BytesOut = resp.StatusCode, resp.ContentLength
 			t.record(e, start)
 			return resp, nil
+		case rules.FaultRefuse:
+			e.Faulted, e.RuleID = true, rule.ID
+			resp := refusedResponse(req, host, rule.ID)
+			e.Status, e.BytesOut = resp.StatusCode, resp.ContentLength
+			t.record(e, start)
+			return resp, nil
 		}
 		// An unknown fault type applies nothing, so the event reports no fault.
 	}
@@ -119,6 +125,12 @@ func hostOf(req *http.Request) string {
 	if host == "" {
 		host = req.Host
 	}
+	return stripDefaultPort(host)
+}
+
+// stripDefaultPort drops :80 and :443 from a host:port and leaves any other
+// port in place.
+func stripDefaultPort(host string) string {
 	name, port, err := net.SplitHostPort(host)
 	if err != nil {
 		return host // no port to strip

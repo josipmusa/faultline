@@ -554,3 +554,43 @@ func TestRoundTripIsSafeForConcurrentUse(t *testing.T) {
 		t.Errorf("recorded %d events, want 100", got)
 	}
 }
+
+func refuseRule(id string) rules.Rule {
+	return rules.Rule{
+		ID:      id,
+		Name:    "down",
+		Enabled: true,
+		Fault:   rules.Fault{Type: rules.FaultRefuse},
+	}
+}
+
+func TestRefuseFaultAnswersABadGatewayWithoutCallingUpstream(t *testing.T) {
+	up, hits := upstream(t)
+	rec := events.NewRecorder(10)
+	tr := New(http.DefaultTransport, storeWith(t, refuseRule("stripe-down")), rec, events.TierPlain)
+
+	resp, err := tr.RoundTrip(mustRequest(context.Background(), t, http.MethodGet, up.URL+"/orders/1", ""))
+	if err != nil {
+		t.Fatalf("RoundTrip: %v", err)
+	}
+	if resp.StatusCode != http.StatusBadGateway {
+		t.Errorf("status = %d, want 502: a refused connection is an upstream that cannot be reached", resp.StatusCode)
+	}
+	if got := resp.Header.Get(FaultHeader); got != "stripe-down" {
+		t.Errorf("%s = %q, want the rule id on every synthetic response", FaultHeader, got)
+	}
+	if body := readBody(t, resp); !strings.Contains(body, "refused") {
+		t.Errorf("body = %q, want it to say the connection was refused", body)
+	}
+	if hits.Load() != 0 {
+		t.Errorf("upstream hit %d times, want 0", hits.Load())
+	}
+
+	e := onlyEvent(t, rec)
+	if !e.Faulted || e.RuleID != "stripe-down" {
+		t.Errorf("event does not report the refuse rule: %+v", e)
+	}
+	if e.Status != http.StatusBadGateway {
+		t.Errorf("event status = %d, want 502", e.Status)
+	}
+}

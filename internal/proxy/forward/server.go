@@ -2,9 +2,10 @@
 // point HTTP_PROXY at, standing in for every upstream at once.
 //
 // A forward proxy request carries its destination in the request line, in
-// absolute form (`GET http://api.stripe.com/v1/charges HTTP/1.1`), so there is
-// nothing to configure per upstream. Matching, faults and recording happen in
-// the transport, exactly as they do for an explicit route.
+// absolute form (`GET http://api.stripe.com/v1/charges HTTP/1.1`) for plain
+// HTTP, or as a bare host:port behind CONNECT for HTTPS. Plain requests go
+// through the fault transport exactly as an explicit route does; CONNECT opens
+// a tunnel through the fault dialer, which can only see the host.
 package forward
 
 import (
@@ -20,6 +21,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/josipmusa/faultline/internal/faults"
 )
 
 // DefaultPort is where the forward proxy listens.
@@ -34,6 +37,7 @@ const readHeaderTimeout = 10 * time.Second
 // http.Handler until Start binds a port.
 type Server struct {
 	handler http.Handler
+	dialer  *faults.Dialer
 	log     *slog.Logger
 
 	mu   sync.Mutex
@@ -42,16 +46,24 @@ type Server struct {
 	wg   sync.WaitGroup
 }
 
-// NewServer wires the forward proxy onto the fault pipeline. A nil logger means
-// slog.Default.
-func NewServer(transport http.RoundTripper, logger *slog.Logger) *Server {
+// NewServer wires the forward proxy onto the fault pipeline: the transport
+// for plain requests, the dialer for CONNECT tunnels. A nil dialer tunnels
+// without rules or events; a nil logger means slog.Default.
+func NewServer(transport http.RoundTripper, dialer *faults.Dialer, logger *slog.Logger) *Server {
+	if dialer == nil {
+		dialer = faults.NewDialer(nil, nil)
+	}
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Server{handler: proxyHandler(transport, logger), log: logger}
+	return &Server{handler: proxyHandler(transport, logger), dialer: dialer, log: logger}
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodConnect {
+		s.tunnel(w, r)
+		return
+	}
 	if err := usable(r); err != nil {
 		http.Error(w, "faultline: "+err.message, err.status)
 		return
@@ -113,17 +125,11 @@ type refusal struct {
 	message string
 }
 
-// usable reports why a request cannot be forwarded, or nil when it can. A
-// forward proxy only ever sees two request forms: absolute for plain HTTP, and
-// authority for CONNECT. Anything else means the client is talking to Faultline
-// as if it were an ordinary web server.
+// usable reports why a plain request cannot be forwarded, or nil when it can.
+// CONNECT is dispatched before this runs, so the only acceptable form left is
+// the absolute one. Anything else means the client is talking to Faultline as
+// if it were an ordinary web server.
 func usable(r *http.Request) *refusal {
-	if r.Method == http.MethodConnect {
-		return &refusal{
-			status:  http.StatusNotImplemented,
-			message: "CONNECT tunnels are not supported yet, so HTTPS cannot go through this proxy; plain HTTP works",
-		}
-	}
 	if r.URL == nil || !r.URL.IsAbs() {
 		return &refusal{
 			status: http.StatusBadRequest,

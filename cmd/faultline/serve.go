@@ -83,7 +83,7 @@ func serve(ctx context.Context, out io.Writer, adminPort, proxyPort int, routes 
 		}
 	}
 
-	proxy := forward.NewServer(pipeline, nil)
+	proxy := forward.NewServer(pipeline, faults.NewDialer(store, recorder), nil)
 	api := admin.NewServer(store, recorder, nil)
 
 	stopAll := func() {

@@ -209,3 +209,35 @@ func TestDisabledRuleNeverMatches(t *testing.T) {
 		t.Error("a disabled empty-match rule must not match anything")
 	}
 }
+
+func TestMatchesConnectionNeedsAHostOnlyMatch(t *testing.T) {
+	tests := []struct {
+		name  string
+		match Match
+		host  string
+		want  bool
+	}{
+		{"host only, same host", Match{Host: "api.stripe.com"}, "api.stripe.com", true},
+		{"host only, different case", Match{Host: "API.Stripe.com"}, "api.stripe.com", true},
+		{"host only, other host", Match{Host: "api.stripe.com"}, "api.github.com", false},
+		{"empty match covers every host", Match{}, "api.stripe.com", true},
+		{"a method cannot be seen on a connection", Match{Host: "api.stripe.com", Method: "GET"}, "api.stripe.com", false},
+		{"a path cannot be seen on a connection", Match{Host: "api.stripe.com", Path: "/**"}, "api.stripe.com", false},
+		{"a header cannot be seen on a connection", Match{Host: "api.stripe.com", Header: map[string]string{"X-Test": "1"}}, "api.stripe.com", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := delayRule(tt.match).MatchesConnection(tt.host); got != tt.want {
+				t.Errorf("MatchesConnection(%q) = %v, want %v", tt.host, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDisabledRuleNeverMatchesAConnection(t *testing.T) {
+	r := delayRule(Match{Host: "api.stripe.com"}).WithEnabled(false)
+	if r.MatchesConnection("api.stripe.com") {
+		t.Error("a disabled rule matched a connection")
+	}
+}
