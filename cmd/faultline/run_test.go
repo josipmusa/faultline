@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -24,7 +25,7 @@ func TestRunGivesTheChildTheProxy(t *testing.T) {
 		t.Fatalf("bypassList: %v", err)
 	}
 
-	code, err := run(context.Background(), &out, &errOut, nil, nil, 0, 0, nil, nil, bypass,
+	code, err := run(context.Background(), &out, &errOut, nil, nil, 0, 0, nil, nil, bypass, session{},
 		[]string{"sh", "-c", "echo $HTTP_PROXY; echo $https_proxy; echo $NO_PROXY"})
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -54,7 +55,7 @@ func TestRunGivesTheChildTheProxy(t *testing.T) {
 
 func TestRunPrintsTheAdminURLBeforeTheChildRuns(t *testing.T) {
 	var out, errOut bytes.Buffer
-	code, err := run(context.Background(), &out, &errOut, nil, nil, 0, 0, nil, nil, nil, []string{"sh", "-c", "exit 0"})
+	code, err := run(context.Background(), &out, &errOut, nil, nil, 0, 0, nil, nil, nil, session{}, []string{"sh", "-c", "exit 0"})
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -71,7 +72,7 @@ func TestRunPrintsTheAdminURLBeforeTheChildRuns(t *testing.T) {
 
 func TestRunMirrorsTheChildsExitCode(t *testing.T) {
 	var out, errOut bytes.Buffer
-	code, err := run(context.Background(), &out, &errOut, nil, nil, 0, 0, nil, nil, nil, []string{"sh", "-c", "exit 7"})
+	code, err := run(context.Background(), &out, &errOut, nil, nil, 0, 0, nil, nil, nil, session{}, []string{"sh", "-c", "exit 7"})
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -82,7 +83,7 @@ func TestRunMirrorsTheChildsExitCode(t *testing.T) {
 
 func TestRunReportsACommandItCannotStart(t *testing.T) {
 	var out, errOut bytes.Buffer
-	if _, err := run(context.Background(), &out, &errOut, nil, nil, 0, 0, nil, nil, nil, []string{"faultline-no-such-command"}); err == nil {
+	if _, err := run(context.Background(), &out, &errOut, nil, nil, 0, 0, nil, nil, nil, session{}, []string{"faultline-no-such-command"}); err == nil {
 		t.Fatal("run accepted a command that does not exist")
 	}
 }
@@ -132,7 +133,7 @@ func TestRunGivesTheChildTheCA(t *testing.T) {
 	}
 
 	var out, errOut bytes.Buffer
-	code, err := run(context.Background(), &out, &errOut, nil, nil, 0, 0, nil, ca, nil,
+	code, err := run(context.Background(), &out, &errOut, nil, nil, 0, 0, nil, ca, nil, session{},
 		[]string{"sh", "-c", "echo $SSL_CERT_FILE; echo $NODE_EXTRA_CA_CERTS"})
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -189,7 +190,7 @@ func TestRunGivesTheChildAJavaTrustStore(t *testing.T) {
 	}
 
 	var out, errOut bytes.Buffer
-	code, err := run(context.Background(), &out, &errOut, nil, nil, 0, 0, nil, ca, nil,
+	code, err := run(context.Background(), &out, &errOut, nil, nil, 0, 0, nil, ca, nil, session{},
 		[]string{"sh", "-c", "echo $JAVA_TOOL_OPTIONS"})
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -222,7 +223,7 @@ func TestRunSaysSoWhenTheTrustStoreCannotBeBuilt(t *testing.T) {
 	t.Setenv("JAVA_HOME", brokenJDK(t))
 
 	var out, errOut bytes.Buffer
-	code, err := run(context.Background(), &out, &errOut, nil, nil, 0, 0, nil, ca, nil,
+	code, err := run(context.Background(), &out, &errOut, nil, nil, 0, 0, nil, ca, nil, session{},
 		[]string{"sh", "-c", "echo $JAVA_TOOL_OPTIONS"})
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -282,7 +283,7 @@ func TestRunServesAnExplicitRoute(t *testing.T) {
 
 	ran := make(chan error, 1)
 	go func() {
-		_, err := run(context.Background(), &out, errOut, nil, nil, 0, 0, routes, nil, nil, child)
+		_, err := run(context.Background(), &out, errOut, nil, nil, 0, 0, routes, nil, nil, session{}, child)
 		ran <- err
 	}()
 	defer func() {
@@ -332,5 +333,30 @@ func TestRunHelpDocumentsTheRouteFlag(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("run help is missing %q:\n%s", want, got)
 		}
+	}
+}
+
+func TestOutcomeKeepsTheChildsExitCode(t *testing.T) {
+	own := errors.New("the scenario would not turn off")
+
+	var errOut bytes.Buffer
+	code, err := outcome(&errOut, 7, nil, own)
+	if code != 7 {
+		t.Errorf("exit code = %d, want the child's 7", code)
+	}
+	if err != nil {
+		t.Errorf("err = %v, want none; a problem of ours must not replace the child's code", err)
+	}
+	if !strings.Contains(errOut.String(), own.Error()) {
+		t.Errorf("stderr = %q, want the problem said out loud", errOut.String())
+	}
+
+	if _, err := outcome(&errOut, 0, nil, own); !errors.Is(err, own) {
+		t.Errorf("err = %v, want %v when the child itself succeeded", err, own)
+	}
+
+	runErr := errors.New("the command could not be started")
+	if _, err := outcome(&errOut, 1, runErr, own); !errors.Is(err, runErr) {
+		t.Errorf("err = %v, want the run's own failure %v", err, runErr)
 	}
 }

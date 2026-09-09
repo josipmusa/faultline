@@ -57,6 +57,8 @@ type (
 	Scenario = admin.Scenario
 	// Event is one call that went through Faultline.
 	Event = events.Event
+	// Report is the current session's counts.
+	Report = events.Report
 	// Upstream is a host Faultline has seen, with its counts and its tier.
 	Upstream = admin.Upstream
 	// Message is one envelope from the event stream.

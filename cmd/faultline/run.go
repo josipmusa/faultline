@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	client "github.com/josipmusa/faultline/clients/go"
 	"github.com/josipmusa/faultline/internal/admin"
 	"github.com/josipmusa/faultline/internal/config"
 	"github.com/josipmusa/faultline/internal/proxy/forward"
@@ -27,7 +28,7 @@ func (e exitError) Error() string { return fmt.Sprintf("exit status %d", int(e))
 
 func newRunCmd() *cobra.Command {
 	var routeSpecs []string
-	var configPath string
+	var configPath, scenario, reportPath string
 
 	cmd := &cobra.Command{
 		Use:   "run -- <command> [args...]",
@@ -53,6 +54,13 @@ func newRunCmd() *cobra.Command {
 			"The child owns stdin, stdout and stderr, interrupts are handed to it\n" +
 			"rather than acted on here, and Faultline exits with the child's own exit\n" +
 			"code. Everything Faultline itself prints goes to stderr.\n\n" +
+			"One run is one session. It ends with a report of what the application\n" +
+			"actually did - how many calls were faulted, how many were retried, how\n" +
+			"long the longest wait was - printed as a table on stderr, and written as\n" +
+			"JSON to the file --report names. With --scenario the run is a rehearsal:\n" +
+			"the scenario is turned on before the child starts, which also starts its\n" +
+			"rules' behavior state over, and off again once the child has exited,\n" +
+			"whether it passed, failed, or was interrupted.\n\n" +
 			"Browser traffic is not the child's traffic, so a wrapped dev server's\n" +
 			"page is not covered by any of this. Give the dependency an explicit\n" +
 			"route with --route and point the dev server's own proxy at the local\n" +
@@ -62,6 +70,10 @@ func newRunCmd() *cobra.Command {
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := loadConfig(configPath)
+			if err != nil {
+				return err
+			}
+			sess, err := newSession(cfg, scenario, reportPath)
 			if err != nil {
 				return err
 			}
@@ -83,7 +95,7 @@ func newRunCmd() *cobra.Command {
 			}
 
 			code, err := run(cmd.Context(), cmd.OutOrStdout(), cmd.ErrOrStderr(), cmd.InOrStdin(),
-				cfg, admin.DefaultPort, forward.DefaultPort, routes, ca, bypass, args)
+				cfg, admin.DefaultPort, forward.DefaultPort, routes, ca, bypass, sess, args)
 			if err != nil {
 				return err
 			}
@@ -95,6 +107,11 @@ func newRunCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&configPath, "config", "", configFlagHelp)
+	cmd.Flags().StringVar(&scenario, "scenario", "",
+		"turn this scenario from the configuration file on for the run and off again after "+
+			"(--scenario orders-flaky)")
+	cmd.Flags().StringVar(&reportPath, "report", "",
+		"also write the session report to this file, as the API's own JSON (--report report.json)")
 	cmd.Flags().StringArrayVar(&routeSpecs, "route", nil,
 		"explicit route as name=url, repeatable; point a dev server's own proxy "+
 			"at the port it prints (--route api=https://api.stripe.com)")
@@ -108,7 +125,7 @@ func newRunCmd() *cobra.Command {
 // run brings the stack up, runs args under it, and takes it down again once
 // the child is gone. The returned code is the child's, so the caller can exit
 // with it. Faultline's own output goes to errOut: stdout is the child's.
-func run(ctx context.Context, out, errOut io.Writer, in io.Reader, cfg *config.Config, adminPort, proxyPort int, routes []reverse.Route, ca *tlsmitm.CA, bypass *forward.Bypass, args []string) (int, error) {
+func run(ctx context.Context, out, errOut io.Writer, in io.Reader, cfg *config.Config, adminPort, proxyPort int, routes []reverse.Route, ca *tlsmitm.CA, bypass *forward.Bypass, sess session, args []string) (int, error) {
 	caPath := ""
 	if ca != nil {
 		caPath = ca.CertPath
@@ -120,22 +137,41 @@ func run(ctx context.Context, out, errOut io.Writer, in io.Reader, cfg *config.C
 	if err != nil {
 		return 1, err
 	}
-
-	if err := s.banner(errOut); err != nil {
+	fail := func(err error) (int, error) {
 		_ = s.stop(context.Background())
 		return 1, err
 	}
 
+	if err := s.banner(errOut); err != nil {
+		return fail(err)
+	}
+
+	// The session turns its scenario on and reads its report over the same API
+	// a person or a test would, so there is one way to do each and not two.
+	c, err := client.New(s.adminURL())
+	if err != nil {
+		return fail(err)
+	}
+	if err := sess.activate(ctx, c, errOut); err != nil {
+		return fail(err)
+	}
+
+	s.watch(ctx)
+
 	// A child that does not trust the CA is the most common way a wrapped run
 	// goes wrong, and it looks like a network failure from the child's side, so
 	// the run says so as it happens rather than only in /api/upstreams.
-	s.watch(ctx)
-
 	stopWatching := watchDistrust(s.recorder, errOut, trustVars)
 
 	env := runner.Env(os.Environ(), s.proxyURL(), noProxy(bypass), caPath, javaStore)
 	code, runErr := runner.Run(ctx, args, env, in, out, errOut)
 	stopWatching()
+
+	// Whatever ended the child, the scenario comes off and the report goes out,
+	// so an interrupted run says as much as a clean one.
+	finishCtx, cancelFinish := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
+	sessionErr := sess.finish(finishCtx, c, errOut)
+	cancelFinish()
 
 	// The child is gone, so nothing new will arrive; the timeout is only there
 	// for requests it left in flight.
@@ -143,10 +179,21 @@ func run(ctx context.Context, out, errOut io.Writer, in io.Reader, cfg *config.C
 	defer cancel()
 	stopErr := s.stop(shutdownCtx)
 
-	if runErr != nil {
+	return outcome(errOut, code, runErr, errors.Join(sessionErr, stopErr))
+}
+
+// outcome settles what the run returns. The child's exit code is the answer
+// this command gives, so a problem of Faultline's own - a scenario that would
+// not turn off, a report file that could not be written - is said out loud
+// rather than replacing a code the child earned.
+func outcome(errOut io.Writer, code int, runErr, ownErr error) (int, error) {
+	switch {
+	case runErr != nil:
 		return code, runErr
+	case ownErr != nil && code != 0:
+		return code, printf(errOut, "faultline: %v\n", ownErr)
 	}
-	return code, stopErr
+	return code, ownErr
 }
 
 // ensureCA loads the interception CA, creating it the first time `run` is

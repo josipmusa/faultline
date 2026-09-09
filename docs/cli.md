@@ -12,6 +12,10 @@ faultline events    tail | export
 faultline upstreams
 ```
 
+`faultline run` is the exception: it starts an instance of its own around one
+command, and [Sessions and reports](#sessions-and-reports) below is what it
+adds to the ones here.
+
 ## Two flags everything takes
 
 `--admin` is the address of the instance, `http://localhost:9000` unless you
@@ -116,6 +120,72 @@ echo-throttled  yes     echo-rate-limited
 Only one scenario is on at a time, so turning one on turns off whichever was.
 Turning one on also starts its rules' behavior state over, which is how you
 rerun a rehearsal from the beginning: turn on the one that is already on.
+
+## Sessions and reports
+
+One `faultline run` is one session, and it ends with a report of what the
+application actually did:
+
+```
+$ faultline run --scenario orders-flaky -- go run ./examples/go-client --count 3
+admin: http://127.0.0.1:9000
+config: faultline.yaml, watched for changes
+proxy: http://127.0.0.1:9001
+tls: intercepting HTTPS with CA "/home/you/.config/faultline/ca.crt"
+bypass: localhost, 127.0.0.1, ::1
+scenario: orders-flaky active for this run
+2026/09/09 22:53:24 call 1: 503, 38 bytes, 10ms
+2026/09/09 22:53:25 call 2: 503, 38 bytes, 0s
+2026/09/09 22:53:27 call 3: 200, 273 bytes, 553ms
+
+report: this run
+REQUESTS  FAULTED  RETRIES  MAX RETRY WAIT  ABANDONED
+3         2        2        1002ms          0
+```
+
+`--scenario <name>` turns that scenario on before the child starts and off
+again once it has exited, whether it passed, failed, or was interrupted.
+Because activating a scenario also starts its rules' behavior state over, the
+run begins the rehearsal from the beginning every time. A name the
+configuration file does not declare is refused before the child starts:
+
+```
+$ faultline run --scenario ghost -- go test ./...
+faultline: --scenario "ghost": faultline.yaml declares no scenario by that name; it has orders-flaky
+```
+
+The report is printed for every run, scenario or not: a session is a session,
+and a run that faulted nothing still says how many calls went out. It goes to
+stderr, because stdout belongs to the child, and the exit code is the child's
+own, so a failing test suite still fails and still gets its report.
+
+`--report <file>` also writes the report as the API's own JSON, which is what a
+CI job wants:
+
+```
+$ faultline run --scenario orders-flaky --report report.json -- go test ./...
+$ cat report.json
+{
+  "total": 3,
+  "faulted": 2,
+  "retries": 2,
+  "max_retry_wait_ms": 1002,
+  "abandoned": 0
+}
+```
+
+The flag takes the file, not a format, because JSON is the only machine-readable
+shape there is and a flag with one legal value is noise. It is the same document
+`GET /api/sessions/current/report` returns, so a test that wants the numbers
+while the run is still going can read them there instead.
+
+Two things the numbers mean. **A retry is a second call to the same method and
+path on the same upstream within five seconds of one that failed**, whoever made
+it: a poll loop looks like a retrying client to this heuristic, and so does a
+second run of the same request by hand. **`abandoned` counts a failed call only
+once its five second window has closed**, so calls that failed in the last
+seconds before the child exited are not counted there yet; the report is taken
+the moment the child is gone rather than five seconds later.
 
 ## Events
 

@@ -171,7 +171,9 @@ scenario, or a whole rule written in place, which is how a rule that belongs to
 one situation stays next to it.
 
 Scenarios come from the file. They are not created or edited through the API:
-turning one on and off is.
+turning one on and off is. `faultline run --scenario <name>` turns one on for
+the length of one command and off again after, and prints the report of what
+happened while it was on; see [docs/cli.md](cli.md#sessions-and-reports).
 
 ```
 GET  /api/scenarios                      the file's scenarios, in file order
