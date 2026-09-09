@@ -24,6 +24,11 @@ type Upstream struct {
 	Faulted  int         `json:"faulted"`
 	Bypassed bool        `json:"bypassed"`
 	LastSeen time.Time   `json:"last_seen"`
+
+	// Hint is advice for something wrong with this host that no status code
+	// explains, such as a client that refused the interception certificate.
+	// Empty when there is nothing to say.
+	Hint string `json:"hint,omitempty"`
 }
 
 type eventQuery struct {
@@ -47,7 +52,7 @@ func (s *Server) clearEvents(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) listUpstreams(w http.ResponseWriter, _ *http.Request) {
-	s.writeJSON(w, http.StatusOK, upstreamsOf(s.events.Events(), s.bypass.Seen()))
+	s.writeJSON(w, http.StatusOK, upstreamsOf(s.events.Events(), s.bypass.Seen(), s.trust))
 }
 
 func parseEventQuery(v url.Values) (eventQuery, error) {
@@ -97,7 +102,11 @@ func (q eventQuery) apply(all []events.Event) []events.Event {
 // from the most recent event, so a host moves from encrypted to intercepted as
 // soon as interception starts working for it. A bypassed host has no events,
 // so the two sets never overlap.
-func upstreamsOf(all []events.Event, bypassed []forward.Bypassed) []Upstream {
+//
+// trustVars are the trust variables Faultline set for a wrapped child, named
+// in the hint a host gets when its client rejected the interception
+// certificate.
+func upstreamsOf(all []events.Event, bypassed []forward.Bypassed, trustVars []string) []Upstream {
 	byHost := make(map[string]*Upstream)
 
 	for _, e := range all {
@@ -112,6 +121,16 @@ func upstreamsOf(all []events.Event, bypassed []forward.Bypassed) []Upstream {
 		}
 		if !e.Timestamp.Before(u.LastSeen) {
 			u.LastSeen, u.Tier = e.Timestamp, e.Tier
+		}
+		// Events arrive oldest first, so the last handshake outcome wins: the
+		// hint appears when a client rejects the certificate and goes away by
+		// itself once requests start coming through the tunnel, which is what
+		// trusting the CA mid-run looks like from here.
+		switch {
+		case forward.Distrusted(e):
+			u.Hint = forward.DistrustHint(trustVars)
+		case e.Tier == events.TierIntercepted && e.Error == "":
+			u.Hint = ""
 		}
 	}
 

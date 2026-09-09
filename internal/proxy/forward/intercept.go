@@ -104,13 +104,22 @@ func (i *Interceptor) record(e events.Event, start time.Time) {
 }
 
 // describeHandshakeError turns a failed handshake into the sentence the event
-// carries. A client that does not trust the CA, or pins its upstream, either
-// sends a certificate alert or simply hangs up once it has seen the leaf; both
-// are reported as a rejection, since from Faultline's side they are the same
-// thing and the fix is the same.
+// carries. A client that does not trust the CA, or pins its upstream, sends a
+// certificate alert, hangs up once it has seen the leaf, or sends an alert
+// Faultline cannot read; all three are reported as a rejection, since from
+// Faultline's side they are the same thing and the fix is the same.
+//
+// The unreadable alert is what OpenSSL clients do over TLS 1.3: the server
+// half of the handshake is finished and its keys have moved on by the time the
+// client gives up, so the alert arrives under the earlier keys and fails to
+// decrypt. A bad record MAC on a connection whose only traffic so far is a
+// handshake is that, not corruption on the wire.
 func describeHandshakeError(err error) string {
 	var opErr *net.OpError
 	if errors.As(err, &opErr) && opErr.Op == "remote error" && strings.Contains(opErr.Err.Error(), "certificate") {
+		return ErrClientRejectedCertificate
+	}
+	if errors.As(err, &opErr) && opErr.Op == "local error" && strings.Contains(opErr.Err.Error(), "bad record MAC") {
 		return ErrClientRejectedCertificate
 	}
 	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, net.ErrClosed) {

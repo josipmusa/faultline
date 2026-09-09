@@ -102,7 +102,14 @@ func newRunCmd() *cobra.Command {
 // the child is gone. The returned code is the child's, so the caller can exit
 // with it. Faultline's own output goes to errOut: stdout is the child's.
 func run(ctx context.Context, out, errOut io.Writer, in io.Reader, adminPort, proxyPort int, routes []reverse.Route, ca *tlsmitm.CA, bypass *forward.Bypass, args []string) (int, error) {
-	s, err := start(adminPort, proxyPort, routes, ca, bypass)
+	caPath := ""
+	if ca != nil {
+		caPath = ca.CertPath
+	}
+	javaStore := javaTrustStore(caPath, errOut)
+	trustVars := runner.TrustVars(caPath, javaStore)
+
+	s, err := start(adminPort, proxyPort, routes, ca, bypass, trustVars)
 	if err != nil {
 		return 1, err
 	}
@@ -112,12 +119,14 @@ func run(ctx context.Context, out, errOut io.Writer, in io.Reader, adminPort, pr
 		return 1, err
 	}
 
-	caPath := ""
-	if ca != nil {
-		caPath = ca.CertPath
-	}
-	env := runner.Env(os.Environ(), s.proxyURL(), noProxy(bypass), caPath, javaTrustStore(caPath, errOut))
+	// A child that does not trust the CA is the most common way a wrapped run
+	// goes wrong, and it looks like a network failure from the child's side, so
+	// the run says so as it happens rather than only in /api/upstreams.
+	stopWatching := watchDistrust(s.recorder, errOut, trustVars)
+
+	env := runner.Env(os.Environ(), s.proxyURL(), noProxy(bypass), caPath, javaStore)
 	code, runErr := runner.Run(ctx, args, env, in, out, errOut)
+	stopWatching()
 
 	// The child is gone, so nothing new will arrive; the timeout is only there
 	// for requests it left in flight.

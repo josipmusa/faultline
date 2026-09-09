@@ -28,6 +28,7 @@ type Server struct {
 	rules   *rules.Store
 	events  *events.Recorder
 	bypass  *forward.Bypass
+	trust   []string
 	log     *slog.Logger
 	mux     *http.ServeMux
 	watcher *ruleWatcher
@@ -41,9 +42,12 @@ type Server struct {
 }
 
 // NewServer wires the API onto a rule store, an event recorder and the forward
-// proxy's bypass list, which may be nil. Nothing is listening until Start is
-// called; the Server is a plain http.Handler until then.
-func NewServer(store *rules.Store, rec *events.Recorder, bypass *forward.Bypass, logger *slog.Logger) *Server {
+// proxy's bypass list, which may be nil. trustVars are the trust variables
+// Faultline set for a wrapped child, reported with a host whose client
+// rejected the interception certificate; there are none when Faultline runs no
+// child. Nothing is listening until Start is called; the Server is a plain
+// http.Handler until then.
+func NewServer(store *rules.Store, rec *events.Recorder, bypass *forward.Bypass, trustVars []string, logger *slog.Logger) *Server {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -51,6 +55,7 @@ func NewServer(store *rules.Store, rec *events.Recorder, bypass *forward.Bypass,
 		rules:   store,
 		events:  rec,
 		bypass:  bypass,
+		trust:   trustVars,
 		log:     logger,
 		mux:     http.NewServeMux(),
 		watcher: newRuleWatcher(store.Changes()),

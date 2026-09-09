@@ -283,6 +283,7 @@ func TestDescribeHandshakeError(t *testing.T) {
 		{"certificate alert", &net.OpError{Op: "remote error", Err: errors.New("tls: bad certificate")}, ErrClientRejectedCertificate},
 		{"unknown ca alert", &net.OpError{Op: "remote error", Err: errors.New("tls: unknown certificate authority")}, ErrClientRejectedCertificate},
 		{"client hung up", io.EOF, ErrClientRejectedCertificate},
+		{"alert we cannot decrypt", &net.OpError{Op: "local error", Err: errors.New("tls: bad record MAC")}, ErrClientRejectedCertificate},
 		{"timed out", context.DeadlineExceeded, "client did not complete the TLS handshake in time"},
 		{"not tls at all", errors.New("tls: first record does not look like a TLS handshake"), "TLS handshake failed: tls: first record does not look like a TLS handshake"},
 	}

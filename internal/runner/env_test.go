@@ -235,3 +235,35 @@ func TestEnvQuotesTheTrustStorePath(t *testing.T) {
 		t.Errorf("JAVA_TOOL_OPTIONS = %q, want the trust store path quoted", got)
 	}
 }
+
+// The diagnostics for a client that rejected the interception certificate
+// name the variables it was handed, so what TrustVars reports has to be
+// exactly what Env sets.
+func TestTrustVarsReportsWhatEnvSet(t *testing.T) {
+	tests := []struct {
+		name       string
+		caPath     string
+		trustStore string
+		want       []string
+	}{
+		{"nothing without a CA", "", "", nil},
+		{"the runtime variables with a CA", "/ca.pem", "", trustVars},
+		{"java too with a trust store", "/ca.pem", "/store.p12", append(slices.Clone(trustVars), javaToolOptions)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := TrustVars(tt.caPath, tt.trustStore)
+			if !slices.Equal(got, tt.want) {
+				t.Fatalf("TrustVars = %v, want %v", got, tt.want)
+			}
+
+			env := Env(nil, "http://127.0.0.1:9001", nil, tt.caPath, tt.trustStore)
+			for _, name := range got {
+				if _, ok := lookup(env, name); !ok {
+					t.Errorf("TrustVars names %s but Env does not set it", name)
+				}
+			}
+		})
+	}
+}

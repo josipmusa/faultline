@@ -4,6 +4,7 @@
 package runner
 
 import (
+	"slices"
 	"strings"
 )
 
@@ -28,6 +29,21 @@ var trustVars = []string{"SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE"
 // always 1: there is nothing to decide per child, whose runtime is unknown
 // anyway.
 const nodeEnvProxy = "NODE_USE_ENV_PROXY"
+
+// TrustVars names the variables Env sets that tell the child where to find
+// the Faultline CA, in the same conditions Env sets them. It is what the
+// distrust diagnostics report: a client that rejected the certificate anyway
+// ignored all of these, and the fix is elsewhere.
+func TrustVars(caPath, javaTrustStore string) []string {
+	if caPath == "" {
+		return nil
+	}
+	names := slices.Clone(trustVars)
+	if javaTrustStore != "" {
+		names = append(names, javaToolOptions)
+	}
+	return names
+}
 
 // Env builds the child environment from base, usually os.Environ(). proxyURL
 // is the address of the forward proxy, noProxy the hosts the child should

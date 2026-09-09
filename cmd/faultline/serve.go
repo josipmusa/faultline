@@ -125,8 +125,10 @@ type stack struct {
 
 // start brings the whole stack up, or none of it. With a CA, CONNECT tunnels
 // are intercepted; without one they are tunneled blindly. Hosts on the bypass
-// list, which may be nil, skip the proxy's pipeline altogether.
-func start(adminPort, proxyPort int, routes []reverse.Route, ca *tlsmitm.CA, bypass *forward.Bypass) (*stack, error) {
+// list, which may be nil, skip the proxy's pipeline altogether. trustVars are
+// the trust variables a wrapped child was given, empty for serve, which runs
+// no child.
+func start(adminPort, proxyPort int, routes []reverse.Route, ca *tlsmitm.CA, bypass *forward.Bypass, trustVars []string) (*stack, error) {
 	s := &stack{
 		routes:   routes,
 		recorder: events.NewRecorder(events.DefaultSize),
@@ -165,7 +167,7 @@ func start(adminPort, proxyPort int, routes []reverse.Route, ca *tlsmitm.CA, byp
 	}
 
 	s.proxy = forward.NewServer(pipeline, faults.NewDialer(store, s.recorder), interceptor, bypass, nil)
-	s.api = admin.NewServer(store, s.recorder, bypass, nil)
+	s.api = admin.NewServer(store, s.recorder, bypass, trustVars, nil)
 
 	if err := s.proxy.Start(proxyPort); err != nil {
 		return fail(err)
@@ -238,7 +240,7 @@ func serve(ctx context.Context, out io.Writer, adminPort, proxyPort int, routes 
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	s, err := start(adminPort, proxyPort, routes, ca, bypass)
+	s, err := start(adminPort, proxyPort, routes, ca, bypass, nil)
 	if err != nil {
 		return err
 	}

@@ -1,6 +1,8 @@
 package admin
 
 import (
+	"context"
+	"log/slog"
 	"net/http"
 	"strings"
 	"testing"
@@ -8,6 +10,7 @@ import (
 
 	"github.com/josipmusa/faultline/internal/events"
 	"github.com/josipmusa/faultline/internal/proxy/forward"
+	"github.com/josipmusa/faultline/internal/rules"
 )
 
 // seed records three events: two plain calls to httpbin, one of them faulted,
@@ -192,5 +195,77 @@ func TestListUpstreamsIncludesBypassedHosts(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), `"bypassed":false`) || strings.Contains(w.Body.String(), `"tier":""`) {
 		t.Errorf("body = %s, want bypassed always present and an empty tier omitted", w.Body.String())
+	}
+}
+
+// A client that refuses the interception certificate never gets a status, so
+// the upstreams list is the only place the operator can learn why a host
+// stopped working.
+func TestListUpstreamsHintsAtDistrust(t *testing.T) {
+	s := newTestServer(t)
+	s.events.Record(events.Event{
+		ID: "1", Host: "httpbin.org", Method: http.MethodConnect, Timestamp: time.Now(),
+		Tier: events.TierIntercepted, Error: forward.ErrClientRejectedCertificate,
+	})
+
+	got := decodeBody[[]Upstream](t, do(t, s, http.MethodGet, "/api/upstreams", ""))
+
+	if len(got) != 1 {
+		t.Fatalf("upstreams = %+v, want one row", got)
+	}
+	if !strings.Contains(got[0].Hint, "did not trust the Faultline CA") ||
+		!strings.Contains(got[0].Hint, "docs/trust.md") {
+		t.Errorf("hint = %q, want the distrust hint pointing at the docs", got[0].Hint)
+	}
+}
+
+// The hint names the variables Faultline set, so the answer is not "trust the
+// CA" when the runtime was already told where it is and ignored it.
+func TestListUpstreamsHintNamesTheVariablesFaultlineSet(t *testing.T) {
+	rec := events.NewRecorder(events.DefaultSize)
+	t.Cleanup(rec.Close)
+	s := NewServer(rules.New(), rec, nil, []string{"SSL_CERT_FILE"}, slog.New(slog.DiscardHandler))
+	t.Cleanup(func() { _ = s.Shutdown(context.Background()) })
+	rec.Record(events.Event{
+		ID: "1", Host: "httpbin.org", Timestamp: time.Now(),
+		Tier: events.TierIntercepted, Error: forward.ErrClientRejectedCertificate,
+	})
+
+	got := decodeBody[[]Upstream](t, do(t, s, http.MethodGet, "/api/upstreams", ""))
+
+	if len(got) != 1 || !strings.Contains(got[0].Hint, "SSL_CERT_FILE") {
+		t.Errorf("hint = %q, want SSL_CERT_FILE named in it", got[0].Hint)
+	}
+}
+
+// Trusting the CA mid-run fixes the host, so the hint has to go away on its
+// own once requests start coming through the tunnel.
+func TestListUpstreamsDropsTheHintOnceInterceptionWorks(t *testing.T) {
+	s := newTestServer(t)
+	now := time.Now()
+	s.events.Record(events.Event{
+		ID: "1", Host: "httpbin.org", Method: http.MethodConnect, Timestamp: now.Add(-time.Minute),
+		Tier: events.TierIntercepted, Error: forward.ErrClientRejectedCertificate,
+	})
+	s.events.Record(events.Event{
+		ID: "2", Host: "httpbin.org", Method: http.MethodGet, Path: "/get", Status: 200,
+		Timestamp: now, Tier: events.TierIntercepted,
+	})
+
+	got := decodeBody[[]Upstream](t, do(t, s, http.MethodGet, "/api/upstreams", ""))
+
+	if len(got) != 1 || got[0].Hint != "" {
+		t.Errorf("upstreams = %+v, want the hint gone", got)
+	}
+}
+
+func TestListUpstreamsHasNoHintForAHealthyHost(t *testing.T) {
+	s := newTestServer(t)
+	seed(t, s)
+
+	for _, u := range decodeBody[[]Upstream](t, do(t, s, http.MethodGet, "/api/upstreams", "")) {
+		if u.Hint != "" {
+			t.Errorf("%s carries hint %q, want none", u.Host, u.Hint)
+		}
 	}
 }
