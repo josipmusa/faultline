@@ -38,7 +38,7 @@ func TestRunMirrorsAFailingExitCode(t *testing.T) {
 
 func TestRunGivesTheChildTheEnvironment(t *testing.T) {
 	var stdout bytes.Buffer
-	env := Env(nil, "http://127.0.0.1:9001", []string{"localhost"}, "")
+	env := Env(nil, "http://127.0.0.1:9001", []string{"localhost"}, "", "")
 
 	code, err := Run(context.Background(), []string{"sh", "-c", "echo $HTTP_PROXY $NO_PROXY"}, env, nil, &stdout, nil)
 	if err != nil {

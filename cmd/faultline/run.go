@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -37,6 +38,13 @@ func newRunCmd() *cobra.Command {
 			"Node's native fetch ignores the proxy variables on its own, so\n" +
 			"NODE_USE_ENV_PROXY is set for it; a Node too old to know that variable\n" +
 			"sends fetch calls direct and they will not appear in Faultline.\n\n" +
+			"A JVM reads none of those variables, so JAVA_TOOL_OPTIONS carries the\n" +
+			"same settings as system properties, along with a trust store copied\n" +
+			"from the JDK's own cacerts with the Faultline CA added, so the child\n" +
+			"still trusts everything it trusted before. Reactor Netty, which Spring's\n" +
+			"WebClient is built on, only reads those properties when the client is\n" +
+			"built with proxyWithSystemProperties(); everything on the JDK's own HTTP\n" +
+			"stack, RestClient included, needs no change.\n\n" +
 			"The child owns stdin, stdout and stderr, interrupts are handed to it\n" +
 			"rather than acted on here, and Faultline exits with the child's own exit\n" +
 			"code. Everything Faultline itself prints goes to stderr.\n\n" +
@@ -93,7 +101,7 @@ func run(ctx context.Context, out, errOut io.Writer, in io.Reader, adminPort, pr
 	if ca != nil {
 		caPath = ca.CertPath
 	}
-	env := runner.Env(os.Environ(), s.proxyURL(), noProxy(bypass), caPath)
+	env := runner.Env(os.Environ(), s.proxyURL(), noProxy(bypass), caPath, javaTrustStore(caPath, errOut))
 	code, runErr := runner.Run(ctx, args, env, in, out, errOut)
 
 	// The child is gone, so nothing new will arrive; the timeout is only there
@@ -126,6 +134,27 @@ func ensureCA(dir string, notice io.Writer) (*tlsmitm.CA, error) {
 		return nil, err
 	}
 	return ca, nil
+}
+
+// javaTrustStore builds the trust store a JVM child needs, beside the CA it
+// trusts, and returns where it is. A JVM cannot be handed a certificate to
+// add to its own roots, so this is the only way it can trust Faultline and
+// its real dependencies at once.
+//
+// A machine with no JDK is silent: most children are not JVMs and there is
+// nothing to do. A JDK that fails gets one line, because a JVM child will
+// then fail every HTTPS call for a reason that is not visible from the
+// failure, and the rest of the run is unaffected either way.
+func javaTrustStore(caPath string, notice io.Writer) string {
+	store, err := runner.JavaTrustStore(filepath.Dir(caPath), caPath)
+	switch {
+	case errors.Is(err, runner.ErrNoJDK):
+		return ""
+	case err != nil:
+		_, _ = fmt.Fprintf(notice, "java: no trust store, JVM children will not trust Faultline: %v\n", err)
+		return ""
+	}
+	return store
 }
 
 // noProxy renders the bypass list the way NO_PROXY wants it, so the child

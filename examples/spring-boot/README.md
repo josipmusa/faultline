@@ -28,6 +28,9 @@ Through Faultline, from the same directory:
 faultline run -- ./mvnw spring-boot:run
 ```
 
+Every JVM prints `Picked up JAVA_TOOL_OPTIONS: ...` when it starts that way.
+That line is the JVM saying Faultline reached it.
+
 Then, in another terminal:
 
 ```
@@ -49,9 +52,26 @@ curl localhost:8080/web-client
 
 The JVM's own HTTP stack reads the `http.proxyHost` and `https.proxyHost`
 system properties, and the trust store from `javax.net.ssl.trustStore`, so
-`RestClient` goes through Faultline as soon as those are set. Reactor Netty,
-which `WebClient` is built on, ignores them unless the client is built with
-`proxyWithSystemProperties()`. Having both here keeps the difference visible.
+`RestClient` goes through Faultline as soon as those are set, and
+`faultline run` sets them through `JAVA_TOOL_OPTIONS` without this project
+being changed.
+
+Reactor Netty, which `WebClient` is built on, is the exception: it ignores
+those properties unless the client asks for them, so a default `WebClient`
+calls the upstream directly while everything else in the same JVM goes through
+Faultline. One line fixes it, and this example is set up that way:
+
+```java
+WebClient client = builder
+        .clientConnector(new ReactorClientHttpConnector(
+                HttpClient.create().proxyWithSystemProperties()))
+        .build();
+```
+
+Trust is not part of that difference. Both clients use the JDK trust store
+that `javax.net.ssl.trustStore` names, which is the copy of the JDK's own
+`cacerts` that `faultline run` builds with the Faultline CA added, so the
+application still trusts everything it trusted before.
 
 ## A warning you can ignore
 

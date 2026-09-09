@@ -31,10 +31,11 @@ const nodeEnvProxy = "NODE_USE_ENV_PROXY"
 
 // Env builds the child environment from base, usually os.Environ(). proxyURL
 // is the address of the forward proxy, noProxy the hosts the child should
-// reach directly, written the way NO_PROXY wants them, and caPath the
-// certificate the intercepting CA signs with, empty when HTTPS is passed
-// through untouched.
-func Env(base []string, proxyURL string, noProxy []string, caPath string) []string {
+// reach directly, written the way NO_PROXY wants them, caPath the certificate
+// the intercepting CA signs with, empty when HTTPS is passed through
+// untouched, and javaTrustStore the JDK trust store that CA was added to,
+// empty when there is no CA or no JDK to build one from.
+func Env(base []string, proxyURL string, noProxy []string, caPath, javaTrustStore string) []string {
 	names := append(append([]string{}, proxyVars...), nodeEnvProxy)
 	if caPath != "" {
 		names = append(names, trustVars...)
@@ -45,10 +46,15 @@ func Env(base []string, proxyURL string, noProxy []string, caPath string) []stri
 		owned[strings.ToLower(name)] = true
 	}
 
-	env := make([]string, 0, len(base)+len(names))
+	env := make([]string, 0, len(base)+len(names)+1)
+	inheritedJava := ""
 	for _, kv := range base {
-		key, _, ok := strings.Cut(kv, "=")
+		key, value, ok := strings.Cut(kv, "=")
 		if ok && owned[strings.ToLower(key)] {
+			continue
+		}
+		if ok && key == javaToolOptions {
+			inheritedJava = value
 			continue
 		}
 		env = append(env, kv)
@@ -67,6 +73,10 @@ func Env(base []string, proxyURL string, noProxy []string, caPath string) []stri
 		for _, name := range trustVars {
 			env = append(env, name+"="+caPath)
 		}
+	}
+	if options := javaOptions(proxyURL, noProxy, javaTrustStore); len(options) > 0 {
+		env = append(env, javaToolOptions+"="+
+			strings.TrimSpace(inheritedJava+" "+strings.Join(options, " ")))
 	}
 
 	return env

@@ -3,6 +3,9 @@ package main
 import (
 	"bytes"
 	"context"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -170,4 +173,87 @@ func TestEnsureCACreatesOneOnFirstRunAndSaysSo(t *testing.T) {
 	if second.Len() != 0 {
 		t.Errorf("second call printed %q, want nothing; the CA was already there", second.String())
 	}
+}
+
+func TestRunGivesTheChildAJavaTrustStore(t *testing.T) {
+	if _, err := exec.LookPath("java"); err != nil {
+		t.Skip("no JDK on this machine")
+	}
+	ca, err := tlsmitm.Create(t.TempDir())
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	var out, errOut bytes.Buffer
+	code, err := run(context.Background(), &out, &errOut, nil, 0, 0, ca, nil,
+		[]string{"sh", "-c", "echo $JAVA_TOOL_OPTIONS"})
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0", code)
+	}
+
+	options := strings.TrimSpace(out.String())
+	if !strings.Contains(options, "-Dhttp.proxyHost=") {
+		t.Errorf("JAVA_TOOL_OPTIONS = %q, want the proxy properties", options)
+	}
+	store := filepath.Join(filepath.Dir(ca.CertPath), "java-truststore.p12")
+	if !strings.Contains(options, `-Djavax.net.ssl.trustStore="`+store+`"`) {
+		t.Errorf("JAVA_TOOL_OPTIONS = %q, want the trust store beside the CA at %q", options, store)
+	}
+	if _, err := os.Stat(store); err != nil {
+		t.Errorf("the trust store was not built: %v", err)
+	}
+}
+
+// A JDK that is there but cannot build a store is worth one line, because a
+// JVM child will fail every HTTPS call and the reason is not obvious. It is
+// not fatal: nothing else about the run depends on it.
+func TestRunSaysSoWhenTheTrustStoreCannotBeBuilt(t *testing.T) {
+	ca, err := tlsmitm.Create(t.TempDir())
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	t.Setenv("JAVA_HOME", brokenJDK(t))
+
+	var out, errOut bytes.Buffer
+	code, err := run(context.Background(), &out, &errOut, nil, 0, 0, ca, nil,
+		[]string{"sh", "-c", "echo $JAVA_TOOL_OPTIONS"})
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0", code)
+	}
+
+	if !strings.Contains(errOut.String(), "java:") {
+		t.Errorf("banner = %q, want a line about the trust store", errOut.String())
+	}
+	if strings.Contains(out.String(), "trustStore") {
+		t.Errorf("JAVA_TOOL_OPTIONS = %q, want no trust store when none was built", out.String())
+	}
+	if !strings.Contains(out.String(), "-Dhttp.proxyHost=") {
+		t.Errorf("JAVA_TOOL_OPTIONS = %q, want the proxy properties even so", out.String())
+	}
+}
+
+// brokenJDK looks enough like a JDK to be chosen and fails when used.
+func brokenJDK(t *testing.T) string {
+	t.Helper()
+
+	home := t.TempDir()
+	for _, dir := range []string{"bin", filepath.Join("lib", "security")} {
+		if err := os.MkdirAll(filepath.Join(home, dir), 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(home, "lib", "security", "cacerts"), []byte("not a keystore"), 0o644); err != nil {
+		t.Fatalf("write cacerts: %v", err)
+	}
+	keytool := filepath.Join(home, "bin", "keytool")
+	if err := os.WriteFile(keytool, []byte("#!/bin/sh\necho broken >&2\nexit 1\n"), 0o755); err != nil {
+		t.Fatalf("write keytool: %v", err)
+	}
+	return home
 }
