@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -342,5 +343,124 @@ func TestShutdownIsPromptAfterAClientCommand(t *testing.T) {
 	}
 	if elapsed := time.Since(start); elapsed > 4*streamCloseTimeout {
 		t.Fatalf("shutdown took %v after a client command, want it near %v", elapsed, streamCloseTimeout)
+	}
+}
+
+// wsPair is a connected pair of websocket connections: the one the server
+// handler was given, and the client's end of it.
+func wsPair(t *testing.T) (server, client *websocket.Conn) {
+	t.Helper()
+
+	accepted := make(chan *websocket.Conn, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			t.Errorf("accepting the websocket: %v", err)
+			return
+		}
+		accepted <- conn
+		// Hold the handler open: the connection must outlive it for the test.
+		<-r.Context().Done()
+	}))
+	t.Cleanup(srv.Close)
+
+	ctx, cancel := context.WithTimeout(context.Background(), streamTestTimeout)
+	t.Cleanup(cancel)
+
+	//nolint:bodyclose // Dial nils out resp.Body on a successful handshake and documents that it must not be closed.
+	c, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(srv.URL, "http"), nil)
+	if err != nil {
+		t.Fatalf("dialing the websocket: %v", err)
+	}
+	t.Cleanup(func() { _ = c.CloseNow() })
+
+	select {
+	case s := <-accepted:
+		t.Cleanup(func() { _ = s.CloseNow() })
+		return s, c
+	case <-ctx.Done():
+		t.Fatal("the server never accepted the websocket")
+		return nil, nil
+	}
+}
+
+// Events already recorded outrank the close frame. select picks at random
+// among ready cases, so a shutdown that finds events still queued would
+// otherwise drop the tail of the session at random.
+func TestFlushQueuedWritesEveryQueuedEventBeforeTheStreamCloses(t *testing.T) {
+	s := newTestServer(t)
+	server, client := wsPair(t)
+
+	rec := events.NewRecorder(events.DefaultSize)
+	t.Cleanup(rec.Close)
+	sub := rec.Subscribe()
+	t.Cleanup(sub.Close)
+
+	// Nothing is reading the subscription, so these sit in its channel, which
+	// is the state a shutdown finds when the handler has not been scheduled
+	// since the last request completed.
+	for _, id := range []string{"e1", "e2", "e3"} {
+		rec.Record(events.Event{ID: id, Host: "api.stripe.com", Tier: events.TierPlain})
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), streamTestTimeout)
+	defer cancel()
+	s.flushQueued(ctx, server, sub, "test")
+
+	for _, want := range []string{"e1", "e2", "e3"} {
+		m := readMessage(ctx, t, client)
+		if m.Type != MessageEvent || m.Event == nil {
+			t.Fatalf("message = %+v, want an event", m)
+		}
+		if m.Event.ID != want {
+			t.Errorf("event id = %q, want %q, in the order they were recorded", m.Event.ID, want)
+		}
+	}
+}
+
+// The same guarantee through the handler: whatever was recorded before
+// shutdown began reaches the client, and only then does the socket close.
+func TestStreamLosesNoEventToShutdown(t *testing.T) {
+	s := newTestServer(t)
+	url, ctx := streamServer(t, s)
+	c := dialStream(ctx, t, url)
+
+	// One event read back proves the handler's loop is running and subscribed,
+	// so nothing recorded from here on can be missed for having been early.
+	s.events.Record(events.Event{ID: "first", Tier: events.TierPlain})
+	if m := readMessage(ctx, t, c); m.Event == nil || m.Event.ID != "first" {
+		t.Fatalf("first message = %+v, want event first", m)
+	}
+
+	// A full backlog, so the handler is still working through it when the
+	// watcher closes underneath it. subscriberBacklog is the most a
+	// subscription holds; more than that would be dropped by design.
+	const queued = 100
+	for i := range queued {
+		s.events.Record(events.Event{ID: fmt.Sprintf("e%d", i), Tier: events.TierPlain})
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- s.Shutdown(ctx) }()
+
+	seen := 0
+	for {
+		typ, _, err := c.Read(ctx)
+		if err != nil {
+			if status := websocket.CloseStatus(err); status != websocket.StatusGoingAway {
+				t.Fatalf("close status = %v, want %v", status, websocket.StatusGoingAway)
+			}
+			break
+		}
+		if typ == websocket.MessageText {
+			seen++
+		}
+	}
+
+	if seen != queued {
+		t.Errorf("the client saw %d of %d events recorded before shutdown; the rest were dropped for the close frame", seen, queued)
+	}
+	if err := <-done; err != nil {
+		t.Fatalf("shutting down: %v", err)
 	}
 }

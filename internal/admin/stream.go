@@ -82,6 +82,7 @@ func (s *Server) streamEvents(w http.ResponseWriter, r *http.Request) {
 
 		case _, ok := <-changed:
 			if !ok { // the watcher closed, so the server is shutting down
+				s.flushQueued(ctx, conn, sub, r.RemoteAddr)
 				closeBounded(func() {
 					_ = conn.Close(websocket.StatusGoingAway, "faultline is shutting down")
 				})
@@ -91,6 +92,37 @@ func (s *Server) streamEvents(w http.ResponseWriter, r *http.Request) {
 				s.log.Debug("stream: write failed", "remote", r.RemoteAddr, "err", err)
 				return
 			}
+		}
+	}
+}
+
+// flushQueued writes the events already waiting in sub, and is what a stream
+// does before it closes on shutdown.
+//
+// The proxies stop before the admin server, so anything queued here is the
+// tail of the session: the last requests of a run, already recorded. Without
+// this the close frame would race them, and select picks at random among
+// ready cases, so those events would be dropped whenever the handler had not
+// been scheduled since they arrived. That is rare on an idle laptop and
+// common on a loaded CI runner, which is exactly the kind of difference that
+// should not decide whether a developer sees their last request.
+//
+// Only what is already queued is written. Nothing new can arrive, since the
+// proxies that record are gone by now, and waiting for more would hold up a
+// shutdown that has promised to be prompt.
+func (s *Server) flushQueued(ctx context.Context, conn *websocket.Conn, sub *events.Subscription, remote string) {
+	for {
+		select {
+		case e, ok := <-sub.C:
+			if !ok {
+				return
+			}
+			if err := writeMessage(ctx, conn, Message{Type: MessageEvent, Event: &e}); err != nil {
+				s.log.Debug("stream: write failed while flushing", "remote", remote, "err", err)
+				return
+			}
+		default:
+			return
 		}
 	}
 }
