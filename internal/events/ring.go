@@ -1,5 +1,7 @@
 package events
 
+import "iter"
+
 // DefaultSize is how many events are kept when no size is configured.
 const DefaultSize = 1000
 
@@ -35,6 +37,17 @@ func (r *ringBuffer) all() []Event {
 		out = append(out, r.events[(r.cursor-r.count+i+r.size)%r.size])
 	}
 	return out
+}
+
+// backward yields the buffered events newest first.
+func (r *ringBuffer) backward() iter.Seq[Event] {
+	return func(yield func(Event) bool) {
+		for i := r.count - 1; i >= 0; i-- {
+			if !yield(r.events[(r.cursor-r.count+i+r.size)%r.size]) {
+				return
+			}
+		}
+	}
 }
 
 func (r *ringBuffer) reset() {

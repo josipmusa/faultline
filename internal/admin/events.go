@@ -51,6 +51,12 @@ func (s *Server) clearEvents(w http.ResponseWriter, _ *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// sessionReport answers with how the application behaved under the faults it
+// has been given so far.
+func (s *Server) sessionReport(w http.ResponseWriter, _ *http.Request) {
+	s.writeJSON(w, http.StatusOK, s.events.Report())
+}
+
 func (s *Server) listUpstreams(w http.ResponseWriter, _ *http.Request) {
 	s.writeJSON(w, http.StatusOK, upstreamsOf(s.events.Events(), s.bypass.Seen(), s.trust))
 }

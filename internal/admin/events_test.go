@@ -269,3 +269,34 @@ func TestListUpstreamsHasNoHintForAHealthyHost(t *testing.T) {
 		}
 	}
 }
+
+func TestSessionReportSummarisesWhatHappened(t *testing.T) {
+	s := newTestServer(t)
+	start := time.Now().Add(-time.Minute)
+	s.events.Record(events.Event{
+		ID: "1", Host: "api.stripe.com", Method: "GET", Path: "/v1/charges", Tier: events.TierPlain,
+		Status: 503, Faulted: true, RuleID: "stripe-down", Timestamp: start, DurationMS: 10,
+	})
+	s.events.Record(events.Event{
+		ID: "2", Host: "api.stripe.com", Method: "GET", Path: "/v1/charges", Tier: events.TierPlain,
+		Status: 200, Timestamp: start.Add(510 * time.Millisecond), DurationMS: 10,
+	})
+
+	w := do(t, s, http.MethodGet, "/api/sessions/current/report", "")
+
+	wantStatus(t, w, http.StatusOK)
+	got := decodeBody[events.Report](t, w)
+	want := events.Report{Total: 2, Faulted: 1, Retries: 1, MaxRetryWaitMS: 500}
+	if got != want {
+		t.Errorf("report = %+v, want %+v", got, want)
+	}
+}
+
+func TestSessionReportOfAQuietSessionIsZero(t *testing.T) {
+	w := do(t, newTestServer(t), http.MethodGet, "/api/sessions/current/report", "")
+
+	wantStatus(t, w, http.StatusOK)
+	if got := decodeBody[events.Report](t, w); got != (events.Report{}) {
+		t.Errorf("report = %+v, want every count zero", got)
+	}
+}

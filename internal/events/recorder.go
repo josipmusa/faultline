@@ -3,6 +3,7 @@ package events
 import (
 	"slices"
 	"sync"
+	"time"
 )
 
 // subscriberBacklog is how many events a subscription holds before the
@@ -42,6 +43,8 @@ func (r *Recorder) Record(e Event) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	e.RetryOf = retryOf(r.ring.backward(), e)
+
 	r.ring.add(e)
 	for _, sub := range r.subs {
 		select {
@@ -57,6 +60,14 @@ func (r *Recorder) Events() []Event {
 	defer r.mu.Unlock()
 
 	return r.ring.all()
+}
+
+// Report summarises the session so far.
+func (r *Recorder) Report() Report {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return Reported(r.ring.all(), time.Now())
 }
 
 // Clear drops every recorded event. Subscribers are left alone: the stream is

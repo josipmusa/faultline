@@ -79,6 +79,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/events/stream", s.streamEvents)
 	s.mux.HandleFunc("DELETE /api/events", s.clearEvents)
 	s.mux.HandleFunc("GET /api/upstreams", s.listUpstreams)
+	s.mux.HandleFunc("GET /api/sessions/current/report", s.sessionReport)
 
 	s.mux.HandleFunc("/", s.unknown)
 }

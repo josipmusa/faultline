@@ -48,5 +48,9 @@ type Event struct {
 	// Empty when the request went through.
 	Error string `json:"error,omitempty"`
 
+	// RetryOf names the attempt this request repeats, when it looks like one.
+	// The recorder fills it in; it is not something a caller sets.
+	RetryOf string `json:"retry_of,omitempty"`
+
 	Tier Tier `json:"tier"`
 }
