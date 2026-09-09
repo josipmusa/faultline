@@ -413,3 +413,112 @@ func TestRevisionIsNotOnTheWire(t *testing.T) {
 		t.Errorf("revision reached the wire: %s", out)
 	}
 }
+
+func TestReplaceSwapsTheWholeSet(t *testing.T) {
+	st := New()
+	mustAdd(t, st, rule("a"), rule("b"))
+
+	st.Replace([]Rule{rule("b"), rule("c")})
+
+	if order := ids(st.List()); fmt.Sprint(order) != "[b c]" {
+		t.Errorf("after Replace List = %v, want [b c]", order)
+	}
+	if _, err := st.Get("a"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("Get a after Replace = %v, want ErrNotFound", err)
+	}
+}
+
+func TestReplaceKeepsTheRevisionOfAnUnchangedRule(t *testing.T) {
+	st := New()
+	mustAdd(t, st, rule("a"), rule("b"))
+
+	before, err := st.Get("a")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+
+	edited := rule("b")
+	edited.Fault = Fault{Type: "delay", Params: Params{"ms": 999}}
+	st.Replace([]Rule{rule("a"), edited})
+
+	after, err := st.Get("a")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if after.Revision != before.Revision {
+		t.Errorf("an untouched rule went from revision %d to %d, so its behavior state was thrown away",
+			before.Revision, after.Revision)
+	}
+
+	changed, err := st.Get("b")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if changed.Revision == before.Revision || changed.Revision == 0 {
+		t.Errorf("the edited rule kept revision %d, so its behavior state would not reset", changed.Revision)
+	}
+}
+
+func TestReplaceStampsARuleThatOnlyChangedItsEnabledFlag(t *testing.T) {
+	st := New()
+	mustAdd(t, st, rule("a"))
+
+	before, _ := st.Get("a")
+	st.Replace([]Rule{rule("a").WithEnabled(false)})
+
+	after, _ := st.Get("a")
+	if after.Revision == before.Revision {
+		t.Errorf("disabling through a reload kept revision %d", after.Revision)
+	}
+}
+
+func TestReplaceKeepsCopies(t *testing.T) {
+	st := New()
+	incoming := rule("a")
+	st.Replace([]Rule{incoming})
+
+	incoming.Match.Header["X-Test"] = "tampered"
+
+	if got, _ := st.Get("a"); got.Match.Header["X-Test"] != "1" {
+		t.Error("Replace must store copies, not the caller's rules")
+	}
+}
+
+func TestReplaceNotifiesOnlyWhenSomethingChanged(t *testing.T) {
+	st := New()
+	changes := st.Changes()
+	mustAdd(t, st, rule("a"))
+	drain(changes)
+
+	st.Replace([]Rule{rule("a")})
+	select {
+	case <-changes:
+		t.Error("a reload that changed nothing still told clients their rules are stale")
+	default:
+	}
+
+	st.Replace([]Rule{rule("a"), rule("b")})
+	select {
+	case <-changes:
+	default:
+		t.Error("a reload that added a rule did not notify")
+	}
+}
+
+func TestReplaceRespectsOrder(t *testing.T) {
+	st := New()
+	mustAdd(t, st, rule("a"), rule("b"))
+	changes := st.Changes()
+	drain(changes)
+
+	st.Replace([]Rule{rule("b"), rule("a")})
+
+	if order := ids(st.List()); fmt.Sprint(order) != "[b a]" {
+		t.Errorf("after Replace List = %v, want [b a]", order)
+	}
+	select {
+	case <-changes:
+	default:
+		t.Error("reordering the file did not notify")
+	}
+}

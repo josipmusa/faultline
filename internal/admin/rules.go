@@ -40,12 +40,12 @@ func (s *Server) createRule(w http.ResponseWriter, r *http.Request) {
 	if rule.ID == "" {
 		rule.ID = s.freeID(rule.Name)
 	}
-	if err := s.rules.Add(rule); err != nil {
+	if err := s.change(func() error { return s.rules.Add(rule) }); err != nil {
 		if errors.Is(err, rules.ErrExists) {
 			s.fail(w, conflict("id", "a rule with id %q already exists", rule.ID))
 			return
 		}
-		s.fail(w, err)
+		s.fail(w, s.saved(err))
 		return
 	}
 	s.writeJSON(w, http.StatusCreated, s.respond(rule))
@@ -69,7 +69,7 @@ func (s *Server) updateRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.rules.Update(rule); err != nil {
+	if err := s.change(func() error { return s.rules.Update(rule) }); err != nil {
 		s.fail(w, s.storeError(id, err))
 		return
 	}
@@ -78,7 +78,7 @@ func (s *Server) updateRule(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) deleteRule(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if err := s.rules.Delete(id); err != nil {
+	if err := s.change(func() error { return s.rules.Delete(id) }); err != nil {
 		s.fail(w, s.storeError(id, err))
 		return
 	}
@@ -94,11 +94,11 @@ func (s *Server) disableRule(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) setEnabled(w http.ResponseWriter, id string, enabled bool) {
-	change := s.rules.Disable
+	setter := s.rules.Disable
 	if enabled {
-		change = s.rules.Enable
+		setter = s.rules.Enable
 	}
-	if err := change(id); err != nil {
+	if err := s.change(func() error { return setter(id) }); err != nil {
 		s.fail(w, s.storeError(id, err))
 		return
 	}
@@ -124,7 +124,7 @@ func (s *Server) storeError(id string, err error) error {
 	if errors.Is(err, rules.ErrNotFound) {
 		return missing("no rule with id %q", id)
 	}
-	return err
+	return s.saved(err)
 }
 
 // decodeRule reads a rule from the request body. Enabled defaults to true, so a

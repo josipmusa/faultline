@@ -26,6 +26,11 @@ type Config struct {
 	Bypass    []string
 	Rules     []rules.Rule
 	Scenarios []Scenario
+
+	// stamp is the file as it was when Load read it, which is how a later
+	// change to it is noticed. It is empty for a configuration parsed from
+	// bytes that never came from a file.
+	stamp stamp
 }
 
 // Scenario is a named situation: a set of rules that go on and off together.

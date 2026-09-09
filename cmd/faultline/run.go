@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/josipmusa/faultline/internal/admin"
+	"github.com/josipmusa/faultline/internal/config"
 	"github.com/josipmusa/faultline/internal/proxy/forward"
 	"github.com/josipmusa/faultline/internal/proxy/reverse"
 	"github.com/josipmusa/faultline/internal/runner"
@@ -26,6 +27,7 @@ func (e exitError) Error() string { return fmt.Sprintf("exit status %d", int(e))
 
 func newRunCmd() *cobra.Command {
 	var routeSpecs []string
+	var configPath string
 
 	cmd := &cobra.Command{
 		Use:   "run -- <command> [args...]",
@@ -59,11 +61,15 @@ func newRunCmd() *cobra.Command {
 			"  faultline run -- npm run dev",
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			routes, err := parseRoutes(routeSpecs, nil)
+			cfg, err := loadConfig(configPath)
 			if err != nil {
 				return err
 			}
-			bypass, err := bypassList(nil)
+			routes, err := routesFor(cfg, routeSpecs, nil)
+			if err != nil {
+				return err
+			}
+			bypass, err := bypassFor(cfg, nil)
 			if err != nil {
 				return err
 			}
@@ -77,7 +83,7 @@ func newRunCmd() *cobra.Command {
 			}
 
 			code, err := run(cmd.Context(), cmd.OutOrStdout(), cmd.ErrOrStderr(), cmd.InOrStdin(),
-				admin.DefaultPort, forward.DefaultPort, routes, ca, bypass, args)
+				cfg, admin.DefaultPort, forward.DefaultPort, routes, ca, bypass, args)
 			if err != nil {
 				return err
 			}
@@ -88,6 +94,7 @@ func newRunCmd() *cobra.Command {
 		},
 	}
 
+	cmd.Flags().StringVar(&configPath, "config", "", configFlagHelp)
 	cmd.Flags().StringArrayVar(&routeSpecs, "route", nil,
 		"explicit route as name=url, repeatable; point a dev server's own proxy "+
 			"at the port it prints (--route api=https://api.stripe.com)")
@@ -101,7 +108,7 @@ func newRunCmd() *cobra.Command {
 // run brings the stack up, runs args under it, and takes it down again once
 // the child is gone. The returned code is the child's, so the caller can exit
 // with it. Faultline's own output goes to errOut: stdout is the child's.
-func run(ctx context.Context, out, errOut io.Writer, in io.Reader, adminPort, proxyPort int, routes []reverse.Route, ca *tlsmitm.CA, bypass *forward.Bypass, args []string) (int, error) {
+func run(ctx context.Context, out, errOut io.Writer, in io.Reader, cfg *config.Config, adminPort, proxyPort int, routes []reverse.Route, ca *tlsmitm.CA, bypass *forward.Bypass, args []string) (int, error) {
 	caPath := ""
 	if ca != nil {
 		caPath = ca.CertPath
@@ -109,7 +116,7 @@ func run(ctx context.Context, out, errOut io.Writer, in io.Reader, adminPort, pr
 	javaStore := javaTrustStore(caPath, errOut)
 	trustVars := runner.TrustVars(caPath, javaStore)
 
-	s, err := start(adminPort, proxyPort, routes, ca, bypass, trustVars)
+	s, err := start(cfg, adminPort, proxyPort, routes, ca, bypass, trustVars)
 	if err != nil {
 		return 1, err
 	}
@@ -122,6 +129,8 @@ func run(ctx context.Context, out, errOut io.Writer, in io.Reader, adminPort, pr
 	// A child that does not trust the CA is the most common way a wrapped run
 	// goes wrong, and it looks like a network failure from the child's side, so
 	// the run says so as it happens rather than only in /api/upstreams.
+	s.watch(ctx)
+
 	stopWatching := watchDistrust(s.recorder, errOut, trustVars)
 
 	env := runner.Env(os.Environ(), s.proxyURL(), noProxy(bypass), caPath, javaStore)

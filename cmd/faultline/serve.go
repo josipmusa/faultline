@@ -17,6 +17,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/josipmusa/faultline/internal/admin"
+	"github.com/josipmusa/faultline/internal/config"
 	"github.com/josipmusa/faultline/internal/events"
 	"github.com/josipmusa/faultline/internal/faults"
 	"github.com/josipmusa/faultline/internal/proxy/forward"
@@ -30,6 +31,7 @@ const shutdownTimeout = 10 * time.Second
 
 func newServeCmd() *cobra.Command {
 	var routeSpecs, portSpecs, bypassSpecs []string
+	var configPath string
 	var proxyPort int
 	var intercept bool
 
@@ -43,13 +45,22 @@ func newServeCmd() *cobra.Command {
 			"response faults reach encrypted traffic too. Pass --intercept=false to\n" +
 			"tunnel HTTPS blindly instead; only connection faults apply then.\n\n" +
 			"Hosts on the bypass list are passed through untouched: no rules, no events,\n" +
-			"no interception. localhost is always on it, so Faultline never proxies itself.",
+			"no interception. localhost is always on it, so Faultline never proxies itself.\n\n" +
+			"A faultline.yaml in the working directory is read at startup and watched\n" +
+			"while Faultline runs: edit a rule and save, and the change is in force\n" +
+			"without a restart. Rules added or changed through the API are written back\n" +
+			"to it. Routes and the bypass list are read once, so a change to those needs\n" +
+			"a restart; Faultline says so rather than ignoring it.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			routes, err := parseRoutes(routeSpecs, portSpecs)
+			cfg, err := loadConfig(configPath)
 			if err != nil {
 				return err
 			}
-			bypass, err := bypassList(bypassSpecs)
+			routes, err := routesFor(cfg, routeSpecs, portSpecs)
+			if err != nil {
+				return err
+			}
+			bypass, err := bypassFor(cfg, bypassSpecs)
 			if err != nil {
 				return err
 			}
@@ -61,10 +72,11 @@ func newServeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return serve(cmd.Context(), cmd.OutOrStdout(), admin.DefaultPort, proxyPort, routes, ca, bypass)
+			return serve(cmd.Context(), cmd.OutOrStdout(), cfg, admin.DefaultPort, proxyPort, routes, ca, bypass)
 		},
 	}
 
+	cmd.Flags().StringVar(&configPath, "config", "", configFlagHelp)
 	cmd.Flags().StringArrayVar(&routeSpecs, "route", nil,
 		"explicit route as name=url, repeatable (--route stripe=https://api.stripe.com)")
 	cmd.Flags().StringArrayVar(&portSpecs, "route-port", nil,
@@ -82,6 +94,8 @@ func newServeCmd() *cobra.Command {
 
 // bypassList builds the forward proxy's bypass list: the defaults that keep
 // Faultline from proxying itself, then whatever --bypass added.
+// bypassList is the always-on entries plus the ones asked for. Only the ones
+// asked for can be wrong here: the loader has already checked the file's.
 func bypassList(specs []string) (*forward.Bypass, error) {
 	bypass, err := forward.NewBypass(append(slices.Clone(forward.DefaultBypass), specs...))
 	if err != nil {
@@ -121,6 +135,7 @@ type stack struct {
 	recorder *events.Recorder
 	ca       *tlsmitm.CA
 	bypass   *forward.Bypass
+	config   *config.File
 }
 
 // start brings the whole stack up, or none of it. With a CA, CONNECT tunnels
@@ -128,7 +143,7 @@ type stack struct {
 // list, which may be nil, skip the proxy's pipeline altogether. trustVars are
 // the trust variables a wrapped child was given, empty for serve, which runs
 // no child.
-func start(adminPort, proxyPort int, routes []reverse.Route, ca *tlsmitm.CA, bypass *forward.Bypass, trustVars []string) (*stack, error) {
+func start(cfg *config.Config, adminPort, proxyPort int, routes []reverse.Route, ca *tlsmitm.CA, bypass *forward.Bypass, trustVars []string) (*stack, error) {
 	s := &stack{
 		routes:   routes,
 		recorder: events.NewRecorder(events.DefaultSize),
@@ -137,6 +152,11 @@ func start(adminPort, proxyPort int, routes []reverse.Route, ca *tlsmitm.CA, byp
 	}
 
 	store := rules.New()
+	if cfg != nil {
+		// The rules the file declares are in force before anything listens, so
+		// the first request through cannot slip past them.
+		store.Replace(cfg.Rules)
+	}
 	// One gate behind every pipeline: a rule that fails the first two requests
 	// fails two altogether, not two per tier.
 	gate := faults.NewGate()
@@ -172,6 +192,11 @@ func start(adminPort, proxyPort int, routes []reverse.Route, ca *tlsmitm.CA, byp
 	s.proxy = forward.NewServer(pipeline, faults.NewDialer(store, s.recorder, gate), interceptor, bypass, nil)
 	s.api = admin.NewServer(store, s.recorder, bypass, trustVars, nil)
 
+	if cfg != nil {
+		s.config = config.Watch(cfg, newReloader(cfg, store, nil), nil)
+		s.api.Persist(s.config)
+	}
+
 	if err := s.proxy.Start(proxyPort); err != nil {
 		return fail(err)
 	}
@@ -192,6 +217,11 @@ func (s *stack) proxyURL() string { return "http://" + s.proxy.Addr() }
 func (s *stack) banner(out io.Writer) error {
 	if _, err := fmt.Fprintf(out, "admin: %s\n", s.adminURL()); err != nil {
 		return err
+	}
+	if s.config != nil {
+		if _, err := fmt.Fprintf(out, "config: %s, watched for changes\n", s.config.Path()); err != nil {
+			return err
+		}
 	}
 	if _, err := fmt.Fprintf(out, "proxy: %s\n", s.proxyURL()); err != nil {
 		return err
@@ -220,8 +250,18 @@ func (s *stack) banner(out io.Writer) error {
 // Proxies go first: the requests they are still serving produce the last
 // events, and those should reach the streams before the admin server closes
 // them. The recorder is closed last, once nothing can record any more.
+// watch follows the configuration file until ctx is cancelled, if there is one.
+func (s *stack) watch(ctx context.Context) {
+	if s.config != nil {
+		s.config.Start(ctx)
+	}
+}
+
 func (s *stack) stop(ctx context.Context) error {
 	var errs []error
+	if s.config != nil {
+		s.config.Stop()
+	}
 	if s.server != nil {
 		errs = append(errs, s.server.Shutdown(ctx))
 	}
@@ -236,14 +276,14 @@ func (s *stack) stop(ctx context.Context) error {
 }
 
 // serve runs the stack until the process is interrupted.
-func serve(ctx context.Context, out io.Writer, adminPort, proxyPort int, routes []reverse.Route, ca *tlsmitm.CA, bypass *forward.Bypass) error {
+func serve(ctx context.Context, out io.Writer, cfg *config.Config, adminPort, proxyPort int, routes []reverse.Route, ca *tlsmitm.CA, bypass *forward.Bypass) error {
 	// Install the signal handler before anything is listening, so an interrupt
 	// during startup shuts the parts that are already up down in order instead
 	// of killing the process where it stands.
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	s, err := start(adminPort, proxyPort, routes, ca, bypass, nil)
+	s, err := start(cfg, adminPort, proxyPort, routes, ca, bypass, nil)
 	if err != nil {
 		return err
 	}
@@ -251,6 +291,7 @@ func serve(ctx context.Context, out io.Writer, adminPort, proxyPort int, routes 
 	if err := s.banner(out); err != nil {
 		return err
 	}
+	s.watch(ctx)
 
 	<-ctx.Done()
 	stop() // a second interrupt is the operator asking for the default, abrupt exit
@@ -274,7 +315,10 @@ func serve(ctx context.Context, out io.Writer, adminPort, proxyPort int, routes 
 // be none: the forward proxy runs either way. Routes with no port of their own
 // are numbered from reverse.FirstPort, skipping any port already claimed, so
 // ports stay predictable across runs.
-func parseRoutes(routeSpecs, portSpecs []string) ([]reverse.Route, error) {
+// parseRouteSpecs reads the --route and --route-port flags. The ports nobody
+// named are left at zero and handed out by assignPorts, once whatever the
+// configuration file adds is known.
+func parseRouteSpecs(routeSpecs, portSpecs []string) ([]reverse.Route, error) {
 	routes := make([]reverse.Route, 0, len(routeSpecs))
 	seen := make(map[string]bool, len(routeSpecs))
 
@@ -309,7 +353,11 @@ func parseRoutes(routeSpecs, portSpecs []string) ([]reverse.Route, error) {
 	if err != nil {
 		return nil, err
 	}
-	assignPorts(routes, ports)
+	for i, route := range routes {
+		if port, ok := ports[route.Name]; ok {
+			routes[i].Port = port
+		}
+	}
 
 	return routes, nil
 }
@@ -342,16 +390,19 @@ func parseRoutePorts(portSpecs []string, known map[string]bool) (map[string]int,
 
 // assignPorts gives every route its explicit port, then fills the gaps from
 // reverse.FirstPort upwards without reusing one.
-func assignPorts(routes []reverse.Route, explicit map[string]int) {
+// assignPorts gives every route that named no port one from 9100 up, leaving
+// the ports already spoken for alone.
+func assignPorts(routes []reverse.Route) {
 	taken := make(map[int]bool, len(routes))
-	for _, port := range explicit {
-		taken[port] = true
+	for _, r := range routes {
+		if r.Port != 0 {
+			taken[r.Port] = true
+		}
 	}
 
 	next := reverse.FirstPort
 	for i, r := range routes {
-		if port, ok := explicit[r.Name]; ok {
-			routes[i].Port = port
+		if r.Port != 0 {
 			continue
 		}
 		for taken[next] {

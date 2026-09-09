@@ -14,11 +14,23 @@ var topLevel = []string{"routes", "bypass", "rules", "scenarios"}
 // such, wrapping os.ErrNotExist, so a caller can treat "no file" as "nothing
 // configured" without reading the message.
 func Load(path string) (*Config, error) {
+	// The file is stamped before it is read, so an edit that lands between the
+	// two is read again later rather than taken for what is already in force.
+	at, statErr := statOf(path)
+
 	data, err := os.ReadFile(path) // #nosec G304 -- the path is the operator's own config file
 	if err != nil {
 		return nil, fmt.Errorf("config: reading %s: %w", path, err)
 	}
-	return Parse(path, data)
+
+	cfg, err := Parse(path, data)
+	if err != nil {
+		return nil, err
+	}
+	if statErr == nil {
+		cfg.stamp = at
+	}
+	return cfg, nil
 }
 
 // Parse checks a configuration file that has already been read. The name is

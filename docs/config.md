@@ -44,6 +44,77 @@ scenarios:
           code: 503
 ```
 
+## Where the file comes from
+
+`faultline serve` and `faultline run` read `faultline.yaml` from the working
+directory when it is there. There is no error when it is not: Faultline runs
+with its rules in memory, exactly as it did before there was a file.
+
+`--config <path>` names another file. That one has to exist; being told to use a
+file that is not there is an error, because you meant that file.
+
+```
+faultline run --config ../ops/faultline.yaml -- npm run dev
+```
+
+The file and the flags are merged, and the flags win, because a flag is what you
+typed just now:
+
+- **routes.** The file's routes plus the `--route` ones. A `--route` with the
+  same name as a route in the file replaces it. Ports are handed out over the
+  whole set, so an automatic port never lands on one the file asked for.
+- **bypass.** The union of the file's `bypass`, `--bypass`, and the entries
+  Faultline always keeps. Nothing conflicts, so nothing has to win.
+- **rules.** The file's, in force before anything is listening.
+
+## While Faultline runs
+
+The file is watched. Save a change and it is in force in about a second, with no
+restart:
+
+- **Rules are applied all at once.** There is no moment where half the file is
+  in force.
+- **A rule you did not touch is left alone.** Behavior state (`first_n`,
+  `pattern`, `for_duration`) belongs to a rule as it is written, so editing one
+  rule does not restart the others. A rule that did change starts over, which is
+  what editing a rule has always meant.
+- **A file that does not parse changes nothing.** The rules already in memory
+  stay in force, and the problem is logged at error level with the file, the
+  line, and the field. The next save that does parse recovers, still without a
+  restart.
+- **Routes and the bypass list are read once.** A route is a listener, and
+  Faultline does not open and close listeners while it runs. Changing either in
+  the file is reported as needing a restart rather than quietly ignored; the
+  rules in that same save are applied as usual.
+
+The file is polled rather than watched through the operating system, which is
+what makes it work with editors that save by writing a temporary file and
+renaming it over the original. A change is read once it has stopped moving, so
+Faultline never reads the half written middle of a save.
+
+## Changes made through the API
+
+When a file is in use, every rule change through the API or the UI is written
+back to it: create, update, delete, enable, disable. The file stays yours.
+
+- Comments, routes, bypass entries, scenarios, and the order of the rules
+  already written are left as they are. A rule nobody changed keeps the words it
+  was written with, down to the quoting.
+- A rule that changed is rewritten where it stands, keeping the comment above
+  it. A rule Faultline has never seen is added at the end of `rules`, and one
+  written inside a scenario is edited inside that scenario, not moved.
+- `enabled` is written out for every rule Faultline writes, because leaving it
+  out means different things in different places in the file.
+- The file is replaced in one step, through a temporary file in the same
+  directory, so a reader sees the old file or the new one and never half of
+  either.
+- A hand edit that the watch has not read yet is applied before the change is
+  made, so an API change is made on top of what the file says rather than
+  overwriting it.
+- While the file does not parse, changes through the API are refused with `409`
+  and the error names the line to fix. Writing into a file Faultline cannot read
+  would either lose what is in it or lose the new rule at the next read.
+
 ## The first line
 
 The `# yaml-language-server` comment points an editor at the published schema,
@@ -108,3 +179,11 @@ faultline.yaml:22: scenarios[0].rules[0]: there is no rule with id "ghost"; writ
 
 Strictness is the point. A key Faultline quietly ignored would be a rehearsal
 that never ran and a report that said everything was fine.
+
+The same messages appear in the log when a save is read while Faultline is
+running, at error level, followed by the rules that stayed in force:
+
+```
+ERROR config: the file was not applied, the rules already in memory stay in force
+  path=faultline.yaml line=14 problem="ms must be 1 or more" field=rules[0].fault.ms
+```

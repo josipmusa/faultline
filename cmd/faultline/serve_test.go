@@ -64,9 +64,9 @@ func TestParseRoutes(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := parseRoutes(tt.routes, tt.ports)
+			got, err := routesFor(nil, tt.routes, tt.ports)
 			if err != nil {
-				t.Fatalf("parseRoutes: %v", err)
+				t.Fatalf("routesFor: %v", err)
 			}
 			if len(got) != len(tt.want) {
 				t.Fatalf("got %d routes, want %d", len(got), len(tt.want))
@@ -102,9 +102,9 @@ func TestParseRoutesRejectsBadInput(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := parseRoutes(tt.routes, tt.ports)
+			got, err := routesFor(nil, tt.routes, tt.ports)
 			if err == nil {
-				t.Fatalf("parseRoutes accepted %v / %v, returning %+v", tt.routes, tt.ports, got)
+				t.Fatalf("routesFor accepted %v / %v, returning %+v", tt.routes, tt.ports, got)
 			}
 			if !strings.Contains(err.Error(), tt.want) {
 				t.Errorf("err = %q, want it to mention %q", err, tt.want)
@@ -114,9 +114,9 @@ func TestParseRoutesRejectsBadInput(t *testing.T) {
 }
 
 func TestParseRoutesAcceptsNoRoutes(t *testing.T) {
-	got, err := parseRoutes(nil, nil)
+	got, err := routesFor(nil, nil, nil)
 	if err != nil {
-		t.Fatalf("parseRoutes: %v", err)
+		t.Fatalf("routesFor: %v", err)
 	}
 	if len(got) != 0 {
 		t.Errorf("got %d routes, want none: the forward proxy is reason enough to serve", len(got))
@@ -183,7 +183,7 @@ func TestServeRunsTheForwardProxy(t *testing.T) {
 	served := make(chan error, 1)
 	go func() {
 		// Port 0 everywhere: the test must not fight a real faultline.
-		served <- serve(ctx, out, 0, 0, nil, nil, nil)
+		served <- serve(ctx, out, nil, 0, 0, nil, nil, nil)
 	}()
 
 	adminAddr := waitForAddr(t, out, "admin: http://")
@@ -318,7 +318,7 @@ func TestServeSaysWhetherItIntercepts(t *testing.T) {
 
 			out := &syncWriter{}
 			served := make(chan error, 1)
-			go func() { served <- serve(ctx, out, 0, 0, nil, tt.ca, nil) }()
+			go func() { served <- serve(ctx, out, nil, 0, 0, nil, tt.ca, nil) }()
 
 			line := waitForLine(t, out, "tls: ")
 			if !strings.Contains(line, tt.want) {
@@ -384,7 +384,7 @@ func TestServeBypassesAHostWithoutRecording(t *testing.T) {
 
 	out := &syncWriter{}
 	served := make(chan error, 1)
-	go func() { served <- serve(ctx, out, 0, 0, nil, nil, bypass) }()
+	go func() { served <- serve(ctx, out, nil, 0, 0, nil, nil, bypass) }()
 
 	adminAddr := waitForAddr(t, out, "admin: http://")
 	proxyAddr := waitForAddr(t, out, "proxy: http://")

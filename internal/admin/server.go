@@ -32,6 +32,7 @@ type Server struct {
 	log     *slog.Logger
 	mux     *http.ServeMux
 	watcher *ruleWatcher
+	persist Persister
 
 	mu       sync.Mutex
 	http     *http.Server
