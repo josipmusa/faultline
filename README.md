@@ -22,6 +22,7 @@ faultline run -- <your app's start command>
 - [ROADMAP.md](ROADMAP.md) — the build plan, stage by stage.
 - [AGENTS.md](AGENTS.md) — engineering conventions and fixed decisions.
 - [CONTRIBUTING.md](CONTRIBUTING.md) — how to work on it.
+- [docs/frontends.md](docs/frontends.md) — why browser traffic needs an explicit route.
 
 ## Development
 

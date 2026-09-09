@@ -3,6 +3,9 @@ package main
 import (
 	"bytes"
 	"context"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/josipmusa/faultline/internal/proxy/forward"
+	"github.com/josipmusa/faultline/internal/proxy/reverse"
 	"github.com/josipmusa/faultline/internal/tlsmitm"
 )
 
@@ -20,7 +24,7 @@ func TestRunGivesTheChildTheProxy(t *testing.T) {
 		t.Fatalf("bypassList: %v", err)
 	}
 
-	code, err := run(context.Background(), &out, &errOut, nil, 0, 0, nil, bypass,
+	code, err := run(context.Background(), &out, &errOut, nil, 0, 0, nil, nil, bypass,
 		[]string{"sh", "-c", "echo $HTTP_PROXY; echo $https_proxy; echo $NO_PROXY"})
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -50,7 +54,7 @@ func TestRunGivesTheChildTheProxy(t *testing.T) {
 
 func TestRunPrintsTheAdminURLBeforeTheChildRuns(t *testing.T) {
 	var out, errOut bytes.Buffer
-	code, err := run(context.Background(), &out, &errOut, nil, 0, 0, nil, nil, []string{"sh", "-c", "exit 0"})
+	code, err := run(context.Background(), &out, &errOut, nil, 0, 0, nil, nil, nil, []string{"sh", "-c", "exit 0"})
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -67,7 +71,7 @@ func TestRunPrintsTheAdminURLBeforeTheChildRuns(t *testing.T) {
 
 func TestRunMirrorsTheChildsExitCode(t *testing.T) {
 	var out, errOut bytes.Buffer
-	code, err := run(context.Background(), &out, &errOut, nil, 0, 0, nil, nil, []string{"sh", "-c", "exit 7"})
+	code, err := run(context.Background(), &out, &errOut, nil, 0, 0, nil, nil, nil, []string{"sh", "-c", "exit 7"})
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -78,7 +82,7 @@ func TestRunMirrorsTheChildsExitCode(t *testing.T) {
 
 func TestRunReportsACommandItCannotStart(t *testing.T) {
 	var out, errOut bytes.Buffer
-	if _, err := run(context.Background(), &out, &errOut, nil, 0, 0, nil, nil, []string{"faultline-no-such-command"}); err == nil {
+	if _, err := run(context.Background(), &out, &errOut, nil, 0, 0, nil, nil, nil, []string{"faultline-no-such-command"}); err == nil {
 		t.Fatal("run accepted a command that does not exist")
 	}
 }
@@ -128,7 +132,7 @@ func TestRunGivesTheChildTheCA(t *testing.T) {
 	}
 
 	var out, errOut bytes.Buffer
-	code, err := run(context.Background(), &out, &errOut, nil, 0, 0, ca, nil,
+	code, err := run(context.Background(), &out, &errOut, nil, 0, 0, nil, ca, nil,
 		[]string{"sh", "-c", "echo $SSL_CERT_FILE; echo $NODE_EXTRA_CA_CERTS"})
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -185,7 +189,7 @@ func TestRunGivesTheChildAJavaTrustStore(t *testing.T) {
 	}
 
 	var out, errOut bytes.Buffer
-	code, err := run(context.Background(), &out, &errOut, nil, 0, 0, ca, nil,
+	code, err := run(context.Background(), &out, &errOut, nil, 0, 0, nil, ca, nil,
 		[]string{"sh", "-c", "echo $JAVA_TOOL_OPTIONS"})
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -218,7 +222,7 @@ func TestRunSaysSoWhenTheTrustStoreCannotBeBuilt(t *testing.T) {
 	t.Setenv("JAVA_HOME", brokenJDK(t))
 
 	var out, errOut bytes.Buffer
-	code, err := run(context.Background(), &out, &errOut, nil, 0, 0, ca, nil,
+	code, err := run(context.Background(), &out, &errOut, nil, 0, 0, nil, ca, nil,
 		[]string{"sh", "-c", "echo $JAVA_TOOL_OPTIONS"})
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -256,4 +260,77 @@ func brokenJDK(t *testing.T) string {
 		t.Fatalf("write keytool: %v", err)
 	}
 	return home
+}
+
+// TestRunServesAnExplicitRoute is 3.7: a wrapped dev server points its own
+// proxy at a route's port, so traffic a browser started still reaches
+// Faultline even though the browser never saw the proxy variables.
+func TestRunServesAnExplicitRoute(t *testing.T) {
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "upstream")
+	}))
+	defer up.Close()
+
+	// The child stands in for a dev server: it stays up until the test has
+	// made its request through the route, then exits like a stopped server.
+	done := filepath.Join(t.TempDir(), "done")
+	child := []string{"sh", "-c", `while [ ! -f "$0" ]; do sleep 0.01; done`, done}
+
+	var out bytes.Buffer
+	errOut := &syncWriter{}
+	routes := []reverse.Route{{Name: "api", Upstream: mustParse(t, up.URL)}}
+
+	ran := make(chan error, 1)
+	go func() {
+		_, err := run(context.Background(), &out, errOut, nil, 0, 0, routes, nil, nil, child)
+		ran <- err
+	}()
+	defer func() {
+		_ = os.WriteFile(done, nil, 0o600)
+		if err := <-ran; err != nil {
+			t.Errorf("run: %v", err)
+		}
+	}()
+
+	adminAddr := waitForAddr(t, errOut, "admin: http://")
+	routeAddr := waitForAddr(t, errOut, "route api: http://")
+
+	resp, err := http.Get("http://" + routeAddr + "/orders")
+	if err != nil {
+		t.Fatalf("request through the route: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || string(body) != "upstream" {
+		t.Fatalf("got %d %q, want 200 %q", resp.StatusCode, body, "upstream")
+	}
+
+	recorded, err := http.Get("http://" + adminAddr + "/api/events")
+	if err != nil {
+		t.Fatalf("reading events: %v", err)
+	}
+	seen, _ := io.ReadAll(recorded.Body)
+	_ = recorded.Body.Close()
+	if !strings.Contains(string(seen), `"path":"/orders"`) {
+		t.Errorf("the route's request was not recorded:\n%s", seen)
+	}
+}
+
+func TestRunRejectsARouteWithNoScheme(t *testing.T) {
+	err := runCmdErr(t, "run", "--route", "api=api.stripe.com", "--", "true")
+	if err == nil {
+		t.Fatal("run accepted a route with no scheme")
+	}
+	if !strings.Contains(err.Error(), "scheme") {
+		t.Errorf("err = %q, want it to name the missing scheme", err)
+	}
+}
+
+func TestRunHelpDocumentsTheRouteFlag(t *testing.T) {
+	got := runCmd(t, "run", "--help")
+	for _, want := range []string{"--route", "name=url"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("run help is missing %q:\n%s", want, got)
+		}
+	}
 }

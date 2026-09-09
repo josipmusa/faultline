@@ -25,10 +25,16 @@ the page's behalf. So point the dev proxy at a Faultline route:
 faultline run --route api=https://httpbin.org -- npm run dev
 ```
 
-and start Vite with `API_TARGET` set to that route's port, for example
-`API_TARGET=http://localhost:9100`. Every call the page makes then runs
-through Faultline, with the page's own loading and error states showing what a
-user would see.
+and start Vite with `API_TARGET` set to that route's port, which `run` prints:
+
+```
+API_TARGET=http://localhost:9100 faultline run --route api=https://httpbin.org -- npm run dev
+```
+
+Every call the page makes then runs through Faultline, with the page's own
+loading and error states showing what a user would see.
+[docs/frontends.md](../../docs/frontends.md) explains why the route is needed
+and how to do the same thing in other frameworks.
 
 ## Configuration
 

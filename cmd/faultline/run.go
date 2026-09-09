@@ -13,6 +13,7 @@ import (
 
 	"github.com/josipmusa/faultline/internal/admin"
 	"github.com/josipmusa/faultline/internal/proxy/forward"
+	"github.com/josipmusa/faultline/internal/proxy/reverse"
 	"github.com/josipmusa/faultline/internal/runner"
 	"github.com/josipmusa/faultline/internal/tlsmitm"
 )
@@ -24,6 +25,8 @@ type exitError int
 func (e exitError) Error() string { return fmt.Sprintf("exit status %d", int(e)) }
 
 func newRunCmd() *cobra.Command {
+	var routeSpecs []string
+
 	cmd := &cobra.Command{
 		Use:   "run -- <command> [args...]",
 		Short: "Start an application with Faultline in front of it",
@@ -48,10 +51,18 @@ func newRunCmd() *cobra.Command {
 			"The child owns stdin, stdout and stderr, interrupts are handed to it\n" +
 			"rather than acted on here, and Faultline exits with the child's own exit\n" +
 			"code. Everything Faultline itself prints goes to stderr.\n\n" +
+			"Browser traffic is not the child's traffic, so a wrapped dev server's\n" +
+			"page is not covered by any of this. Give the dependency an explicit\n" +
+			"route with --route and point the dev server's own proxy at the local\n" +
+			"port it prints (see docs/frontends.md).\n\n" +
 			"Put the command after --, so its own flags are not read as Faultline's:\n" +
 			"  faultline run -- npm run dev",
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			routes, err := parseRoutes(routeSpecs, nil)
+			if err != nil {
+				return err
+			}
 			bypass, err := bypassList(nil)
 			if err != nil {
 				return err
@@ -66,7 +77,7 @@ func newRunCmd() *cobra.Command {
 			}
 
 			code, err := run(cmd.Context(), cmd.OutOrStdout(), cmd.ErrOrStderr(), cmd.InOrStdin(),
-				admin.DefaultPort, forward.DefaultPort, ca, bypass, args)
+				admin.DefaultPort, forward.DefaultPort, routes, ca, bypass, args)
 			if err != nil {
 				return err
 			}
@@ -77,6 +88,10 @@ func newRunCmd() *cobra.Command {
 		},
 	}
 
+	cmd.Flags().StringArrayVar(&routeSpecs, "route", nil,
+		"explicit route as name=url, repeatable; point a dev server's own proxy "+
+			"at the port it prints (--route api=https://api.stripe.com)")
+
 	// Everything after the command name belongs to the child, flags included.
 	cmd.Flags().SetInterspersed(false)
 
@@ -86,8 +101,8 @@ func newRunCmd() *cobra.Command {
 // run brings the stack up, runs args under it, and takes it down again once
 // the child is gone. The returned code is the child's, so the caller can exit
 // with it. Faultline's own output goes to errOut: stdout is the child's.
-func run(ctx context.Context, out, errOut io.Writer, in io.Reader, adminPort, proxyPort int, ca *tlsmitm.CA, bypass *forward.Bypass, args []string) (int, error) {
-	s, err := start(adminPort, proxyPort, nil, ca, bypass)
+func run(ctx context.Context, out, errOut io.Writer, in io.Reader, adminPort, proxyPort int, routes []reverse.Route, ca *tlsmitm.CA, bypass *forward.Bypass, args []string) (int, error) {
+	s, err := start(adminPort, proxyPort, routes, ca, bypass)
 	if err != nil {
 		return 1, err
 	}
