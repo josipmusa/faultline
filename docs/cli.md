@@ -12,9 +12,38 @@ faultline events    tail | export
 faultline upstreams
 ```
 
-`faultline run` is the exception: it starts an instance of its own around one
-command, and [Sessions and reports](#sessions-and-reports) below is what it
-adds to the ones here.
+Two commands are exceptions. `faultline init` writes a file and talks to
+nobody, and `faultline run` starts an instance of its own around one command,
+which [Sessions and reports](#sessions-and-reports) below covers.
+
+## The first file
+
+`faultline init` writes a commented `faultline.yaml` into the working
+directory, holding one example rule and one example scenario, both turned off,
+so starting Faultline right after it changes nothing about your traffic. The
+hosts in it are an illustration: edit them to the ones your application calls.
+[docs/config.md](config.md) is the reference for everything the file can say.
+
+```
+$ faultline init
+wrote faultline.yaml
+Nothing in it is on yet. Edit the hosts to the ones your application calls,
+then run it through Faultline:
+
+  faultline run -- <the command you already use to start your app>
+```
+
+A file that is already there is never overwritten. It is the one thing in the
+directory Faultline cannot give back:
+
+```
+$ faultline init
+faultline: faultline.yaml is already there, and init will not overwrite it; write another file with `faultline init <file>`, or replace this one with --force
+```
+
+`faultline init <file>` writes the file you name instead, which is how a
+configuration that lives beside the repository rather than in it gets started,
+and `--force` replaces one in place.
 
 ## Two flags everything takes
 

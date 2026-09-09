@@ -1,0 +1,73 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/josipmusa/faultline/main/schema/faultline.schema.json
+#
+# The Faultline configuration for this directory. It is meant to be committed,
+# so that everyone rehearses the same outages. The line above lets an editor
+# with the YAML extension check the file while you write it, and Faultline
+# re-reads a saved change in about a second without a restart.
+#
+# Nothing below is on: the rule is disabled and a rule written inside a
+# scenario waits for its scenario, so starting Faultline now leaves your
+# traffic exactly as it was.
+#
+#   faultline run -- <the command you already use to start your app>
+#
+# api.stripe.com is an illustration. Change the hosts to ones your application
+# really calls, or nothing here will ever match.
+
+# A rule is what to match and what to do to it. Anything left out of match
+# matches everything, so a match with only a host covers every call to that
+# host. Turn this one on here, in the UI, or with
+# `faultline rule enable slow-stripe`.
+rules:
+  - id: slow-stripe
+    name: Stripe is slow
+    enabled: false
+    match:
+      host: api.stripe.com
+      method: POST
+      path: /v1/charges/*
+    fault:
+      type: delay
+      ms: 2000
+      jitter_ms: 500
+
+# A scenario is a situation worth rehearsing. Its rules go on and off together:
+#
+#   faultline scenario on payments-down
+#   faultline run --scenario payments-down -- <your test command>
+#
+# The second turns it on for the length of one command, off again after, and
+# prints what your application did. An entry is either the id of a rule
+# declared above, or a whole rule written out here.
+scenarios:
+  - name: payments-down
+    rules:
+      - slow-stripe
+      - id: stripe-503
+        name: Stripe answers 503
+        match:
+          host: api.stripe.com
+        fault:
+          type: status
+          code: 503
+          body: '{"error":"service unavailable"}'
+        behavior:
+          type: percent
+          percent: 50
+
+# Two sections are left out because most applications need neither.
+#
+# bypass: hosts to pass through untouched, with no rules, no events and no
+# interception, the way NO_PROXY works. localhost is always on the list.
+#
+#   bypass:
+#     - "*.internal"
+#
+# routes: for clients that ignore HTTP_PROXY, such as browsers and dev servers.
+# Faultline listens locally and forwards to the upstream, and the client's base
+# URL points at the local address instead.
+#
+#   routes:
+#     - name: stripe
+#       upstream: https://api.stripe.com
+#       port: 9100

@@ -5,7 +5,9 @@ Everything Faultline can be told to do can be written down. The file is
 holds four things: the explicit routes, the hosts to leave alone, the rules, and
 the scenarios.
 
-A copy to start from is in [examples/faultline.yaml](../examples/faultline.yaml).
+`faultline init` writes a commented starter into the working directory, and
+[examples/faultline.yaml](../examples/faultline.yaml) is a fuller one, with the
+routes and bypass sections filled in as well.
 
 ```yaml
 # yaml-language-server: $schema=https://raw.githubusercontent.com/josipmusa/faultline/main/schema/faultline.schema.json
@@ -45,6 +47,13 @@ scenarios:
 ```
 
 ## Where the file comes from
+
+`faultline init` writes one. What it writes is inert: the rule it shows is
+disabled and the rule inside its scenario waits for the scenario, so starting
+Faultline straight after `init` leaves your traffic exactly as it was. The
+hosts in it are an illustration and the comments say so; edit them to the ones
+your application calls. An existing file is never overwritten, `faultline init
+<file>` writes somewhere else, and `--force` replaces one in place.
 
 `faultline serve` and `faultline run` read `faultline.yaml` from the working
 directory when it is there. There is no error when it is not: Faultline runs
