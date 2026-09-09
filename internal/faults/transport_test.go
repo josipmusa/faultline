@@ -82,7 +82,7 @@ func delayRule(id string, ms int) rules.Rule {
 		ID:      id,
 		Name:    "slow",
 		Enabled: true,
-		Fault:   rules.Fault{Type: rules.FaultDelay, MS: ms},
+		Fault:   rules.Fault{Type: "delay", Params: rules.Params{"ms": ms}},
 	}
 }
 
@@ -91,7 +91,7 @@ func statusRule(id string, code int, body string) rules.Rule {
 		ID:      id,
 		Name:    "broken",
 		Enabled: true,
-		Fault:   rules.Fault{Type: rules.FaultStatus, Code: code, Body: body},
+		Fault:   rules.Fault{Type: "status", Params: rules.Params{"code": code, "body": body}},
 	}
 }
 
@@ -560,7 +560,7 @@ func refuseRule(id string) rules.Rule {
 		ID:      id,
 		Name:    "down",
 		Enabled: true,
-		Fault:   rules.Fault{Type: rules.FaultRefuse},
+		Fault:   rules.Fault{Type: "refuse"},
 	}
 }
 

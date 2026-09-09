@@ -96,7 +96,7 @@ func TestDelaysATunnelForAHostOnlyDelayRule(t *testing.T) {
 		ID:      "slow-tls",
 		Enabled: true,
 		Match:   rules.Match{Host: up.Listener.Addr().String()},
-		Fault:   rules.Fault{Type: rules.FaultDelay, MS: 300},
+		Fault:   rules.Fault{Type: "delay", Params: rules.Params{"ms": 300}},
 	}); err != nil {
 		t.Fatalf("adding rule: %v", err)
 	}
@@ -123,7 +123,7 @@ func TestRefusesATunnelWhenARuleSaysSo(t *testing.T) {
 		ID:      "stripe-down",
 		Enabled: true,
 		Match:   rules.Match{Host: "api.stripe.invalid"},
-		Fault:   rules.Fault{Type: rules.FaultRefuse},
+		Fault:   rules.Fault{Type: "refuse"},
 	}); err != nil {
 		t.Fatalf("adding rule: %v", err)
 	}

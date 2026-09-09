@@ -23,7 +23,7 @@ func (s *Server) getRule(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	s.writeJSON(w, http.StatusOK, rule)
+	s.writeJSON(w, http.StatusOK, s.respond(rule))
 }
 
 func (s *Server) createRule(w http.ResponseWriter, r *http.Request) {
@@ -48,7 +48,7 @@ func (s *Server) createRule(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	s.writeJSON(w, http.StatusCreated, rule)
+	s.writeJSON(w, http.StatusCreated, s.respond(rule))
 }
 
 func (s *Server) updateRule(w http.ResponseWriter, r *http.Request) {
@@ -73,7 +73,7 @@ func (s *Server) updateRule(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, s.storeError(id, err))
 		return
 	}
-	s.writeJSON(w, http.StatusOK, rule)
+	s.writeJSON(w, http.StatusOK, s.respond(rule))
 }
 
 func (s *Server) deleteRule(w http.ResponseWriter, r *http.Request) {
@@ -108,7 +108,7 @@ func (s *Server) setEnabled(w http.ResponseWriter, id string, enabled bool) {
 		s.fail(w, err)
 		return
 	}
-	s.writeJSON(w, http.StatusOK, rule)
+	s.writeJSON(w, http.StatusOK, s.respond(rule))
 }
 
 func (s *Server) rule(id string) (rules.Rule, error) {

@@ -13,7 +13,7 @@ func rule(id string) Rule {
 		Name:    id,
 		Enabled: true,
 		Match:   Match{Host: id + ".example", Header: map[string]string{"X-Test": "1"}},
-		Fault:   Fault{Type: FaultDelay, MS: 100},
+		Fault:   Fault{Type: "delay", Params: Params{"ms": 100}},
 	}
 }
 
@@ -42,7 +42,7 @@ func TestAddAndGet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	if got.ID != "a" || got.Match.Host != "a.example" || got.Fault.MS != 100 {
+	if got.ID != "a" || got.Match.Host != "a.example" || got.Fault.Params["ms"] != 100 {
 		t.Errorf("Get returned %+v", got)
 	}
 }
@@ -132,7 +132,7 @@ func TestUpdateReplacesInPlace(t *testing.T) {
 
 	updated := rule("b")
 	updated.Name = "renamed"
-	updated.Fault = Fault{Type: FaultStatus, Code: 503}
+	updated.Fault = Fault{Type: "status", Params: Params{"code": 503}}
 	if err := st.Update(updated); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
@@ -141,7 +141,7 @@ func TestUpdateReplacesInPlace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	if got.Name != "renamed" || got.Fault.Type != FaultStatus || got.Fault.Code != 503 {
+	if got.Name != "renamed" || got.Fault.Type != "status" || got.Fault.Params["code"] != 503 {
 		t.Errorf("Update did not apply: %+v", got)
 	}
 	if order := ids(st.List()); fmt.Sprint(order) != "[a b c]" {

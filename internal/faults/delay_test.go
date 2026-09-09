@@ -5,24 +5,22 @@ import (
 	"errors"
 	"testing"
 	"time"
-
-	"github.com/josipmusa/faultline/internal/rules"
 )
 
 func TestDelayDurationWithoutJitterIsExact(t *testing.T) {
-	got := delayDuration(rules.Fault{MS: 250})
+	got := (delayFault{MS: 250}).duration()
 	if got != 250*time.Millisecond {
-		t.Errorf("delayDuration = %v, want 250ms", got)
+		t.Errorf("duration() = %v, want 250ms", got)
 	}
 }
 
 func TestDelayDurationStaysWithinTheJitterWindow(t *testing.T) {
-	f := rules.Fault{MS: 100, JitterMS: 50}
+	f := delayFault{MS: 100, JitterMS: 50}
 	var sawJitter bool
 	for range 200 {
-		got := delayDuration(f)
+		got := f.duration()
 		if got < 100*time.Millisecond || got >= 150*time.Millisecond {
-			t.Fatalf("delayDuration = %v, want [100ms, 150ms)", got)
+			t.Fatalf("duration() = %v, want [100ms, 150ms)", got)
 		}
 		if got != 100*time.Millisecond {
 			sawJitter = true
@@ -36,40 +34,40 @@ func TestDelayDurationStaysWithinTheJitterWindow(t *testing.T) {
 func TestDelayDurationOfANegativeFaultIsZero(t *testing.T) {
 	// Validation lives at the API boundary; the pipeline must not turn a bad
 	// value into a negative timer.
-	if got := delayDuration(rules.Fault{MS: -5}); got != 0 {
-		t.Errorf("delayDuration = %v, want 0", got)
+	if got := (delayFault{MS: -5}).duration(); got != 0 {
+		t.Errorf("duration() = %v, want 0", got)
 	}
-	if got := delayDuration(rules.Fault{MS: 10, JitterMS: -5}); got != 10*time.Millisecond {
-		t.Errorf("delayDuration = %v, want 10ms", got)
+	if got := (delayFault{MS: 10, JitterMS: -5}).duration(); got != 10*time.Millisecond {
+		t.Errorf("duration() = %v, want 10ms", got)
 	}
 }
 
-func TestApplyDelayWaits(t *testing.T) {
+func TestDelayWaitWaits(t *testing.T) {
 	start := time.Now()
-	if err := applyDelay(context.Background(), rules.Fault{MS: 40}); err != nil {
-		t.Fatalf("applyDelay: %v", err)
+	if err := (delayFault{MS: 40}).wait(context.Background()); err != nil {
+		t.Fatalf("wait: %v", err)
 	}
 	if elapsed := time.Since(start); elapsed < 40*time.Millisecond {
 		t.Errorf("waited %v, want at least 40ms", elapsed)
 	}
 }
 
-func TestApplyDelayOfZeroReturnsImmediately(t *testing.T) {
+func TestDelayWaitOfZeroReturnsImmediately(t *testing.T) {
 	start := time.Now()
-	if err := applyDelay(context.Background(), rules.Fault{}); err != nil {
-		t.Fatalf("applyDelay: %v", err)
+	if err := (delayFault{}).wait(context.Background()); err != nil {
+		t.Fatalf("wait: %v", err)
 	}
 	if elapsed := time.Since(start); elapsed > 20*time.Millisecond {
 		t.Errorf("waited %v for a zero delay", elapsed)
 	}
 }
 
-func TestApplyDelayStopsOnContextCancellation(t *testing.T) {
+func TestDelayWaitStopsOnContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
 
 	start := time.Now()
-	err := applyDelay(ctx, rules.Fault{MS: 30_000})
+	err := (delayFault{MS: 30_000}).wait(ctx)
 	elapsed := time.Since(start)
 
 	if !errors.Is(err, context.DeadlineExceeded) {
@@ -80,10 +78,10 @@ func TestApplyDelayStopsOnContextCancellation(t *testing.T) {
 	}
 }
 
-func TestApplyDelayOnAnAlreadyCancelledContext(t *testing.T) {
+func TestDelayWaitOnAnAlreadyCancelledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if err := applyDelay(ctx, rules.Fault{MS: 30_000}); !errors.Is(err, context.Canceled) {
+	if err := (delayFault{MS: 30_000}).wait(ctx); !errors.Is(err, context.Canceled) {
 		t.Errorf("err = %v, want context.Canceled", err)
 	}
 }

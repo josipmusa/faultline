@@ -1,8 +1,10 @@
 package admin
 
 import (
+	"errors"
 	"strings"
 
+	"github.com/josipmusa/faultline/internal/faults"
 	"github.com/josipmusa/faultline/internal/rules"
 )
 
@@ -63,65 +65,15 @@ func validateMatch(m rules.Match) error {
 	return nil
 }
 
-// faultTypes lists the accepted fault types for error messages.
-const faultTypes = `"delay", "status" or "refuse"`
-
+// validateFault delegates to the fault named by the type: the catalogue in
+// internal/faults owns what each fault accepts, so a new fault is validated
+// here without this file changing.
 func validateFault(f rules.Fault) error {
-	switch f.Type {
-	case "":
-		return invalid("fault.type", "fault.type is required, use %s", faultTypes)
-	case rules.FaultDelay:
-		return validateDelay(f)
-	case rules.FaultStatus:
-		return validateStatus(f)
-	case rules.FaultRefuse:
-		return validateRefuse(f)
-	default:
-		return invalid("fault.type", "unknown fault type %q, use %s", f.Type, faultTypes)
-	}
-}
+	err := faults.Validate(f)
 
-func validateDelay(f rules.Fault) error {
-	if f.MS <= 0 {
-		return invalid("fault.ms", "a delay fault needs ms above 0")
+	var pe *faults.ParamError
+	if errors.As(err, &pe) {
+		return invalid("fault."+pe.Field, "%s", pe.Message)
 	}
-	if f.JitterMS < 0 {
-		return invalid("fault.jitter_ms", "jitter_ms cannot be negative")
-	}
-	if f.Code != 0 {
-		return invalid("fault.code", "code belongs to a status fault, not a delay fault")
-	}
-	if f.Body != "" {
-		return invalid("fault.body", "body belongs to a status fault, not a delay fault")
-	}
-	return nil
-}
-
-func validateStatus(f rules.Fault) error {
-	if f.Code < 100 || f.Code > 599 {
-		return invalid("fault.code", "a status fault needs code between 100 and 599")
-	}
-	if f.MS != 0 {
-		return invalid("fault.ms", "ms belongs to a delay fault, not a status fault")
-	}
-	if f.JitterMS != 0 {
-		return invalid("fault.jitter_ms", "jitter_ms belongs to a delay fault, not a status fault")
-	}
-	return nil
-}
-
-// validateRefuse accepts nothing but the type: refusing a connection has no
-// knobs, so any other field is a sign the user meant a different fault.
-func validateRefuse(f rules.Fault) error {
-	switch {
-	case f.MS != 0:
-		return invalid("fault.ms", "ms belongs to a delay fault, not a refuse fault")
-	case f.JitterMS != 0:
-		return invalid("fault.jitter_ms", "jitter_ms belongs to a delay fault, not a refuse fault")
-	case f.Code != 0:
-		return invalid("fault.code", "code belongs to a status fault, not a refuse fault")
-	case f.Body != "":
-		return invalid("fault.body", "body belongs to a status fault, not a refuse fault")
-	}
-	return nil
+	return err
 }

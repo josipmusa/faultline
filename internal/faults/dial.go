@@ -2,7 +2,9 @@ package faults
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"time"
@@ -19,18 +21,6 @@ type Dialer struct {
 	dial   func(ctx context.Context, network, addr string) (net.Conn, error)
 	rules  *rules.Store
 	events *events.Recorder
-}
-
-// RefusedError says a rule turned the connection away before it was dialed.
-// The proxy turns it into the answer a client would get from an upstream that
-// is not listening, plus the rule id.
-type RefusedError struct {
-	Host   string
-	RuleID string
-}
-
-func (e *RefusedError) Error() string {
-	return fmt.Sprintf("connection to %s refused by rule %s", e.Host, e.RuleID)
 }
 
 // NewDialer builds a Dialer over the rule store and recorder. A nil store means
@@ -55,25 +45,29 @@ func (d *Dialer) Dial(ctx context.Context, addr string) (net.Conn, error) {
 		Tier:   events.TierEncrypted,
 	}
 
-	if rule, ok := d.match(host); ok {
+	if rule, applier, ok := d.match(host); ok {
 		e.Faulted, e.RuleID = true, rule.ID
-		switch rule.Fault.Type {
-		case rules.FaultDelay:
-			if err := applyDelay(ctx, rule.Fault); err != nil {
-				d.record(e, start) // no status: the tunnel never opened
-				return nil, err
-			}
-		case rules.FaultRefuse:
-			e.Status = http.StatusBadGateway
+
+		conn, err := applier.Dial(ctx, rule.ID, addr, d.dial)
+		switch {
+		case err == nil:
+			e.Status = http.StatusOK
 			d.record(e, start)
-			return nil, &RefusedError{Host: host, RuleID: rule.ID}
+			return conn, nil
+		case isRefused(err):
+			e.Status = http.StatusBadGateway
+			d.record(e, start) // the tunnel was never opened
+			return nil, err
+		default:
+			d.record(e, start)
+			return nil, d.dialError(host, err)
 		}
 	}
 
 	conn, err := d.dial(ctx, "tcp", addr)
 	if err != nil {
 		d.record(e, start)
-		return nil, fmt.Errorf("faultline: upstream %s: %w", host, err)
+		return nil, d.dialError(host, err)
 	}
 
 	e.Status = http.StatusOK
@@ -82,19 +76,43 @@ func (d *Dialer) Dial(ctx context.Context, addr string) (net.Conn, error) {
 }
 
 // match returns the first enabled rule that both applies to a bare connection
-// and carries a fault that can act on one. A response fault on a host-only
-// rule is skipped rather than blocking the rules behind it: it needs to see
-// the request, and the encrypted tier on the event says why it did not run.
-func (d *Dialer) match(host string) (rules.Rule, bool) {
+// and carries a fault that can act on one. A response fault on a host-only rule
+// is skipped rather than blocking the rules behind it: it needs to see the
+// request, and the encrypted tier on the event says why it did not run. So is a
+// rule whose fault will not build, which is reported and then ignored.
+func (d *Dialer) match(host string) (rules.Rule, Tunneler, bool) {
 	if d.rules == nil {
-		return rules.Rule{}, false
+		return rules.Rule{}, nil, false
 	}
 	for _, r := range d.rules.List() {
-		if r.MatchesConnection(host) && r.Fault.IsConnection() {
-			return r, true
+		if !r.MatchesConnection(host) {
+			continue
+		}
+		applier, err := Build(r.Fault)
+		if err != nil {
+			slog.Default().Warn("rule applies no fault", "rule", r.ID, "err", err)
+			continue
+		}
+		if tunneler, ok := applier.(Tunneler); ok {
+			return r, tunneler, true
 		}
 	}
-	return rules.Rule{}, false
+	return rules.Rule{}, nil, false
+}
+
+// dialError names the upstream a failed dial was for. A fault's own error, such
+// as a cancelled delay, is not an upstream failure and is left as it is.
+func (d *Dialer) dialError(host string, err error) error {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+	return fmt.Errorf("faultline: upstream %s: %w", host, err)
+}
+
+// isRefused reports whether a rule turned the connection away.
+func isRefused(err error) bool {
+	var refused *RefusedError
+	return errors.As(err, &refused)
 }
 
 // record timestamps the event and hands it to the recorder. The duration

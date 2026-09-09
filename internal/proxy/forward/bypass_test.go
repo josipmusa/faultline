@@ -177,7 +177,7 @@ func TestBypassedConnectTunnelsWithoutRulesOrEvents(t *testing.T) {
 		ID:      "down",
 		Enabled: true,
 		Match:   rules.Match{Host: host},
-		Fault:   rules.Fault{Type: rules.FaultRefuse},
+		Fault:   rules.Fault{Type: "refuse"},
 	}); err != nil {
 		t.Fatalf("adding rule: %v", err)
 	}
@@ -210,7 +210,7 @@ func TestBypassedPlainRequestIsForwardedWithoutRulesOrEvents(t *testing.T) {
 		ID:      "down",
 		Enabled: true,
 		Match:   rules.Match{Host: host},
-		Fault:   rules.Fault{Type: rules.FaultStatus, Code: 503},
+		Fault:   rules.Fault{Type: "status", Params: rules.Params{"code": 503}},
 	}); err != nil {
 		t.Fatalf("adding rule: %v", err)
 	}

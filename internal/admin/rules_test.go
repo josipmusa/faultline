@@ -43,7 +43,7 @@ func TestCreateRuleMintsAnIDAndEnablesTheRule(t *testing.T) {
 	if !got.Enabled {
 		t.Error("a rule posted without an enabled field should start enabled")
 	}
-	if got.Fault.MS != 2000 || got.Match.Host != "api.stripe.com" {
+	if got.Fault.Params["ms"] != float64(2000) || got.Match.Host != "api.stripe.com" {
 		t.Errorf("rule = %+v, want the posted match and fault", got)
 	}
 	if _, err := s.rules.Get("stripe-is-slow"); err != nil {
@@ -95,8 +95,8 @@ func TestCreateRuleAcceptsARefuseFault(t *testing.T) {
 		`{"name":"stripe is down","match":{"host":"api.stripe.com"},"fault":{"type":"refuse"}}`)
 
 	wantStatus(t, w, http.StatusCreated)
-	if got := decodeBody[rules.Rule](t, w).Fault.Type; got != rules.FaultRefuse {
-		t.Errorf("fault type = %q, want %q", got, rules.FaultRefuse)
+	if got := decodeBody[rules.Rule](t, w).Fault.Type; got != "refuse" {
+		t.Errorf("fault type = %q, want %q", got, "refuse")
 	}
 }
 
@@ -164,12 +164,12 @@ func TestUpdateRuleReplacesIt(t *testing.T) {
 
 	wantStatus(t, w, http.StatusOK)
 	got := decodeBody[rules.Rule](t, w)
-	if got.ID != "stripe-is-slow" || got.Name != "Stripe is down" || got.Fault.Type != rules.FaultStatus || got.Fault.MS != 0 {
+	if got.ID != "stripe-is-slow" || got.Name != "Stripe is down" || got.Fault.Type != "status" || got.Fault.Params["ms"] != nil {
 		t.Errorf("rule = %+v, want the delay replaced by a 503", got)
 	}
 
 	stored, err := s.rules.Get("stripe-is-slow")
-	if err != nil || stored.Fault.Code != 503 {
+	if err != nil || stored.Fault.Params["code"] != float64(503) {
 		t.Errorf("stored = %+v, err = %v, want the update to have landed", stored, err)
 	}
 }

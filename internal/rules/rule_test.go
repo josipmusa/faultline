@@ -28,8 +28,11 @@ func TestRuleJSONRoundTrip(t *testing.T) {
 	if r.Match.Header["X-Test"] != "1" {
 		t.Errorf("match header wrong: %+v", r.Match.Header)
 	}
-	if r.Fault.Type != FaultDelay || r.Fault.MS != 2000 || r.Fault.JitterMS != 500 {
-		t.Errorf("fault fields wrong: %+v", r.Fault)
+	if r.Fault.Type != "delay" {
+		t.Errorf("fault type = %q, want %q", r.Fault.Type, "delay")
+	}
+	if r.Fault.Params["ms"] != float64(2000) || r.Fault.Params["jitter_ms"] != float64(500) {
+		t.Errorf("fault params wrong: %+v", r.Fault.Params)
 	}
 
 	out, err := json.Marshal(r)
@@ -38,7 +41,7 @@ func TestRuleJSONRoundTrip(t *testing.T) {
 	}
 	const want = `{"id":"slow-stripe","name":"Stripe is slow","enabled":true,` +
 		`"match":{"host":"api.stripe.com","method":"POST","path":"/v1/charges/*","header":{"X-Test":"1"}},` +
-		`"fault":{"type":"delay","ms":2000,"jitter_ms":500}}`
+		`"fault":{"type":"delay","jitter_ms":500,"ms":2000}}`
 	if string(out) != want {
 		t.Errorf("marshal:\n got %s\nwant %s", out, want)
 	}
@@ -50,7 +53,7 @@ func TestStatusFaultJSON(t *testing.T) {
 		Name:    "Stripe is down",
 		Enabled: true,
 		Match:   Match{Host: "api.stripe.com"},
-		Fault:   Fault{Type: FaultStatus, Code: 503, Body: "upstream unavailable"},
+		Fault:   Fault{Type: "status", Params: Params{"code": 503, "body": "upstream unavailable"}},
 	}
 
 	out, err := json.Marshal(r)
@@ -59,7 +62,7 @@ func TestStatusFaultJSON(t *testing.T) {
 	}
 	const want = `{"id":"stripe-down","name":"Stripe is down","enabled":true,` +
 		`"match":{"host":"api.stripe.com"},` +
-		`"fault":{"type":"status","code":503,"body":"upstream unavailable"}}`
+		`"fault":{"type":"status","body":"upstream unavailable","code":503}}`
 	if string(out) != want {
 		t.Errorf("marshal:\n got %s\nwant %s", out, want)
 	}
@@ -70,7 +73,7 @@ func TestWithEnabledReturnsCopy(t *testing.T) {
 		ID:      "r1",
 		Enabled: true,
 		Match:   Match{Host: "api.stripe.com", Header: map[string]string{"X-Test": "1"}},
-		Fault:   Fault{Type: FaultDelay, MS: 100},
+		Fault:   Fault{Type: "delay", Params: Params{"ms": 100}},
 	}
 
 	disabled := original.WithEnabled(false)
@@ -133,8 +136,11 @@ func TestRefuseFaultJSON(t *testing.T) {
 	if err := json.Unmarshal([]byte(`{"type":"refuse"}`), &f); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if f.Type != FaultRefuse {
-		t.Errorf("type = %q, want %q", f.Type, FaultRefuse)
+	if f.Type != "refuse" {
+		t.Errorf("type = %q, want %q", f.Type, "refuse")
+	}
+	if len(f.Params) != 0 {
+		t.Errorf("params = %v, want none: a refuse fault has no parameters", f.Params)
 	}
 	out, err := json.Marshal(f)
 	if err != nil {
@@ -145,19 +151,41 @@ func TestRefuseFaultJSON(t *testing.T) {
 	}
 }
 
-func TestIsConnectionFault(t *testing.T) {
-	tests := []struct {
-		typ  FaultType
-		want bool
-	}{
-		{FaultDelay, true},
-		{FaultRefuse, true},
-		{FaultStatus, false},
-		{FaultType("explode"), false},
+func TestFaultKeepsUnknownParams(t *testing.T) {
+	// The domain type knows no fault, so every key but the type is a parameter,
+	// even one no fault declares. Rejecting it is the API boundary's job.
+	var f Fault
+	if err := json.Unmarshal([]byte(`{"type":"delay","ms":10,"nonsense":true}`), &f); err != nil {
+		t.Fatalf("unmarshal: %v", err)
 	}
-	for _, tt := range tests {
-		if got := (Fault{Type: tt.typ}).IsConnection(); got != tt.want {
-			t.Errorf("Fault{Type: %q}.IsConnection() = %v, want %v", tt.typ, got, tt.want)
-		}
+	if f.Params["nonsense"] != true {
+		t.Errorf("params = %v, want the unknown key kept", f.Params)
+	}
+
+	out, err := json.Marshal(f)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if string(out) != `{"type":"delay","ms":10,"nonsense":true}` {
+		t.Errorf("marshal = %s, want the parameters back unchanged", out)
+	}
+}
+
+func TestCloneDeepCopiesFaultParams(t *testing.T) {
+	original := Rule{ID: "r1", Fault: Fault{Type: "delay", Params: Params{"ms": 100}}}
+
+	clone := original.Clone()
+	clone.Fault.Params["ms"] = 9000
+
+	if original.Fault.Params["ms"] != 100 {
+		t.Error("Clone must not share the fault parameters with the original")
+	}
+}
+
+func TestCloneWithNilFaultParams(t *testing.T) {
+	original := Rule{ID: "r1", Fault: Fault{Type: "refuse"}}
+
+	if clone := original.Clone(); clone.Fault.Params != nil {
+		t.Errorf("Clone of nil params should stay nil, got %v", clone.Fault.Params)
 	}
 }

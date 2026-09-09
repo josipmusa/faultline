@@ -236,7 +236,7 @@ func TestFaultsApplyThroughTheRoute(t *testing.T) {
 		ID:      "stripe-down",
 		Enabled: true,
 		Match:   rules.Match{Host: host},
-		Fault:   rules.Fault{Type: rules.FaultStatus, Code: 503, Body: "down"},
+		Fault:   rules.Fault{Type: "status", Params: rules.Params{"code": 503, "body": "down"}},
 	}); err != nil {
 		t.Fatalf("adding rule: %v", err)
 	}

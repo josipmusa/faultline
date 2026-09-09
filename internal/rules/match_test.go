@@ -20,7 +20,7 @@ func delayRule(m Match) Rule {
 		Name:    "test",
 		Enabled: true,
 		Match:   m,
-		Fault:   Fault{Type: FaultDelay, MS: 100},
+		Fault:   Fault{Type: "delay", Params: Params{"ms": 100}},
 	}
 }
 
@@ -204,7 +204,7 @@ func TestDisabledRuleNeverMatches(t *testing.T) {
 		t.Error("a disabled rule must not match its own host")
 	}
 
-	empty := Rule{Fault: Fault{Type: FaultDelay, MS: 1}}
+	empty := Rule{Fault: Fault{Type: "delay", Params: Params{"ms": 1}}}
 	if empty.Matches("anything", "GET", "/", nil) {
 		t.Error("a disabled empty-match rule must not match anything")
 	}

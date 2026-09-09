@@ -8,6 +8,7 @@ package faults
 
 import (
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"time"
@@ -55,39 +56,65 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		BytesIn: knownLength(req.ContentLength),
 	}
 
+	next := t.upstream(host)
+
 	if rule, ok := t.match(host, req); ok {
-		switch rule.Fault.Type {
-		case rules.FaultDelay:
+		if applier, ok := t.build(rule); ok {
 			e.Faulted, e.RuleID = true, rule.ID
-			if err := applyDelay(req.Context(), rule.Fault); err != nil {
+
+			resp, err := applier.Respond(rule.ID, req, next)
+			if err != nil {
 				t.record(e, start) // no status: the request never got one
 				return nil, err
 			}
-		case rules.FaultStatus:
-			e.Faulted, e.RuleID = true, rule.ID
-			resp := syntheticResponse(req, rule)
-			e.Status, e.BytesOut = resp.StatusCode, resp.ContentLength
-			t.record(e, start)
-			return resp, nil
-		case rules.FaultRefuse:
-			e.Faulted, e.RuleID = true, rule.ID
-			resp := refusedResponse(req, host, rule.ID)
-			e.Status, e.BytesOut = resp.StatusCode, resp.ContentLength
+			e.Status, e.BytesOut = resp.StatusCode, knownLength(resp.ContentLength)
 			t.record(e, start)
 			return resp, nil
 		}
-		// An unknown fault type applies nothing, so the event reports no fault.
+		// A fault that cannot be built applies nothing, so the event reports
+		// no fault, and the request goes upstream untouched.
 	}
 
-	resp, err := t.base.RoundTrip(req)
+	resp, err := next.RoundTrip(req)
 	if err != nil {
 		t.record(e, start)
-		return nil, fmt.Errorf("faultline: upstream %s: %w", host, err)
+		return nil, err
 	}
 
 	e.Status, e.BytesOut = resp.StatusCode, knownLength(resp.ContentLength)
 	t.record(e, start)
 	return resp, nil
+}
+
+// upstream is the real round trip, as the faults see it: a fault calls it to
+// send the request on, and a fault that answers by itself never does. An
+// upstream failure is named here so a fault's own error, such as a cancelled
+// delay, travels on unwrapped.
+func (t *Transport) upstream(host string) http.RoundTripper {
+	return roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		resp, err := t.base.RoundTrip(req)
+		if err != nil {
+			return nil, fmt.Errorf("faultline: upstream %s: %w", host, err)
+		}
+		return resp, nil
+	})
+}
+
+// roundTripFunc adapts a function to http.RoundTripper.
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
+
+// build configures the rule's fault. A rule the API accepted always builds; one
+// that does not can only have come from elsewhere, so it is reported and then
+// treated as no rule at all rather than failing the request.
+func (t *Transport) build(r rules.Rule) (Applier, bool) {
+	applier, err := Build(r.Fault)
+	if err != nil {
+		slog.Default().Warn("rule applies no fault", "rule", r.ID, "err", err)
+		return nil, false
+	}
+	return applier, true
 }
 
 // match returns the first enabled rule that applies to the request. Store order

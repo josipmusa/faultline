@@ -186,7 +186,7 @@ func TestTunnelledPlaintextGetsResponseFaults(t *testing.T) {
 		ID:      "orders-down",
 		Enabled: true,
 		Match:   rules.Match{Host: target, Path: "/orders"},
-		Fault:   rules.Fault{Type: rules.FaultStatus, Code: http.StatusServiceUnavailable},
+		Fault:   rules.Fault{Type: "status", Params: rules.Params{"code": http.StatusServiceUnavailable}},
 	}); err != nil {
 		t.Fatalf("adding rule: %v", err)
 	}
