@@ -19,7 +19,7 @@ func newRootCmd() *cobra.Command {
 
 	root.AddCommand(
 		newServeCmd(),
-		placeholder("run", "Start an application with Faultline in front of it"),
+		newRunCmd(),
 		placeholder("rule", "Manage fault rules"),
 		placeholder("scenario", "Manage scenarios"),
 		newCACmd(),

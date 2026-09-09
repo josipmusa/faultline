@@ -110,34 +110,48 @@ func resolveInterception(caDir string, flagSet, want bool) (*tlsmitm.CA, error) 
 	return ca, nil
 }
 
-// serve runs the forward proxy and every route until the process is interrupted.
-// With a CA, CONNECT tunnels are intercepted; without one they are tunneled
-// blindly. Hosts on the bypass list, which may be nil, skip the proxy's
-// pipeline altogether.
-func serve(ctx context.Context, out io.Writer, adminPort, proxyPort int, routes []reverse.Route, ca *tlsmitm.CA, bypass *forward.Bypass) error {
-	// Install the signal handler before anything is listening, so an interrupt
-	// during startup shuts the parts that are already up down in order instead
-	// of killing the process where it stands.
-	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
-	defer stop()
+// stack is everything a command brings up: the forward proxy, the admin
+// server, and a listener for each explicit route. serve and run differ only
+// in what they wait for while it is up.
+type stack struct {
+	routes   []reverse.Route
+	server   *reverse.Server
+	proxy    *forward.Server
+	api      *admin.Server
+	recorder *events.Recorder
+	ca       *tlsmitm.CA
+	bypass   *forward.Bypass
+}
+
+// start brings the whole stack up, or none of it. With a CA, CONNECT tunnels
+// are intercepted; without one they are tunneled blindly. Hosts on the bypass
+// list, which may be nil, skip the proxy's pipeline altogether.
+func start(adminPort, proxyPort int, routes []reverse.Route, ca *tlsmitm.CA, bypass *forward.Bypass) (*stack, error) {
+	s := &stack{
+		routes:   routes,
+		recorder: events.NewRecorder(events.DefaultSize),
+		ca:       ca,
+		bypass:   bypass,
+	}
 
 	store := rules.New()
-	recorder := events.NewRecorder(events.DefaultSize)
-	defer recorder.Close()
+	pipeline := faults.New(nil, store, s.recorder, events.TierPlain)
 
-	pipeline := faults.New(nil, store, recorder, events.TierPlain)
+	fail := func(err error) (*stack, error) {
+		_ = s.stop(context.Background())
+		return nil, err
+	}
 
 	// Routes are optional now that the forward proxy is always there: setting
 	// HTTP_PROXY is reason enough to run Faultline.
-	var server *reverse.Server
 	if len(routes) > 0 {
-		var err error
-		server, err = reverse.NewServer(routes, pipeline, nil)
+		server, err := reverse.NewServer(routes, pipeline, nil)
 		if err != nil {
-			return err
+			return fail(err)
 		}
+		s.server = server
 		if err := server.Start(); err != nil {
-			return err
+			return fail(err)
 		}
 	}
 
@@ -145,57 +159,94 @@ func serve(ctx context.Context, out io.Writer, adminPort, proxyPort int, routes 
 	if ca != nil {
 		issuer, err := tlsmitm.NewIssuer(ca)
 		if err != nil {
-			return err
+			return fail(err)
 		}
-		interceptor = forward.NewInterceptor(issuer, faults.New(nil, store, recorder, events.TierIntercepted), recorder, nil)
+		interceptor = forward.NewInterceptor(issuer, faults.New(nil, store, s.recorder, events.TierIntercepted), s.recorder, nil)
 	}
 
-	proxy := forward.NewServer(pipeline, faults.NewDialer(store, recorder), interceptor, bypass, nil)
-	api := admin.NewServer(store, recorder, bypass, nil)
+	s.proxy = forward.NewServer(pipeline, faults.NewDialer(store, s.recorder), interceptor, bypass, nil)
+	s.api = admin.NewServer(store, s.recorder, bypass, nil)
 
-	stopAll := func() {
-		if server != nil {
-			_ = server.Shutdown(context.Background())
-		}
-		_ = proxy.Shutdown(context.Background())
-		_ = api.Shutdown(context.Background())
+	if err := s.proxy.Start(proxyPort); err != nil {
+		return fail(err)
+	}
+	if err := s.api.Start(adminPort); err != nil {
+		return fail(err)
 	}
 
-	if err := proxy.Start(proxyPort); err != nil {
-		stopAll()
+	return s, nil
+}
+
+// adminURL is the address to open, and the one every command prints first.
+func (s *stack) adminURL() string { return "http://" + s.api.Addr() }
+
+// proxyURL is what HTTP_PROXY points at.
+func (s *stack) proxyURL() string { return "http://" + s.proxy.Addr() }
+
+// banner says where everything is listening and what will happen to HTTPS.
+func (s *stack) banner(out io.Writer) error {
+	if _, err := fmt.Fprintf(out, "admin: %s\n", s.adminURL()); err != nil {
 		return err
 	}
-	if err := api.Start(adminPort); err != nil {
-		stopAll()
-		return err
-	}
-
-	if _, err := fmt.Fprintf(out, "admin: http://%s\n", api.Addr()); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintf(out, "proxy: http://%s\n", proxy.Addr()); err != nil {
+	if _, err := fmt.Fprintf(out, "proxy: %s\n", s.proxyURL()); err != nil {
 		return err
 	}
 	tlsLine := "tls: passing HTTPS through, connection faults only (run faultline ca init to intercept)"
-	if ca != nil {
-		tlsLine = fmt.Sprintf("tls: intercepting HTTPS with CA %q", ca.CertPath)
+	if s.ca != nil {
+		tlsLine = fmt.Sprintf("tls: intercepting HTTPS with CA %q", s.ca.CertPath)
 	}
 	if _, err := fmt.Fprintln(out, tlsLine); err != nil {
 		return err
 	}
-	if patterns := bypass.Patterns(); len(patterns) > 0 {
+	if patterns := s.bypass.Patterns(); len(patterns) > 0 {
 		if _, err := fmt.Fprintf(out, "bypass: %s\n", strings.Join(patterns, ", ")); err != nil {
 			return err
 		}
 	}
-	for _, r := range routes {
-		if _, err := fmt.Fprintf(out, "route %s: http://%s -> %s\n", r.Name, server.Addr(r.Name), r.Upstream); err != nil {
+	for _, r := range s.routes {
+		if _, err := fmt.Fprintf(out, "route %s: http://%s -> %s\n", r.Name, s.server.Addr(r.Name), r.Upstream); err != nil {
 			return err
 		}
 	}
+	return nil
+}
 
-	// Signal handling belongs to the serve command for now; the graceful
-	// shutdown task takes it over once there is more than one server to stop.
+// stop shuts every server down, giving in-flight requests until ctx expires.
+// Proxies go first: the requests they are still serving produce the last
+// events, and those should reach the streams before the admin server closes
+// them. The recorder is closed last, once nothing can record any more.
+func (s *stack) stop(ctx context.Context) error {
+	var errs []error
+	if s.server != nil {
+		errs = append(errs, s.server.Shutdown(ctx))
+	}
+	if s.proxy != nil {
+		errs = append(errs, s.proxy.Shutdown(ctx))
+	}
+	if s.api != nil {
+		errs = append(errs, s.api.Shutdown(ctx))
+	}
+	s.recorder.Close()
+	return errors.Join(errs...)
+}
+
+// serve runs the stack until the process is interrupted.
+func serve(ctx context.Context, out io.Writer, adminPort, proxyPort int, routes []reverse.Route, ca *tlsmitm.CA, bypass *forward.Bypass) error {
+	// Install the signal handler before anything is listening, so an interrupt
+	// during startup shuts the parts that are already up down in order instead
+	// of killing the process where it stands.
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	s, err := start(adminPort, proxyPort, routes, ca, bypass)
+	if err != nil {
+		return err
+	}
+
+	if err := s.banner(out); err != nil {
+		return err
+	}
+
 	<-ctx.Done()
 	stop() // a second interrupt is the operator asking for the default, abrupt exit
 
@@ -206,18 +257,11 @@ func serve(ctx context.Context, out io.Writer, adminPort, proxyPort int, routes 
 	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
 	defer cancel()
 
-	// Proxies first: the requests they are still serving produce the last
-	// events, and those should reach the streams before the admin server
-	// closes them.
-	var routeErr error
-	if server != nil {
-		routeErr = server.Shutdown(shutdownCtx)
-	}
-	if err := errors.Join(routeErr, proxy.Shutdown(shutdownCtx), api.Shutdown(shutdownCtx)); err != nil {
+	if err := s.stop(shutdownCtx); err != nil {
 		return err
 	}
 
-	_, err := fmt.Fprintln(out, "shutdown complete")
+	_, err = fmt.Fprintln(out, "shutdown complete")
 	return err
 }
 
