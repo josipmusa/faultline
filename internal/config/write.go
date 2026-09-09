@@ -27,7 +27,54 @@ func render(doc *yaml.Node, original []byte) ([]byte, error) {
 	if err := enc.Close(); err != nil {
 		return nil, fmt.Errorf("config: writing the file: %w", err)
 	}
-	return out.Bytes(), nil
+	return emptyBlanks(out.Bytes()), nil
+}
+
+// emptyBlanks turns the indentation-only lines the encoder leaves behind back
+// into empty ones. A gap above a node is asked for with a newline at the front
+// of its head comment, and the encoder indents every line of a comment block,
+// that empty one included, so a gap inside a sequence comes out as spaces.
+//
+// The value of a block scalar is left exactly as it is, because spaces on a
+// line there are part of what the rule says, not layout.
+func emptyBlanks(data []byte) []byte {
+	lines := bytes.Split(data, []byte("\n"))
+	block := -1 // the indent of the key that opened a block scalar, or -1 outside one
+
+	for i, line := range lines {
+		bare := bytes.TrimLeft(line, " ")
+		indent := len(line) - len(bare)
+
+		if block >= 0 {
+			if len(bare) == 0 || indent > block {
+				continue // still inside the value
+			}
+			block = -1
+		}
+		switch {
+		case len(bytes.TrimRight(line, " ")) == 0:
+			lines[i] = nil
+		case opensBlockScalar(bare):
+			block = indent
+		}
+	}
+	return bytes.Join(lines, []byte("\n"))
+}
+
+// opensBlockScalar reports whether a line ends in a block scalar indicator, so
+// that the lines under it are a value rather than more structure. The key it
+// belongs to has to be there as well: a path pattern ending in > is a value on
+// one line, not the start of a folded one.
+func opensBlockScalar(line []byte) bool {
+	space := bytes.LastIndexByte(line, ' ')
+	if space < 0 || !bytes.HasSuffix(bytes.TrimRight(line[:space], " "), []byte(":")) {
+		return false
+	}
+	switch string(line[space+1:]) {
+	case "|", "|-", "|+", ">", ">-", ">+":
+		return true
+	}
+	return false
 }
 
 // spacer puts back the empty lines the encoder drops. The encoder writes

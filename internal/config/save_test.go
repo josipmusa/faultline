@@ -292,3 +292,69 @@ func TestSaveLeavesTheExampleConfigExactlyAsItIs(t *testing.T) {
 		t.Errorf("saving the example config rewrote it:\n%s", got)
 	}
 }
+
+// A gap between two rules is written back as an empty line, not as the
+// indentation the encoder puts in front of the blank line of a comment block.
+// Trailing spaces in a committed file are noise in every diff that follows.
+func TestSaveWritesAGapBetweenRulesAsAnEmptyLine(t *testing.T) {
+	const spaced = `rules:
+  # The first one.
+  - id: a
+    name: Rule A
+    match:
+      host: example.com
+    fault:
+      type: status
+      code: 500
+
+  # The second one, after a gap.
+  - id: b
+    name: Rule B
+    match:
+      host: other.com
+    fault:
+      type: delay
+      ms: 10
+`
+	path := writeConfig(t, spaced)
+
+	edited := loadRules(t, path)
+	for i := range edited {
+		if edited[i].ID == "a" {
+			edited[i] = edited[i].WithEnabled(false)
+		}
+	}
+	mustSave(t, path, edited)
+
+	body := read(t, path)
+	if !strings.Contains(body, "\n\n  # The second one, after a gap.") {
+		t.Errorf("the gap above the second rule is not an empty line:\n%q", body)
+	}
+	for i, line := range strings.Split(body, "\n") {
+		if strings.TrimSpace(line) == "" && line != "" {
+			t.Errorf("line %d is %q, spaces where an empty line belongs", i+1, line)
+		}
+	}
+}
+
+// A block scalar's value is not layout: a line of spaces inside one is part of
+// what the rule sends, so emptying it would change the fault.
+func TestSaveKeepsSpacesInsideABlockScalar(t *testing.T) {
+	path := writeConfig(t, commentedFile)
+
+	edited := loadRules(t, path)
+	for i := range edited {
+		if edited[i].ID == "stripe-503" {
+			edited[i].Fault.Params["body"] = "first\n   \nlast\n"
+		}
+	}
+	mustSave(t, path, edited)
+
+	after, ok := find(loadRules(t, path), "stripe-503")
+	if !ok {
+		t.Fatal("the rule is gone after saving it")
+	}
+	if got := after.Fault.Params["body"]; got != "first\n   \nlast\n" {
+		t.Errorf("the body came back as %q", got)
+	}
+}
