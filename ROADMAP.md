@@ -194,6 +194,182 @@ Goal: everything is declarable in `faultline.yaml`, hot-reloaded, and controllab
 
 **Stage 5 gate (Manual).** From an empty directory: `faultline init`, edit the file to add a scenario that delays and fails httpbin, `faultline run --scenario <it> -- go run ./examples/go-client`, read the report. Then, while it runs, edit the file to change the delay and observe the change live.
 
+### How to run the Stage 5 verification
+
+Every task in this stage was verified by an agent as it was built, and the notes
+above record what each one saw. What follows is the whole stage in one pass, for
+the human gate. It takes about fifteen minutes. `httpbin.org` has to be
+reachable, and two terminals are easier than one.
+
+Build once, and keep `faultline` on the path for the rest of it:
+
+```
+make build
+export PATH="$PWD/bin:$PATH"
+```
+
+Three things below will look wrong if you are not expecting them, so they are
+worth knowing before you start rather than after:
+
+- **A match on a host needs the port when the upstream is not on 443 or 80.** An
+  event from a local upstream records `127.0.0.1:8099`, so `host: 127.0.0.1`
+  matches nothing.
+- **The first matching rule wins, behavior included.** Two rules on one host is
+  one rule doing anything; the one written second never fires, even when the
+  first one's behavior has passed the request through. See the note on the gate
+  below.
+- **A saved edit takes effect in about a second, not instantly.** A change has to
+  hold still for one poll before it is applied, because a file being saved is
+  briefly empty and applying that would drop every rule.
+
+#### 1. Hot reload (5.2)
+
+In a scratch directory, with a local upstream so the timings are unambiguous:
+
+```
+python3 -m http.server 8099    # leave running in another terminal
+```
+
+```yaml
+# faultline.yaml
+routes:
+  - name: local
+    upstream: http://127.0.0.1:8099
+    port: 9100
+
+rules:
+  - id: slow-local
+    name: Local is slow
+    match:
+      host: 127.0.0.1:8099
+    fault:
+      type: delay
+      ms: 300
+```
+
+```
+faultline serve
+```
+
+Expect a banner including `config: faultline.yaml, watched for changes` and
+`route local: http://127.0.0.1:9100 -> http://127.0.0.1:8099`.
+
+| Do this | Expect |
+| --- | --- |
+| `curl -s -o /dev/null -w "%{time_total}\n" http://127.0.0.1:9100/` | about `0.30` |
+| Change `ms: 300` to `ms: 1500`, save, wait a second, curl again | about `1.50`, and `INFO config: reloaded path=faultline.yaml rules=1` in the log. No restart. |
+| Break the file: delete the colon after `fault`, save | `ERROR config: the file was not applied, the rules already in memory stay in force` naming the line and the problem |
+| Curl again while it is broken | still about `1.50`: the last good rules are still in force |
+| `faultline rule add --name Probe --host x --fault status --set code=503` | refused with 409, naming the line, because a change would have to be written to a file Faultline cannot read |
+| Fix the file, save | `INFO config: reloaded`, no restart needed |
+| `faultline rule add --name "Probe" --host 127.0.0.1:8099 --fault status --set code=503` | the rule is appended to `faultline.yaml` with every comment and blank line intact, and no reload is logged for Faultline's own write |
+| `faultline rule disable probe` | `enabled: false` written in place in the file |
+
+#### 2. Scenarios (5.3)
+
+Add two scenarios to the same file, each naming one rule, and restart `serve`.
+
+| Do this | Expect |
+| --- | --- |
+| `faultline scenario list` | both listed, `ACTIVE` no |
+| `faultline scenario on api-down` | that one `ACTIVE` yes |
+| `faultline rule list` | only that scenario's rules enabled |
+| Drive traffic | the scenario's fault applies |
+| `faultline scenario on the-other-one` | the flags flip in one step: the first scenario's rules off, the second's on |
+| `faultline scenario off the-other-one` | everything off, traffic back to normal |
+| `faultline scenario on ghost` | `no scenario named "ghost"`, exit 1 |
+
+To see the behavior reset, put a `first_n: 2` `status 503` rule in a scenario,
+activate it, and curl three times: `503 503 200`. Curl twice more: `200 200`.
+Activate the same scenario again and curl three times: `503 503 200` once more.
+Activating is how you ask for the counters to start over.
+
+#### 3. CLI (5.4)
+
+This is the Stage 1 gate driven from the command line. With `serve` running and
+two routes, or through the forward proxy:
+
+| Do this | Expect |
+| --- | --- |
+| `faultline rule add --name "Httpbin is slow" --host httpbin.org --fault delay --set ms=2000` | a one-row table, the rule created |
+| `faultline rule list` | every rule, with match, fault and behavior in columns |
+| A call to httpbin through Faultline | about two seconds slower |
+| `faultline rule add --host httpbin.org --fault status --set code=503 --name "Down"` | remember the shadowing rule: disable the delay first or this never fires |
+| `faultline events tail` | live rows as traffic arrives; Ctrl-C exits cleanly, code 0 |
+| `faultline events export` | one JSON object per line, `retry_of` visible on a retry |
+| `faultline upstreams` | each host with tier, counts and last seen |
+| `--json` on any of them | the API's own JSON |
+| `faultline rule enable ghost` | `no rule with id "ghost"`, exit 1 |
+| `faultline rule add --name x --host y --fault delay --set ms=abc` | `ms must be a whole number (fault.ms)`, exit 1 |
+| `faultline rule list --admin http://localhost:9999` | `no Faultline is listening at http://localhost:9999; start one with 'faultline serve'`, exit 1 |
+
+#### 4. Scenario runs and the report (5.5)
+
+With a config declaring a scenario whose rule is a `first_n: 2` `status 503` on
+`httpbin.org`:
+
+```
+faultline run --scenario orders-flaky --report report.json \
+  -- go run ./examples/go-client --url https://httpbin.org/get --count 3 --every 1s
+```
+
+Expect `scenario: orders-flaky active for this run` under the banner, the
+child's own output showing `503`, `503`, `200`, and then:
+
+```
+report: this run
+REQUESTS  FAULTED  RETRIES  MAX RETRY WAIT  ABANDONED
+3         2        2        1000ms          0
+```
+
+`report.json` holds the same five numbers. Also worth trying:
+
+| Do this | Expect |
+| --- | --- |
+| A child that exits non-zero | that exit code from Faultline, with the report still printed |
+| `--scenario ghost` | refused before the child starts, and the names the file does declare |
+| `--report json` | refused: `--report` takes the file to write, not a format |
+| A run with no `--scenario` | still a report, because a session is a session |
+
+Two things to know. `RETRIES` on the Go example counts the poll loop, not
+application retries, which is what the 4.5 note says the heuristic can and
+cannot tell apart. And `ABANDONED` reads 0 almost always, because the report is
+taken the moment the child is gone and an abandonment only counts once its five
+second window has closed.
+
+#### 5. Init (5.6)
+
+```
+mkdir /tmp/fresh && cd /tmp/fresh
+faultline init
+faultline serve
+```
+
+Expect `wrote faultline.yaml` and a short note about editing the hosts, then a
+clean start with no validation error. `faultline rule list` shows two rules,
+both off, and `faultline scenario list` one scenario, not active: nothing in a
+freshly written file touches your traffic. `faultline init` a second time
+refuses to overwrite and names both ways on, `faultline init <file>` and
+`--force`.
+
+#### 6. The stage gate
+
+From an empty directory: `faultline init`, edit the file to add a scenario
+against `httpbin.org`, run the Go example under it, read the report, and while
+it runs change the delay in the file and watch the next call take the new time.
+
+**Read the gate's own wording with one correction.** It asks for a scenario that
+delays *and* fails httpbin, and that is not a thing Faultline can currently do:
+the first matching rule decides and the ones behind it never run, which is
+deliberate and has been true since Stage 3. Walking the gate with the delay rule
+first, every call was a 200 that took the delay and the `503` rule never fired;
+with the `503` rule first, the first two calls were 503 and the calls after them
+had no delay at all, because a rule whose behavior has been spent still matches
+and still shadows. So rehearse a scenario that delays *or* fails, and treat
+"both at once" as an open product question: whether a rule whose behavior
+declines should fall through to the next matching rule is worth deciding before
+the UI makes rule lists easy to build.
+
 ---
 
 ## Stage 6 — Web UI
