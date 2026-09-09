@@ -2,6 +2,7 @@ package forward
 
 import (
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -28,6 +29,7 @@ func (f *proxyFixture) tlsUpstream(t *testing.T) (*recordingUpstream, *http.Clie
 		w.Header().Set("X-Upstream", "yes")
 		_, _ = io.WriteString(w, "hello over tls")
 	}))
+	up.Config.ErrorLog = log.New(io.Discard, "", 0) // a tunnel a rule cut is the point, not a failure
 	t.Cleanup(up.Close)
 
 	proxyURL, err := url.Parse(f.proxy.URL)

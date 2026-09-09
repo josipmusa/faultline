@@ -82,3 +82,6 @@ type peekedConn struct {
 }
 
 func (c *peekedConn) Read(p []byte) (int, error) { return c.reader.Read(p) }
+
+// Unwrap names the connection underneath, so a reset finds the socket.
+func (c *peekedConn) Unwrap() net.Conn { return c.Conn }

@@ -59,6 +59,37 @@ var catalogueCases = map[string]struct {
 			{"a delay", rules.Params{"code": 503, "ms": 10}, "ms"},
 		},
 	},
+	"reset": {
+		tier: TierConnection,
+		good: []rules.Params{nil, {}, {"after_bytes": 0}, {"after_bytes": 4096}},
+		bad: []badParams{
+			{"negative bytes", rules.Params{"after_bytes": -1}, "after_bytes"},
+			{"fractional bytes", rules.Params{"after_bytes": 1.5}, "after_bytes"},
+			{"bytes as text", rules.Params{"after_bytes": "some"}, "after_bytes"},
+			{"a status code", rules.Params{"code": 503}, "code"},
+		},
+	},
+	"hang": {
+		tier: TierConnection,
+		good: []rules.Params{nil, {}, {"max_ms": 1}, {"max_ms": float64(30000)}},
+		bad: []badParams{
+			{"a cap of zero", rules.Params{"max_ms": 0}, "max_ms"},
+			{"a negative cap", rules.Params{"max_ms": -1}, "max_ms"},
+			{"a cap as text", rules.Params{"max_ms": "forever"}, "max_ms"},
+			{"a delay", rules.Params{"ms": 10}, "ms"},
+		},
+	},
+	"throttle": {
+		tier: TierConnection,
+		good: []rules.Params{{"bytes_per_sec": 1}, {"bytes_per_sec": 1024}, {"bytes_per_sec": float64(1024)}},
+		bad: []badParams{
+			{"no rate", rules.Params{}, "bytes_per_sec"},
+			{"a rate of zero", rules.Params{"bytes_per_sec": 0}, "bytes_per_sec"},
+			{"a negative rate", rules.Params{"bytes_per_sec": -1}, "bytes_per_sec"},
+			{"a fractional rate", rules.Params{"bytes_per_sec": 1.5}, "bytes_per_sec"},
+			{"a status code", rules.Params{"bytes_per_sec": 1024, "code": 503}, "code"},
+		},
+	},
 	"refuse": {
 		tier: TierConnection,
 		good: []rules.Params{nil, {}},

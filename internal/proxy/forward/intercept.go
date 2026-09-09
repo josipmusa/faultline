@@ -80,18 +80,22 @@ func (i *Interceptor) serve(ctx context.Context, client net.Conn, target string)
 // rather than the request line; the Host header the client sent stays as it
 // is, the same as the plain handler.
 func (i *Interceptor) handler(target string) http.Handler {
-	return &httputil.ReverseProxy{
+	return faults.WithAbort(&httputil.ReverseProxy{
 		Rewrite: func(r *httputil.ProxyRequest) {
 			r.Out.URL.Scheme = "https"
 			r.Out.URL.Host = target
 		},
 		Transport: i.transport,
+		ErrorLog:  slog.NewLogLogger(i.log.Handler(), slog.LevelDebug),
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
+			if errors.Is(err, faults.ErrClientReset) {
+				return // a rule already reset the connection; there is nobody left to tell
+			}
 			i.log.Error("upstream unreachable", "upstream", faults.StripDefaultPort(target), "method", r.Method, "path", r.URL.Path, "err", err)
 			w.WriteHeader(http.StatusBadGateway)
 			_, _ = io.WriteString(w, "faultline: upstream unreachable\n")
 		},
-	}
+	})
 }
 
 func (i *Interceptor) record(e events.Event, start time.Time) {

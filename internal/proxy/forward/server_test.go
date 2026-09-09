@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"io"
+	"log"
 	"log/slog"
 	"net"
 	"net/http"
@@ -79,6 +80,7 @@ func newFixtureWith(t *testing.T, bypass *Bypass) *proxyFixture {
 	transport := faults.New(nil, store, rec, events.TierPlain)
 	dialer := faults.NewDialer(store, rec)
 	srv := httptest.NewServer(NewServer(transport, dialer, nil, bypass, quietLogger()))
+	srv.Config.ErrorLog = log.New(io.Discard, "", 0) // a reset connection is the point, not a failure
 	t.Cleanup(srv.Close)
 
 	return &proxyFixture{proxy: srv, store: store, recorder: rec}

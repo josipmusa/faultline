@@ -79,18 +79,22 @@ func (s *Server) tunnel(w http.ResponseWriter, r *http.Request) {
 // rather than the request line, and the Host header the client sent stays as
 // it is, the same as the intercepted handler.
 func tunnelledHandler(transport http.RoundTripper, target string, log *slog.Logger) http.Handler {
-	return &httputil.ReverseProxy{
+	return faults.WithAbort(&httputil.ReverseProxy{
 		Rewrite: func(r *httputil.ProxyRequest) {
 			r.Out.URL.Scheme = "http"
 			r.Out.URL.Host = target
 		},
 		Transport: transport,
+		ErrorLog:  slog.NewLogLogger(log.Handler(), slog.LevelDebug),
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
+			if errors.Is(err, faults.ErrClientReset) {
+				return // a rule already reset the connection; there is nobody left to tell
+			}
 			log.Error("upstream unreachable", "upstream", faults.StripDefaultPort(target), "method", r.Method, "path", r.URL.Path, "err", err)
 			w.WriteHeader(http.StatusBadGateway)
 			_, _ = io.WriteString(w, "faultline: upstream unreachable\n")
 		},
-	}
+	})
 }
 
 // tunnelUntouched is the bypass path for CONNECT: dial the upstream directly,
@@ -178,6 +182,9 @@ type bufferedConn struct {
 	pending []byte
 }
 
+// Unwrap names the connection underneath, so a reset finds the socket.
+func (c *bufferedConn) Unwrap() net.Conn { return c.Conn }
+
 func (c *bufferedConn) Read(p []byte) (int, error) {
 	if len(c.pending) > 0 {
 		n := copy(p, c.pending)
@@ -191,6 +198,11 @@ func (c *bufferedConn) Read(p []byte) (int, error) {
 // rule is a synthetic answer and carries the rule id; a genuine dial failure
 // carries nothing but the fact.
 func (s *Server) answerDialError(w http.ResponseWriter, addr string, err error) {
+	if errors.Is(err, faults.ErrClientReset) {
+		faults.AbortResponse(w) // a rule gave up on the tunnel; the client is not told why
+		return
+	}
+
 	var refused *faults.RefusedError
 	if errors.As(err, &refused) {
 		w.Header().Set(faults.FaultHeader, refused.RuleID)
@@ -202,20 +214,25 @@ func (s *Server) answerDialError(w http.ResponseWriter, addr string, err error) 
 }
 
 // pipe copies bytes between the two ends of a tunnel until one of them closes,
-// then closes the other so the remaining copy ends too.
+// then closes the other so the remaining copy ends too. A tunnel a rule cut
+// short ends differently: the client is reset rather than closed politely, so
+// it sees the break its upstream would have caused.
 func pipe(client, upstream net.Conn) {
-	done := make(chan struct{}, 2)
+	done := make(chan error, 2)
 	go func() {
-		_, _ = io.Copy(upstream, client)
-		done <- struct{}{}
+		_, err := io.Copy(upstream, client)
+		done <- err
 	}()
 	go func() {
-		_, _ = io.Copy(client, upstream)
-		done <- struct{}{}
+		_, err := io.Copy(client, upstream)
+		done <- err
 	}()
 
-	<-done
-	_ = client.Close()
+	if err := <-done; faults.IsReset(err) {
+		faults.Abort(client)
+	} else {
+		_ = client.Close()
+	}
 	_ = upstream.Close()
 	<-done
 }

@@ -121,7 +121,11 @@ func (s *Server) Start(port int) error {
 		return fmt.Errorf("forward proxy: listening on port %d: %w", port, err)
 	}
 
-	srv := &http.Server{Handler: s, ReadHeaderTimeout: readHeaderTimeout}
+	srv := &http.Server{
+		Handler:           s,
+		ReadHeaderTimeout: readHeaderTimeout,
+		ErrorLog:          slog.NewLogLogger(s.log.Handler(), slog.LevelDebug),
+	}
 
 	s.mu.Lock()
 	s.http = srv
@@ -203,7 +207,7 @@ func usable(r *http.Request) *refusal {
 // also means no X-Forwarded-* headers are added: a forward proxy is not
 // supposed to announce its client to the upstream.
 func proxyHandler(transport http.RoundTripper, log *slog.Logger) http.Handler {
-	return &httputil.ReverseProxy{
+	return faults.WithAbort(&httputil.ReverseProxy{
 		Rewrite: func(r *httputil.ProxyRequest) {
 			// The destination is already in the URL. Only the Host header needs
 			// saying, so the upstream sees its own name rather than whatever
@@ -211,12 +215,16 @@ func proxyHandler(transport http.RoundTripper, log *slog.Logger) http.Handler {
 			r.Out.Host = r.Out.URL.Host
 		},
 		Transport: transport,
+		ErrorLog:  slog.NewLogLogger(log.Handler(), slog.LevelDebug),
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
+			if errors.Is(err, faults.ErrClientReset) {
+				return // a rule already reset the connection; there is nobody left to tell
+			}
 			// The upstream really failed. Faultline says so plainly rather than
 			// inventing a response, and keeps the detail in the log.
 			log.Error("upstream unreachable", "upstream", r.URL.Host, "method", r.Method, "path", r.URL.Path, "err", err)
 			w.WriteHeader(http.StatusBadGateway)
 			_, _ = io.WriteString(w, "faultline: upstream unreachable\n")
 		},
-	}
+	})
 }

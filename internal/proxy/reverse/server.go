@@ -20,6 +20,8 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/josipmusa/faultline/internal/faults"
 )
 
 // FirstPort is where explicit routes start when no port is given.
@@ -83,6 +85,7 @@ func (s *Server) Start() error {
 		srv := &http.Server{
 			Handler:           handler(r.Upstream, s.transport, s.log),
 			ReadHeaderTimeout: readHeaderTimeout,
+			ErrorLog:          slog.NewLogLogger(s.log.Handler(), slog.LevelDebug),
 		}
 
 		s.mu.Lock()
@@ -132,19 +135,23 @@ func (s *Server) Shutdown(ctx context.Context) error {
 // SetURL rewrites the outbound Host to the upstream, which is what an explicit
 // route wants: the upstream must see its own name, not `localhost:9100`.
 func handler(upstream *url.URL, transport http.RoundTripper, log *slog.Logger) http.Handler {
-	return &httputil.ReverseProxy{
+	return faults.WithAbort(&httputil.ReverseProxy{
 		Rewrite: func(r *httputil.ProxyRequest) {
 			r.SetURL(upstream)
 		},
 		Transport: transport,
+		ErrorLog:  slog.NewLogLogger(log.Handler(), slog.LevelDebug),
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
+			if errors.Is(err, faults.ErrClientReset) {
+				return // a rule already reset the connection; there is nobody left to tell
+			}
 			// The upstream really failed. Faultline says so plainly rather than
 			// inventing a response, and keeps the detail in the log.
 			log.Error("upstream unreachable", "upstream", upstream.Host, "method", r.Method, "path", r.URL.Path, "err", err)
 			w.WriteHeader(http.StatusBadGateway)
 			_, _ = io.WriteString(w, "faultline: upstream unreachable\n")
 		},
-	}
+	})
 }
 
 // validate checks the route set as a whole: every route usable, no two sharing
