@@ -2,6 +2,8 @@ package config
 
 import (
 	yaml "go.yaml.in/yaml/v3"
+
+	"github.com/josipmusa/faultline/internal/rules"
 )
 
 var scenarioKeys = []string{"name", "rules"}
@@ -10,13 +12,13 @@ var scenarioKeys = []string{"name", "rules"}
 // id, when the rule is written at the top level and may belong to more than one
 // scenario, or inline, when it exists only for this scenario. Inline rules
 // start disabled: a scenario does nothing until it is activated.
-func decodeScenarios(c cursor, set *ruleSet) ([]Scenario, error) {
+func decodeScenarios(c cursor, set *ruleSet) ([]rules.Scenario, error) {
 	items, err := c.sequence("scenarios")
 	if err != nil {
 		return nil, err
 	}
 
-	out := make([]Scenario, 0, len(items))
+	out := make([]rules.Scenario, 0, len(items))
 	names := make(map[string]bool, len(items))
 
 	for _, item := range items {
@@ -44,7 +46,7 @@ func decodeScenarios(c cursor, set *ruleSet) ([]Scenario, error) {
 		}
 		names[name] = true
 
-		scenario := Scenario{Name: name}
+		scenario := rules.Scenario{Name: name}
 		if rulesAt, ok := m.value("rules"); ok {
 			if scenario.Rules, err = decodeScenarioRules(rulesAt, set); err != nil {
 				return nil, err

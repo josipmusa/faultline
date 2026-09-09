@@ -81,18 +81,19 @@ func bypassFor(cfg *config.Config, specs []string) (*forward.Bypass, error) {
 // because a route is a listener and Faultline does not open or close those
 // while it runs, so a change to either is reported and waits for a restart.
 type reloader struct {
-	store *rules.Store
-	log   *slog.Logger
+	store     *rules.Store
+	scenarios *rules.Scenarios
+	log       *slog.Logger
 
 	routes []reverse.Route
 	bypass []string
 }
 
-func newReloader(cfg *config.Config, store *rules.Store, log *slog.Logger) *reloader {
+func newReloader(cfg *config.Config, store *rules.Store, scenarios *rules.Scenarios, log *slog.Logger) *reloader {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &reloader{store: store, log: log, routes: cfg.Routes, bypass: cfg.Bypass}
+	return &reloader{store: store, scenarios: scenarios, log: log, routes: cfg.Routes, bypass: cfg.Bypass}
 }
 
 func (r *reloader) Apply(cfg *config.Config) error {
@@ -107,6 +108,14 @@ func (r *reloader) Apply(cfg *config.Config) error {
 			"The rules in this save are in force already.")
 	}
 	r.store.Replace(cfg.Rules)
+
+	// The scenarios come back from the file as well, so one added or renamed
+	// there can be activated without a restart. The rules a scenario named are
+	// left as the file just set them: it is the file's turn to say what is on.
+	if dropped := r.scenarios.Replace(cfg.Scenarios); dropped != "" {
+		r.log.Warn("config: the active scenario is no longer in the file, so nothing is active now. "+
+			"The rules it turned on are whatever this save says they are.", "scenario", dropped)
+	}
 	return nil
 }
 

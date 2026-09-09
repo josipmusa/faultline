@@ -103,6 +103,12 @@ back to it: create, update, delete, enable, disable. The file stays yours.
 - A rule that changed is rewritten where it stands, keeping the comment above
   it. A rule Faultline has never seen is added at the end of `rules`, and one
   written inside a scenario is edited inside that scenario, not moved.
+- Deleting a rule also removes it from every scenario naming it, in the file and
+  in memory, because a scenario cannot name a rule that is not there.
+- Activating and deactivating a scenario are rule changes too, so the `enabled`
+  flags they set are written back the same way. They have to be: a later save of
+  the file is applied over them, and flags that lived only in memory would be
+  put back the way the file has them the next time anyone touched it.
 - `enabled` is written out for every rule Faultline writes, because leaving it
   out means different things in different places in the file.
 - The file is replaced in one step, through a temporary file in the same
@@ -163,6 +169,46 @@ A scenario is a `name` and the rules it turns on. Each entry is either the id of
 a rule declared under `rules`, which is how one rule joins more than one
 scenario, or a whole rule written in place, which is how a rule that belongs to
 one situation stays next to it.
+
+Scenarios come from the file. They are not created or edited through the API:
+turning one on and off is.
+
+```
+GET  /api/scenarios                      the file's scenarios, in file order
+POST /api/scenarios/<name>/activate
+POST /api/scenarios/<name>/deactivate
+```
+
+Each entry in the list is its `name`, the `rules` it names, and `active`, which
+is true for the one that is on. A name no scenario has is a `404`.
+
+- **Activating enables the scenario's rules and starts their behavior state
+  over.** A `first_n: 2` rule fails the next two requests however many it failed
+  before, so activating a scenario is always the beginning of a rehearsal, not
+  the middle of one. Activating the one that is already on is the way to ask for
+  that on its own.
+- **One scenario is on at a time.** Activating another turns the current one off
+  in the same write, so no request sees rules from both.
+- **Deactivating turns the scenario's rules off.** Deactivating one that was not
+  on is not an error: its rules go off all the same, which is what was asked
+  for, and whichever scenario is active stays active.
+- **Nothing is reference counted.** A rule's `enabled` flag is whatever the last
+  write said, whoever wrote it. A rule two scenarios name follows the newer of
+  them, and a rule you enabled by hand is turned off by a scenario that names
+  it. Rules no scenario names are never touched.
+- **Which scenario is active is per run.** The enabled flags an activation sets
+  are written to the file like any other rule change, but the name of the
+  scenario that set them is not: the file is committed, and a checkout should
+  not arrive with a rehearsal already running. After a restart nothing is
+  active, though the flags are as the last activation left them.
+- **A reload re-reads the scenarios.** One added or renamed in the file can be
+  activated without a restart. A scenario that is on and then disappears from
+  the file leaves nothing active, and Faultline says so:
+
+```
+WARN config: the active scenario is no longer in the file, so nothing is active
+  now. The rules it turned on are whatever this save says they are. scenario=api-down
+```
 
 ## Errors
 

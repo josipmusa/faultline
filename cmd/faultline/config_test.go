@@ -151,7 +151,7 @@ func TestReloaderSwapsTheRulesAndSaysWhatNeedsARestart(t *testing.T) {
 		Routes: []reverse.Route{{Name: "stripe", Upstream: mustParse(t, "https://api.stripe.com"), Port: 9100}},
 		Bypass: []string{"*.internal"},
 	}
-	r := newReloader(before, store, log)
+	r := newReloader(before, store, rules.NewScenarios(store), log)
 
 	same := *before
 	same.Rules = []rules.Rule{{ID: "a", Name: "a", Enabled: true, Fault: rules.Fault{Type: "delay", Params: rules.Params{"ms": 10}}}}
@@ -183,7 +183,7 @@ func TestReloaderSwapsTheRulesAndSaysWhatNeedsARestart(t *testing.T) {
 
 func TestReloaderReadsTheRulesBackFromTheStore(t *testing.T) {
 	store := rules.New()
-	r := newReloader(&config.Config{}, store, slog.New(slog.DiscardHandler))
+	r := newReloader(&config.Config{}, store, rules.NewScenarios(store), slog.New(slog.DiscardHandler))
 
 	if err := store.Add(rules.Rule{ID: "a", Name: "a", Fault: rules.Fault{Type: "delay", Params: rules.Params{"ms": 1}}}); err != nil {
 		t.Fatalf("Add: %v", err)

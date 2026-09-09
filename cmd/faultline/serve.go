@@ -152,10 +152,13 @@ func start(cfg *config.Config, adminPort, proxyPort int, routes []reverse.Route,
 	}
 
 	store := rules.New()
+	scenarios := rules.NewScenarios(store)
 	if cfg != nil {
 		// The rules the file declares are in force before anything listens, so
-		// the first request through cannot slip past them.
+		// the first request through cannot slip past them. Its scenarios come
+		// with them: activating one is a change to rules that already exist.
 		store.Replace(cfg.Rules)
+		scenarios.Replace(cfg.Scenarios)
 	}
 	// One gate behind every pipeline: a rule that fails the first two requests
 	// fails two altogether, not two per tier.
@@ -190,10 +193,10 @@ func start(cfg *config.Config, adminPort, proxyPort int, routes []reverse.Route,
 	}
 
 	s.proxy = forward.NewServer(pipeline, faults.NewDialer(store, s.recorder, gate), interceptor, bypass, nil)
-	s.api = admin.NewServer(store, s.recorder, bypass, trustVars, nil)
+	s.api = admin.NewServer(store, scenarios, s.recorder, bypass, trustVars, nil)
 
 	if cfg != nil {
-		s.config = config.Watch(cfg, newReloader(cfg, store, nil), nil)
+		s.config = config.Watch(cfg, newReloader(cfg, store, scenarios, nil), nil)
 		s.api.Persist(s.config)
 	}
 

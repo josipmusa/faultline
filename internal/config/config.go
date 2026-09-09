@@ -25,16 +25,10 @@ type Config struct {
 	Routes    []reverse.Route
 	Bypass    []string
 	Rules     []rules.Rule
-	Scenarios []Scenario
+	Scenarios []rules.Scenario
 
 	// stamp is the file as it was when Load read it, which is how a later
 	// change to it is noticed. It is empty for a configuration parsed from
 	// bytes that never came from a file.
 	stamp stamp
-}
-
-// Scenario is a named situation: a set of rules that go on and off together.
-type Scenario struct {
-	Name  string
-	Rules []string // rule ids, in the order they are written
 }

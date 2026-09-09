@@ -158,6 +158,49 @@ func Same(a, b Rule) bool {
 	return reflect.DeepEqual(a, b)
 }
 
+// Switch turns the rules named in on on and the rules named in off off, all
+// under one lock, so no request ever sees half of the change. It is how a
+// scenario lands: the one going off and the one coming on move together.
+//
+// A rule in on is stamped anew even when it was already on, which is how a
+// caller asks for that rule's behavior state to start over without pretending
+// the rule was edited. A rule in off that was already off is left alone, since
+// nothing about it changed. A rule both lists name is turned on: the incoming
+// scenario says what it wants and the outgoing one no longer has an opinion.
+// An id no rule answers to is skipped, because a rule can be deleted while a
+// scenario still names it.
+func (s *Store) Switch(on, off []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	coming := make(map[string]bool, len(on))
+	for _, id := range on {
+		coming[id] = true
+	}
+
+	changed := false
+	for _, id := range off {
+		i := s.indexOf(id)
+		if coming[id] || i < 0 || !s.rules[i].Enabled {
+			continue
+		}
+		s.rules[i] = s.stamp(s.rules[i].WithEnabled(false))
+		changed = true
+	}
+	for _, id := range on {
+		i := s.indexOf(id)
+		if i < 0 {
+			continue
+		}
+		s.rules[i] = s.stamp(s.rules[i].WithEnabled(true))
+		changed = true
+	}
+
+	if changed {
+		s.notify()
+	}
+}
+
 // Enable turns the rule on, or returns ErrNotFound.
 func (s *Store) Enable(id string) error { return s.setEnabled(id, true) }
 

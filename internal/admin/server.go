@@ -23,16 +23,18 @@ const DefaultPort = 9000
 
 const readHeaderTimeout = 10 * time.Second
 
-// Server is the admin HTTP API over the rule store and the event recorder.
+// Server is the admin HTTP API over the rule store, the scenarios, and the
+// event recorder.
 type Server struct {
-	rules   *rules.Store
-	events  *events.Recorder
-	bypass  *forward.Bypass
-	trust   []string
-	log     *slog.Logger
-	mux     *http.ServeMux
-	watcher *ruleWatcher
-	persist Persister
+	rules     *rules.Store
+	scenarios *rules.Scenarios
+	events    *events.Recorder
+	bypass    *forward.Bypass
+	trust     []string
+	log       *slog.Logger
+	mux       *http.ServeMux
+	watcher   *ruleWatcher
+	persist   Persister
 
 	mu       sync.Mutex
 	http     *http.Server
@@ -48,18 +50,19 @@ type Server struct {
 // rejected the interception certificate; there are none when Faultline runs no
 // child. Nothing is listening until Start is called; the Server is a plain
 // http.Handler until then.
-func NewServer(store *rules.Store, rec *events.Recorder, bypass *forward.Bypass, trustVars []string, logger *slog.Logger) *Server {
+func NewServer(store *rules.Store, scenarios *rules.Scenarios, rec *events.Recorder, bypass *forward.Bypass, trustVars []string, logger *slog.Logger) *Server {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	s := &Server{
-		rules:   store,
-		events:  rec,
-		bypass:  bypass,
-		trust:   trustVars,
-		log:     logger,
-		mux:     http.NewServeMux(),
-		watcher: newRuleWatcher(store.Changes()),
+		rules:     store,
+		scenarios: scenarios,
+		events:    rec,
+		bypass:    bypass,
+		trust:     trustVars,
+		log:       logger,
+		mux:       http.NewServeMux(),
+		watcher:   newRuleWatcher(store.Changes()),
 	}
 	s.routes()
 	return s
@@ -75,6 +78,10 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("DELETE /api/rules/{id}", s.deleteRule)
 	s.mux.HandleFunc("POST /api/rules/{id}/enable", s.enableRule)
 	s.mux.HandleFunc("POST /api/rules/{id}/disable", s.disableRule)
+
+	s.mux.HandleFunc("GET /api/scenarios", s.listScenarios)
+	s.mux.HandleFunc("POST /api/scenarios/{name}/activate", s.activateScenario)
+	s.mux.HandleFunc("POST /api/scenarios/{name}/deactivate", s.deactivateScenario)
 
 	s.mux.HandleFunc("GET /api/events", s.listEvents)
 	s.mux.HandleFunc("GET /api/events/stream", s.streamEvents)

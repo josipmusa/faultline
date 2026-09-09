@@ -224,7 +224,8 @@ func TestListUpstreamsHintsAtDistrust(t *testing.T) {
 func TestListUpstreamsHintNamesTheVariablesFaultlineSet(t *testing.T) {
 	rec := events.NewRecorder(events.DefaultSize)
 	t.Cleanup(rec.Close)
-	s := NewServer(rules.New(), rec, nil, []string{"SSL_CERT_FILE"}, slog.New(slog.DiscardHandler))
+	store := rules.New()
+	s := NewServer(store, rules.NewScenarios(store), rec, nil, []string{"SSL_CERT_FILE"}, slog.New(slog.DiscardHandler))
 	t.Cleanup(func() { _ = s.Shutdown(context.Background()) })
 	rec.Record(events.Event{
 		ID: "1", Host: "httpbin.org", Timestamp: time.Now(),

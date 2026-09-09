@@ -25,7 +25,8 @@ func newTestServerWith(t *testing.T, bypass *forward.Bypass) *Server {
 	t.Helper()
 	rec := events.NewRecorder(events.DefaultSize)
 	t.Cleanup(rec.Close)
-	s := NewServer(rules.New(), rec, bypass, nil, slog.New(slog.DiscardHandler))
+	store := rules.New()
+	s := NewServer(store, rules.NewScenarios(store), rec, bypass, nil, slog.New(slog.DiscardHandler))
 	t.Cleanup(func() { _ = s.Shutdown(context.Background()) })
 	return s
 }

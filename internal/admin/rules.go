@@ -78,7 +78,18 @@ func (s *Server) updateRule(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) deleteRule(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if err := s.change(func() error { return s.rules.Delete(id) }); err != nil {
+
+	// A rule deleted through the API is dropped from the scenarios in the
+	// configuration file too, or the file Faultline writes would name a rule
+	// that is not there and would not load. Memory has to agree with the file.
+	remove := func() error {
+		if err := s.rules.Delete(id); err != nil {
+			return err
+		}
+		s.scenarios.Forget(id)
+		return nil
+	}
+	if err := s.change(remove); err != nil {
 		s.fail(w, s.storeError(id, err))
 		return
 	}
