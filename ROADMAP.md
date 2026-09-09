@@ -138,6 +138,8 @@ Goal: the five-minute experience. One command wraps any start command and traffi
 
 **Stage 3 gate (Manual).** On a fresh machine or clean user account: install the binary, run `faultline run -- go run ./examples/go-client` then the Node and Spring examples in turn. For each, expect intercepted events with no manual trust setup. Time yourself from install to first event; the target is under five minutes.
 
+  - Passed 2026-09-09, run and confirmed by the human on macOS from a cleaned user state: config directory moved aside and the old CA removed from the System Keychain, so the run created its own CA. Install to every example verified took three minutes, 15:01 to 15:04, inside the five-minute target. Go, Node and Spring all recorded `tier: intercepted` with the real method and path; both Spring endpoints, `RestClient` and Reactor Netty `WebClient`, went through. **The "no manual trust setup" part of the target does not hold for Go on macOS, and cannot**: Go reads roots from the Keychain and ignores every CA variable there, so the Go example failed its first handshake, showed 3.8's `trust:` hint, and needed `faultline ca install` before it passed. Node and the JVM needed nothing, because both read what `faultline run` sets them. On Linux `SSL_CERT_FILE` covers Go too and the target holds as written; this is a macOS platform limit rather than something Faultline can close, and it is documented in `docs/trust.md` and 3.4's note. Maven's first-run dependency download is minutes on a clean account and was timed separately, since it is not Faultline setup.
+
 ---
 
 ## Stage 4 — Faults and behaviors
