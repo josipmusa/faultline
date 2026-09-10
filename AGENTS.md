@@ -95,9 +95,9 @@ Every message on the `/api/events/stream` WebSocket is a tagged envelope, so cli
 
 ```
 make build      # ./bin/faultline (embeds web/out if present)
-make test       # go test -race ./...
-make lint       # golangci-lint run
-make ui         # builds web/ static export
+make ui         # builds web/ static export into web/out
+make test       # go test -race, then the UI's vitest suite
+make lint       # go vet, golangci-lint, then eslint and tsc
 make run        # faultline serve with examples config
 ```
 

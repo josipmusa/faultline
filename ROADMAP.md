@@ -387,8 +387,9 @@ paragraph carried the open question 5.7 then answered.
 
 Goal: everything above is visible and controllable in the browser, embedded in the binary.
 
-- [ ] **6.1 Port the existing UI.** Move the previous `resilience-proxy/web` Next.js app into `web/`, upgrade dependencies, keep static export, embed the output into the binary served at `/`. Replace the old WebSocket rule-push protocol with REST calls for mutations and the read-only event stream for updates.
+- [x] **6.1 Port the existing UI.** Move the previous `resilience-proxy/web` Next.js app into `web/`, upgrade dependencies, keep static export, embed the output into the binary served at `/`. Replace the old WebSocket rule-push protocol with REST calls for mutations and the read-only event stream for updates.
   - Verify (Manual): `make build` embeds the UI; open `localhost:9000`; the page loads with an empty request list and no console errors.
+  - The old app's data layer matched nothing here, so the shell was ported and the types, API access and components were written against the real API. The Metrics view became 6.7 rather than arriving early; the Settings view was dropped, since its target URL and proxy port are not editable concepts. `go:embed` cannot reach a parent directory, so the embed lives in `web/` beside the export, behind a `ui` build tag: a checkout with no Node still compiles, and `/` then explains what is missing. Spec in `docs/specs/2026-09-10-web-ui-port.md`.
 - [ ] **6.2 Live request stream and inspector.** Show events live with method, host, path, status, duration, tier badge, and a fault badge linking to the rule. Filters for host, method, status class, and faulted only. Clicking an event opens headers and body for request and response when intercepted, or a clear "encrypted" notice otherwise.
   - Verify (Manual): run the Go example wrapped; watch events stream; filter to faulted only; open one and read its body.
 - [ ] **6.3 Upstreams panel.** List observed upstreams with tier, counts, error rate, and a per-host hint when the CA is not trusted. Quick actions: add delay, add 503, bypass.
@@ -399,6 +400,8 @@ Goal: everything above is visible and controllable in the browser, embedded in t
   - Verify (Manual): activate a scenario, generate traffic, watch the counts update, reset, watch them clear.
 - [ ] **6.6 Config file awareness.** When a config file is in use, the UI shows its path and a "changes are saved to faultline.yaml" notice; when not, it shows "in-memory, use init to persist."
   - Verify (Manual): start once with and once without a config file and confirm the notice.
+- [ ] **6.7 Throughput and latency chart.** A rolling sixty second chart of requests per second and average latency over the live event stream, so a `delay` or a `refuse` is visible as a shape and not only as a number. `recharts`, ported from the predecessor's `MetricsChart`.
+  - Verify (Manual): with traffic running, activate a delay and watch the latency line rise and the throughput line fall.
 
 **Stage 6 gate (Manual).** Repeat the five-minute experience from SPEC.md using only the browser after the `faultline run` command: see traffic, add delay, change to error, save as scenario, run the tests under it, read the report.
 
