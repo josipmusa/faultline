@@ -21,8 +21,8 @@ func (truncate) Tier() Tier { return TierResponse }
 
 func (truncate) Schema() Schema {
 	return Schema{
-		Int("after_bytes").Min(0).Xor("percent"),
-		Int("percent").Min(1).Max(99),
+		Int("after_bytes").Min(0).Xor("percent").Desc("Cut the body off after this many bytes"),
+		Int("percent").Min(1).Max(99).Desc("Cut the body off after this share of it, as a percentage"),
 	}
 }
 

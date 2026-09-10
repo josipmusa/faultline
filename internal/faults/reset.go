@@ -22,7 +22,7 @@ func (reset) Tier() Tier { return TierConnection }
 
 func (reset) Schema() Schema {
 	return Schema{
-		Int("after_bytes").Min(0),
+		Int("after_bytes").Min(0).Desc("Deliver this much of the real response before breaking the connection. Left out, nothing is sent at all"),
 	}
 }
 

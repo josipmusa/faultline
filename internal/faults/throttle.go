@@ -24,7 +24,7 @@ func (throttle) Tier() Tier { return TierConnection }
 
 func (throttle) Schema() Schema {
 	return Schema{
-		Int("bytes_per_sec").Required().Min(1),
+		Int("bytes_per_sec").Required().Min(1).Desc("How fast the response is allowed to arrive, in bytes per second"),
 	}
 }
 

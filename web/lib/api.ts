@@ -1,4 +1,4 @@
-import type { Capture, CreatedRule, Event, Rule, Upstream } from '@/types';
+import type { Capture, Catalogue, CreatedRule, Event, Rule, Upstream } from '@/types';
 
 /** Where the API lives. Empty means same origin, which is the embedded build:
  * the binary serves both the UI and the API on the admin port. `npm run dev`
@@ -120,4 +120,40 @@ export function createRule(rule: Omit<Rule, 'id'> & { id?: string }): Promise<Cr
 
 export function deleteRule(id: string): Promise<void> {
   return request<void>(`/api/rules/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
+/** Everything the binary can do to traffic: the faults and behaviors it has
+ * registered, each with the parameters it takes. The editor renders its form
+ * from this, so a fault added to the binary appears without a UI change. */
+export function getCatalogue(): Promise<Catalogue> {
+  return request<Catalogue>('/api/catalogue');
+}
+
+/** One rule. Unlike the list, this carries the warnings about it, so the
+ * editor learns that a response-tier fault cannot apply to a host only ever
+ * seen encrypted. */
+export function getRule(id: string): Promise<CreatedRule> {
+  return request<CreatedRule>(`/api/rules/${encodeURIComponent(id)}`);
+}
+
+/** Replaces the rule at an id with the one given. The whole rule is sent: the
+ * API has no partial update, and an edit is a new value of an immutable
+ * thing. */
+export function updateRule(id: string, rule: Rule): Promise<CreatedRule> {
+  return request<CreatedRule>(`/api/rules/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(rule),
+  });
+}
+
+/** Switches a rule on. Separate from updateRule so a toggle cannot overwrite
+ * an edit somebody else made to the rest of the rule. */
+export function enableRule(id: string): Promise<CreatedRule> {
+  return request<CreatedRule>(`/api/rules/${encodeURIComponent(id)}/enable`, { method: 'POST' });
+}
+
+/** Switches a rule off, keeping it for later. */
+export function disableRule(id: string): Promise<CreatedRule> {
+  return request<CreatedRule>(`/api/rules/${encodeURIComponent(id)}/disable`, { method: 'POST' });
 }

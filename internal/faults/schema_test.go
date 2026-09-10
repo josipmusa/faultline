@@ -198,3 +198,15 @@ func TestSchemaXorWantsExactlyOneOfThePair(t *testing.T) {
 		}
 	}
 }
+
+func TestFieldCarriesItsDescription(t *testing.T) {
+	f := Int("ms").Required().Min(1).Desc("How long to hold the request")
+
+	if got := f.Description(); got != "How long to hold the request" {
+		t.Errorf("Description() = %q", got)
+	}
+	// Desc returns a copy like the other builders, so the original is untouched.
+	if got := Int("ms").Description(); got != "" {
+		t.Errorf("an undescribed field has Description() = %q, want empty", got)
+	}
+}

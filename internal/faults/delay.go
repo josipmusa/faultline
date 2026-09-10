@@ -22,8 +22,8 @@ func (delay) Tier() Tier { return TierConnection }
 
 func (delay) Schema() Schema {
 	return Schema{
-		Int("ms").Required().Min(1),
-		Int("jitter_ms").Min(0),
+		Int("ms").Required().Min(1).Desc("How long to hold the request back, in milliseconds"),
+		Int("jitter_ms").Min(0).Desc("Random extra delay on top, up to this many milliseconds"),
 	}
 }
 

@@ -23,7 +23,7 @@ func (hang) Tier() Tier { return TierConnection }
 
 func (hang) Schema() Schema {
 	return Schema{
-		Int("max_ms").Min(1),
+		Int("max_ms").Min(1).Desc("Give up and drop the connection after this long. Left out, the request hangs until the client does"),
 	}
 }
 

@@ -120,7 +120,7 @@ func (percent) Name() string { return "percent" }
 
 func (percent) Schema() Schema {
 	return Schema{
-		Int("percent").Required().Min(1).Max(100),
+		Int("percent").Required().Min(1).Max(100).Desc("What share of matching requests the fault applies to, as a percentage"),
 	}
 }
 
@@ -150,7 +150,7 @@ func (firstN) Name() string { return "first_n" }
 
 func (firstN) Schema() Schema {
 	return Schema{
-		Int("n").Required().Min(1),
+		Int("n").Required().Min(1).Desc("How many matching requests the fault applies to before the rule lets the rest through"),
 	}
 }
 
@@ -187,7 +187,7 @@ func (forDuration) Name() string { return "for_duration" }
 
 func (forDuration) Schema() Schema {
 	return Schema{
-		Int("sec").Required().Min(1),
+		Int("sec").Required().Min(1).Desc("How many seconds after the rule is switched on the fault keeps applying"),
 	}
 }
 
@@ -228,7 +228,7 @@ const patternSteps = "FP"
 
 func (pattern) Schema() Schema {
 	return Schema{
-		Str("pattern").Required().Chars(patternSteps),
+		Str("pattern").Required().Chars(patternSteps).Desc("The cycle to repeat, one letter per matching request: F applies the fault, P lets it through"),
 	}
 }
 

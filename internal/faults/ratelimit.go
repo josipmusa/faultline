@@ -20,7 +20,7 @@ func (rateLimit) Tier() Tier { return TierResponse }
 
 func (rateLimit) Schema() Schema {
 	return Schema{
-		Int("retry_after_sec").Required().Min(0),
+		Int("retry_after_sec").Required().Min(0).Desc("How many seconds the Retry-After header tells the client to wait"),
 	}
 }
 

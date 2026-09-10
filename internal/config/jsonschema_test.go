@@ -137,3 +137,41 @@ func TestJSONSchemaWritesParameterPairs(t *testing.T) {
 		t.Errorf("delay has a %s pair, want none", kind)
 	}
 }
+
+// TestJSONSchemaCarriesParameterDescriptions checks the catalogue's own words
+// reach the file an editor validates against, so hovering a parameter in
+// faultline.yaml says what it does.
+func TestJSONSchemaCarriesParameterDescriptions(t *testing.T) {
+	raw, err := JSONSchema()
+	if err != nil {
+		t.Fatalf("JSONSchema: %v", err)
+	}
+
+	var doc struct {
+		Defs map[string]struct {
+			OneOf []struct {
+				Title      string `json:"title"`
+				Properties map[string]struct {
+					Description string `json:"description"`
+				} `json:"properties"`
+			} `json:"oneOf"`
+		} `json:"$defs"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("the schema is not valid JSON: %v", err)
+	}
+
+	for _, def := range []string{"fault", "behavior"} {
+		for _, variant := range doc.Defs[def].OneOf {
+			for name, property := range variant.Properties {
+				// type is the discriminator, not a parameter of its own.
+				if name == "type" {
+					continue
+				}
+				if property.Description == "" {
+					t.Errorf("$defs.%s branch %q: parameter %q has no description", def, variant.Title, name)
+				}
+			}
+		}
+	}
+}

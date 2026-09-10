@@ -318,3 +318,24 @@ func TestRegisterRejectsADuplicate(t *testing.T) {
 	}()
 	Register(delay{})
 }
+
+// TestEveryParameterIsDescribed holds the catalogue to describing itself. A
+// parameter with no description reaches the rule editor as a bare wire name,
+// which is the thing the editor exists to avoid, and a new fault added without
+// one would arrive that way silently.
+func TestEveryParameterIsDescribed(t *testing.T) {
+	for _, f := range All() {
+		for _, field := range f.Schema() {
+			if field.Description() == "" {
+				t.Errorf("fault %q: parameter %q has no description", f.Name(), field.Name())
+			}
+		}
+	}
+	for _, b := range AllBehaviors() {
+		for _, field := range b.Schema() {
+			if field.Description() == "" {
+				t.Errorf("behavior %q: parameter %q has no description", b.Name(), field.Name())
+			}
+		}
+	}
+}

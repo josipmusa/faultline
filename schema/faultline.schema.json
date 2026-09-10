@@ -7,6 +7,7 @@
           "additionalProperties": false,
           "properties": {
             "n": {
+              "description": "How many matching requests the fault applies to before the rule lets the rest through",
               "minimum": 1,
               "type": "integer"
             },
@@ -25,6 +26,7 @@
           "additionalProperties": false,
           "properties": {
             "sec": {
+              "description": "How many seconds after the rule is switched on the fault keeps applying",
               "minimum": 1,
               "type": "integer"
             },
@@ -43,6 +45,7 @@
           "additionalProperties": false,
           "properties": {
             "pattern": {
+              "description": "The cycle to repeat, one letter per matching request: F applies the fault, P lets it through",
               "pattern": "^[FfPp]+$",
               "type": "string"
             },
@@ -61,6 +64,7 @@
           "additionalProperties": false,
           "properties": {
             "percent": {
+              "description": "What share of matching requests the fault applies to, as a percentage",
               "maximum": 100,
               "minimum": 1,
               "type": "integer"
@@ -90,6 +94,7 @@
           "description": "A response tier fault.",
           "properties": {
             "percent": {
+              "description": "How much of the body to mangle, as a percentage of its bytes",
               "maximum": 100,
               "minimum": 1,
               "type": "integer"
@@ -110,10 +115,12 @@
           "description": "A connection tier fault.",
           "properties": {
             "jitter_ms": {
+              "description": "Random extra delay on top, up to this many milliseconds",
               "minimum": 0,
               "type": "integer"
             },
             "ms": {
+              "description": "How long to hold the request back, in milliseconds",
               "minimum": 1,
               "type": "integer"
             },
@@ -133,6 +140,7 @@
           "description": "A connection tier fault.",
           "properties": {
             "max_ms": {
+              "description": "Give up and drop the connection after this long. Left out, the request hangs until the client does",
               "minimum": 1,
               "type": "integer"
             },
@@ -167,6 +175,7 @@
           "description": "A response tier fault.",
           "properties": {
             "remove": {
+              "description": "Response headers to strip, by name",
               "items": {
                 "minLength": 1,
                 "type": "string"
@@ -178,6 +187,7 @@
               "additionalProperties": {
                 "type": "string"
               },
+              "description": "Response headers to set, by name",
               "minProperties": 1,
               "type": "object"
             },
@@ -196,6 +206,7 @@
           "description": "A response tier fault.",
           "properties": {
             "retry_after_sec": {
+              "description": "How many seconds the Retry-After header tells the client to wait",
               "minimum": 0,
               "type": "integer"
             },
@@ -229,6 +240,7 @@
           "description": "A connection tier fault.",
           "properties": {
             "after_bytes": {
+              "description": "Deliver this much of the real response before breaking the connection. Left out, nothing is sent at all",
               "minimum": 0,
               "type": "integer"
             },
@@ -247,6 +259,7 @@
           "description": "A response tier fault.",
           "properties": {
             "ms": {
+              "description": "How long the whole body should take to arrive, in milliseconds",
               "minimum": 1,
               "type": "integer"
             },
@@ -266,9 +279,11 @@
           "description": "A response tier fault.",
           "properties": {
             "body": {
+              "description": "The body to answer with. Left out, the response has none",
               "type": "string"
             },
             "code": {
+              "description": "The status code to answer with instead of the upstream's",
               "maximum": 599,
               "minimum": 100,
               "type": "integer"
@@ -289,6 +304,7 @@
           "description": "A connection tier fault.",
           "properties": {
             "bytes_per_sec": {
+              "description": "How fast the response is allowed to arrive, in bytes per second",
               "minimum": 1,
               "type": "integer"
             },
@@ -324,10 +340,12 @@
           "description": "A response tier fault.",
           "properties": {
             "after_bytes": {
+              "description": "Cut the body off after this many bytes",
               "minimum": 0,
               "type": "integer"
             },
             "percent": {
+              "description": "Cut the body off after this share of it, as a percentage",
               "maximum": 99,
               "minimum": 1,
               "type": "integer"

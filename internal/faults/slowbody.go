@@ -27,7 +27,7 @@ func (slowBody) Tier() Tier { return TierResponse }
 
 func (slowBody) Schema() Schema {
 	return Schema{
-		Int("ms").Required().Min(1),
+		Int("ms").Required().Min(1).Desc("How long the whole body should take to arrive, in milliseconds"),
 	}
 }
 

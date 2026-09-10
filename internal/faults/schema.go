@@ -35,8 +35,11 @@ const (
 // Build one with Int, Str, StrMap or StrList and narrow it with the chained
 // methods; a Field is a value, so each of them returns a new copy.
 type Field struct {
-	name     string
-	kind     Kind
+	name string
+	kind Kind
+	// desc is one line saying what the parameter is for, in the words a user
+	// would read in the rule editor rather than the words the code uses.
+	desc     string
 	required bool
 	min, max *int
 	// chars, when set, is the only characters a string value may contain.
@@ -64,6 +67,11 @@ func StrMap(name string) Field { return Field{name: name, kind: KindStrMap} }
 // StrList declares a parameter holding a list of names, such as the response
 // headers to remove. It must not be empty, for the same reason as StrMap.
 func StrList(name string) Field { return Field{name: name, kind: KindStrList} }
+
+// Desc says what the parameter is for, in one line. Everything that publishes
+// the catalogue reads it: the JSON Schema an editor validates a file against,
+// and the rule editor's form.
+func (f Field) Desc(text string) Field { f.desc = text; return f }
 
 // Required says the parameter must be present. Everything else is optional and
 // means the zero value of its kind.
@@ -95,6 +103,9 @@ func (f Field) Name() string { return f.name }
 
 // Kind is what the parameter holds.
 func (f Field) Kind() Kind { return f.kind }
+
+// Description is the one line saying what the parameter is for.
+func (f Field) Description() string { return f.desc }
 
 // IsRequired reports whether a rule has to set the parameter.
 func (f Field) IsRequired() bool { return f.required }

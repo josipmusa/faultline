@@ -108,3 +108,44 @@ export interface CreatedRule extends Rule {
 export type StreamMessage =
   | { type: 'event'; event: Event }
   | { type: 'rules_changed' };
+
+/** What one parameter of a fault or a behavior holds. The editor maps a kind
+ * to a control, which is the whole reason a fault the UI was never told about
+ * still renders: only a new kind would need work here. */
+export type FieldKind = 'integer' | 'string' | 'string map' | 'string list';
+
+/** One parameter, as the binary describes it. The constraints are the ones the
+ * server validates against, carried so the form can apply them as input
+ * attributes and give an answer before a round trip. */
+export interface CatalogueField {
+  name: string;
+  kind: FieldKind;
+  description: string;
+  required?: boolean;
+  min?: number;
+  max?: number;
+  /** The alphabet a text parameter is spelled with, absent when any text
+   * will do. `pattern` is written with F and P. */
+  chars?: string;
+  /** The other parameter this one is written with. `exclusive` says exactly
+   * one of the two rather than at least one: `truncate` takes `after_bytes`
+   * or `percent`, `headers` takes `set`, `remove`, or both. */
+  partner?: string;
+  exclusive?: boolean;
+}
+
+/** One fault or one behavior. A behavior has no tier: it decides when a fault
+ * applies, not how much of the traffic Faultline has to see. */
+export interface CatalogueEntry {
+  name: string;
+  tier?: 'connection' | 'response';
+  fields: CatalogueField[];
+}
+
+/** Everything the binary can do to traffic, as `GET /api/catalogue` reports
+ * it. The editor renders its form from this rather than from a list of faults
+ * written out again in TypeScript. */
+export interface Catalogue {
+  faults: CatalogueEntry[];
+  behaviors: CatalogueEntry[];
+}

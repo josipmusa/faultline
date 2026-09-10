@@ -190,7 +190,11 @@ func variantSchema(name, description string, schema faults.Schema) object {
 	required := []string{"type"}
 
 	for _, field := range schema {
-		properties[field.Name()] = fieldSchema(field)
+		property := fieldSchema(field)
+		if text := field.Description(); text != "" {
+			property["description"] = text
+		}
+		properties[field.Name()] = property
 		if field.IsRequired() {
 			required = append(required, field.Name())
 		}

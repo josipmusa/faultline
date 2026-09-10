@@ -12,6 +12,8 @@ interface EventInspectorProps {
   event: Event;
   /** The rule that faulted this event, when the UI knows it. */
   rule?: Rule;
+  /** Opens a rule in the editor, which is where the fault badge leads. */
+  onOpenRule: (id: string) => void;
   onClose: () => void;
 }
 
@@ -26,7 +28,7 @@ type Load =
 const encryptedNotice =
   'This request was tunnelled without interception, so Faultline saw only the host and the connection. Run `faultline ca init` and trust the CA to read headers and bodies for this upstream.';
 
-export function EventInspector({ event, rule, onClose }: EventInspectorProps) {
+export function EventInspector({ event, rule, onOpenRule, onClose }: EventInspectorProps) {
   const encrypted = event.tier === 'encrypted';
   const [fetched, setFetched] = useState<Load>({ state: 'loading' });
 
@@ -67,7 +69,7 @@ export function EventInspector({ event, rule, onClose }: EventInspectorProps) {
             <span>{event.status === 0 ? 'no response' : event.status}</span>
             <span>{event.duration_ms}ms</span>
             <TierBadge tier={event.tier} />
-            {event.faulted && <FaultBadge ruleId={event.rule_id} rule={rule} />}
+            {event.faulted && <FaultBadge ruleId={event.rule_id} rule={rule} onOpen={onOpenRule} />}
           </p>
         </div>
         <button
@@ -171,18 +173,43 @@ export function TierBadge({ tier }: { tier: Event['tier'] }) {
 
 /** The rule that faulted a request, named where the UI knows the name. The
  * bolt is what makes a faulted row readable at a glance: a rule name alone is
- * just more text in a dense table, and rule names get long. The badge is
- * inert; there is no rule editor to open until 6.4 builds one. */
-export function FaultBadge({ ruleId, rule }: { ruleId?: string; rule?: Rule }) {
+ * just more text in a dense table, and rule names get long.
+ *
+ * With somewhere to go it opens the rule in the editor. Without a rule id
+ * there is nothing to open - the request was faulted by a rule that has since
+ * been deleted, or by one this list never saw - so the badge stays a label
+ * rather than becoming a button that does nothing. */
+export function FaultBadge({
+  ruleId,
+  rule,
+  onOpen,
+}: {
+  ruleId?: string;
+  rule?: Rule;
+  onOpen?: (id: string) => void;
+}) {
   const name = rule?.name ?? ruleId ?? 'faulted';
+  const className =
+    'inline-flex max-w-full items-center gap-1 rounded border border-amber-500/30 bg-amber-500/15 py-0.5 pr-2 pl-1.5 text-[0.7rem] font-medium text-amber-300';
+
+  if (!ruleId || !onOpen) {
+    return (
+      <span title={ruleId ? `Faulted by rule ${ruleId}` : 'Faulted'} className={className}>
+        <Zap className="h-3 w-3 shrink-0" fill="currentColor" />
+        <span className="truncate">{name}</span>
+      </span>
+    );
+  }
 
   return (
-    <span
-      title={ruleId ? `Faulted by rule ${ruleId}` : 'Faulted'}
-      className="inline-flex max-w-full items-center gap-1 rounded border border-amber-500/30 bg-amber-500/15 py-0.5 pr-2 pl-1.5 text-[0.7rem] font-medium text-amber-300"
+    <button
+      type="button"
+      title={`Faulted by rule ${ruleId}. Open it in the editor.`}
+      onClick={() => onOpen(ruleId)}
+      className={cn(className, 'cursor-pointer transition-colors hover:bg-amber-500/25')}
     >
       <Zap className="h-3 w-3 shrink-0" fill="currentColor" />
       <span className="truncate">{name}</span>
-    </span>
+    </button>
   );
 }

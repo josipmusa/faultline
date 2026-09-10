@@ -19,8 +19,8 @@ func (headers) Tier() Tier { return TierResponse }
 
 func (headers) Schema() Schema {
 	return Schema{
-		StrMap("set").Or("remove"),
-		StrList("remove"),
+		StrMap("set").Or("remove").Desc("Response headers to set, by name"),
+		StrList("remove").Desc("Response headers to strip, by name"),
 	}
 }
 

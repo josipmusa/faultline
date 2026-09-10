@@ -21,7 +21,7 @@ func (corrupt) Tier() Tier { return TierResponse }
 
 func (corrupt) Schema() Schema {
 	return Schema{
-		Int("percent").Required().Min(1).Max(100),
+		Int("percent").Required().Min(1).Max(100).Desc("How much of the body to mangle, as a percentage of its bytes"),
 	}
 }
 

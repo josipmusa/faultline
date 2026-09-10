@@ -7,12 +7,17 @@ import {
   clearEvents,
   createRule,
   deleteRule,
+  disableRule,
+  enableRule,
   getCapture,
+  getCatalogue,
   getEvents,
+  getRule,
   getRules,
   getUpstreams,
   removeBypass,
   streamUrl,
+  updateRule,
 } from './api';
 
 function respond(body: unknown, init: ResponseInit = {}): Response {
@@ -225,5 +230,86 @@ describe('rule writes', () => {
       '/api/rules/slow-stripe',
       expect.objectContaining({ method: 'DELETE' }),
     );
+  });
+});
+
+describe('the catalogue', () => {
+  it('reads what the binary can do to traffic', async () => {
+    const fetchMock = stubFetch(
+      respond({
+        faults: [
+          {
+            name: 'delay',
+            tier: 'connection',
+            fields: [{ name: 'ms', kind: 'integer', description: 'How long', required: true, min: 1 }],
+          },
+        ],
+        behaviors: [
+          { name: 'first_n', fields: [{ name: 'n', kind: 'integer', description: 'How many', required: true }] },
+        ],
+      }),
+    );
+
+    const catalogue = await getCatalogue();
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/catalogue', expect.anything());
+    expect(catalogue.faults[0].fields[0].min).toBe(1);
+    expect(catalogue.behaviors[0].name).toBe('first_n');
+  });
+});
+
+describe('editing one rule', () => {
+  const rule = {
+    id: 'slow-stripe',
+    name: 'Stripe is slow',
+    enabled: true,
+    match: { host: 'api.stripe.com' },
+    fault: { type: 'delay', ms: 2000 },
+  };
+
+  it('reads a rule, which carries the warnings the list does not', async () => {
+    const fetchMock = stubFetch(respond({ ...rule, warnings: ['only seen encrypted'] }));
+
+    const got = await getRule('slow-stripe');
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/rules/slow-stripe', expect.anything());
+    expect(got.warnings).toEqual(['only seen encrypted']);
+  });
+
+  it('replaces a rule at its id', async () => {
+    const fetchMock = stubFetch(respond(rule));
+
+    await updateRule('slow-stripe', rule);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/rules/slow-stripe',
+      expect.objectContaining({ method: 'PUT' }),
+    );
+  });
+
+  it('enables and disables without sending the rest of the rule', async () => {
+    // A Response body can only be read once, so each call needs its own.
+    const fetchMock = vi.fn(() => Promise.resolve(respond({ ...rule, enabled: false })));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await enableRule('slow-stripe');
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/rules/slow-stripe/enable',
+      expect.objectContaining({ method: 'POST' }),
+    );
+
+    await disableRule('slow-stripe');
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/rules/slow-stripe/disable',
+      expect.objectContaining({ method: 'POST' }),
+    );
+  });
+
+  it('escapes an id that is not URL safe', async () => {
+    const fetchMock = stubFetch(respond(rule));
+
+    await getRule('a/b');
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/rules/a%2Fb', expect.anything());
   });
 });

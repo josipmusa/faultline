@@ -5,6 +5,7 @@ import { useMemo, useState } from 'react';
 import { EventInspector } from '@/components/EventInspector';
 import { Header } from '@/components/Header';
 import { RequestStream } from '@/components/RequestStream';
+import { RulesPanel, type Editing } from '@/components/RulesPanel';
 import { Sidebar } from '@/components/Sidebar';
 import { StreamFilters } from '@/components/StreamFilters';
 import { UpstreamsPanel } from '@/components/UpstreamsPanel';
@@ -16,6 +17,7 @@ export default function Home() {
   const [activeView, setActiveView] = useState('live');
   const [filters, setFilters] = useState(emptyFilters);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [editing, setEditing] = useState<Editing>(null);
   const { events, rules, connected, error, clear } = useEventStream();
   const upstreams = useUpstreams(activeView === 'upstreams');
 
@@ -28,6 +30,15 @@ export default function Home() {
   // cleared away closes the panel rather than leaving it showing something
   // that is no longer on screen.
   const selected = shown.find((event) => event.id === selectedId);
+
+  /** Opens a rule in the editor from wherever it was named, which today is the
+   * fault badge on an event. The panel has to be showing for the editor to be
+   * on screen, so the view follows the rule rather than the click quietly
+   * doing nothing. */
+  const openRule = (id: string) => {
+    setEditing({ kind: 'rule', id });
+    setActiveView('rules');
+  };
 
   return (
     <div className="flex h-screen bg-zinc-900 text-zinc-100">
@@ -45,7 +56,9 @@ export default function Home() {
           <p className="border-b border-red-500/20 bg-red-500/10 px-6 py-2 text-sm text-red-400">{error}</p>
         )}
 
-        {activeView === 'upstreams' ? (
+        {activeView === 'rules' ? (
+          <RulesPanel rules={rules} editing={editing} onEditingChange={setEditing} />
+        ) : activeView === 'upstreams' ? (
           <UpstreamsPanel
             upstreams={upstreams.upstreams}
             rules={rules}
@@ -83,6 +96,7 @@ export default function Home() {
                   key={selected.id}
                   event={selected}
                   rule={selected.rule_id ? byId.get(selected.rule_id) : undefined}
+                  onOpenRule={openRule}
                   onClose={() => setSelectedId(null)}
                 />
               )}

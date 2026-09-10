@@ -26,8 +26,8 @@ func (status) Tier() Tier { return TierResponse }
 
 func (status) Schema() Schema {
 	return Schema{
-		Int("code").Required().Min(100).Max(599),
-		Str("body"),
+		Int("code").Required().Min(100).Max(599).Desc("The status code to answer with instead of the upstream's"),
+		Str("body").Desc("The body to answer with. Left out, the response has none"),
 	}
 }
 
