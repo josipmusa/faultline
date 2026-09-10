@@ -89,7 +89,10 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/upstreams", s.listUpstreams)
 	s.mux.HandleFunc("GET /api/sessions/current/report", s.sessionReport)
 
-	s.mux.HandleFunc("/", s.unknown)
+	// The UI takes over /, so unknown endpoints keep the JSON error shape under
+	// /api rather than answering a mistyped page with it.
+	s.mux.HandleFunc("/api/", s.unknown)
+	s.mux.Handle("/", uiHandler())
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {

@@ -2,21 +2,54 @@ BIN     := bin/faultline
 PKG     := ./cmd/faultline
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
+UI_DIR  := web
+UI_OUT  := $(UI_DIR)/out
+
+# The ui build tag embeds web/out into the binary. A checkout with no Node
+# toolchain still builds: without the tag the binary says the UI is missing
+# rather than failing to compile. `make ui` is what produces the export.
+UI_TAG  := $(if $(wildcard $(UI_OUT)/index.html),-tags ui,)
+
 # golangci-lint is installed into GOPATH/bin by `make tools`.
 GOBIN   := $(shell go env GOPATH)/bin
 GOLANGCI_VERSION := v2.13.2
 
-.PHONY: build test lint tools run schema clean
+.PHONY: build ui test test-go test-ui lint lint-go lint-ui tools run schema clean
 
 build:
-	go build -ldflags "-X main.version=$(VERSION)" -o $(BIN) $(PKG)
+	go build $(UI_TAG) -ldflags "-X main.version=$(VERSION)" -o $(BIN) $(PKG)
 
-test:
+# Builds the static export the binary embeds. Run it before `make build`, or
+# after changing anything under web/.
+ui:
+	cd $(UI_DIR) && npm ci && npm run build
+
+test: test-go test-ui
+
+test-go:
 	go test -race ./...
+# The tag changes what internal/admin serves at /, so that package is the one
+# worth a second pass; nothing else behaves differently under it.
+	$(if $(UI_TAG),go test -race $(UI_TAG) ./internal/admin/,@true)
 
-lint:
+lint: lint-go lint-ui
+
+lint-go:
 	go vet ./...
 	$(GOBIN)/golangci-lint run
+
+# The UI halves skip rather than fail when the toolchain is absent, so `make
+# test` and `make lint` stay usable in a checkout that has never run `make ui`.
+test-ui:
+	@$(call in-ui,npm test,UI tests)
+
+lint-ui:
+	@$(call in-ui,npm run lint,UI lint)
+
+define in-ui
+if [ -d $(UI_DIR)/node_modules ]; then cd $(UI_DIR) && $(1); \
+else echo "skipping $(2): $(UI_DIR)/node_modules is missing, run make ui"; fi
+endef
 
 # Installs the prebuilt binary rather than building from source, so the linter
 # version stays independent of the Go toolchain. `go install` would need a

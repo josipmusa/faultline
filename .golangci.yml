@@ -16,6 +16,10 @@ linters:
     - unconvert
     - whitespace
   exclusions:
+    # The UI's dependency tree happens to carry Go files. They are not ours and
+    # nothing builds them: web/embed_ui.go embeds web/out, never node_modules.
+    paths:
+      - web/node_modules
     rules:
       - path: _test\.go$
         linters:
@@ -25,3 +29,6 @@ formatters:
   enable:
     - gofmt
     - goimports
+  exclusions:
+    paths:
+      - web/node_modules
