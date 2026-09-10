@@ -74,7 +74,7 @@ export function EventInspector({ event, rule, onClose }: EventInspectorProps) {
           type="button"
           aria-label="Close"
           onClick={onClose}
-          className="rounded-md p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
+          className="cursor-pointer rounded-md p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
         >
           <X className="h-4 w-4" />
         </button>

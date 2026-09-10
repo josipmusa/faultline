@@ -49,7 +49,9 @@ func (s *Server) tunnel(w http.ResponseWriter, r *http.Request) {
 		kind, conn := sniffTunnel(client)
 		if kind == kindHTTP1 {
 			s.log.Debug("tunnel carries unencrypted http", "upstream", faults.StripDefaultPort(addr))
-			serveOneConn(r.Context(), conn, tunnelledHandler(s.transport, addr, s.log), s.log)
+			// Same as the intercepted path: the tunnel outlives the CONNECT
+			// that opened it, so the list is consulted per request.
+			serveOneConn(r.Context(), conn, tunnelledHandler(s.tunnelTransport(addr), addr, s.log), s.log)
 			return
 		}
 		// Either TLS, or something Faultline cannot read: the interceptor
@@ -95,6 +97,20 @@ func tunnelledHandler(transport http.RoundTripper, target string, log *slog.Logg
 			_, _ = io.WriteString(w, "faultline: upstream unreachable\n")
 		},
 	})
+}
+
+// tunnelTransport is the pipeline for the requests of one plaintext tunnel,
+// which drops out of the way if the host is bypassed while the tunnel is open.
+func (s *Server) tunnelTransport(addr string) http.RoundTripper {
+	if s.bypass == nil {
+		return s.transport
+	}
+	return &tunnelTransport{
+		faulted:   s.transport,
+		untouched: withoutTheFaultPipeline(s.transport),
+		addr:      addr,
+		bypassed:  s.bypassed,
+	}
 }
 
 // tunnelUntouched is the bypass path for CONNECT: dial the upstream directly,

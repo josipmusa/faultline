@@ -255,15 +255,19 @@ asks for the calls nothing touched.
 
 ```
 $ faultline upstreams
-HOST              TIER   REQUESTS  FAULTED  LAST SEEN  NOTE
-httpbin.org       plain  1         1        22:34:55   -
-postman-echo.com  plain  3         3        22:35:41   -
+HOST              TIER   REQUESTS  FAULTED  ERRORS  LAST SEEN  NOTE
+httpbin.org       plain  1         1        0       22:34:55   -
+postman-echo.com  plain  3         3        1       22:35:41   -
 ```
 
 The tier says how much Faultline could see: `plain`, `intercepted`, or
-`encrypted`, which takes connection faults only. The note says when something
-is in the way - a host on the bypass list, or a client that did not trust the
-Faultline CA, which [docs/trust.md](trust.md) explains.
+`encrypted`, which takes connection faults only. Faulted counts the requests a
+rule acted on; errors counts the ones that went wrong - a 5xx, or a request
+that never got a status at all - so a host that is failing on its own is
+told apart from one Faultline is breaking on purpose. A 4xx is the upstream
+answering and is not an error here. The note says when something is in the way
+- a host on the bypass list, or a client that did not trust the Faultline CA,
+which [docs/trust.md](trust.md) explains.
 
 ## In tests
 

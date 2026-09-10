@@ -1,12 +1,15 @@
 'use client';
 
-import { Activity } from 'lucide-react';
+import { Activity, Server } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 
 /** The nav carries one entry per panel that exists. Later panels add their
  * own, so there is never a tab that leads nowhere. */
-const navItems = [{ id: 'live', icon: Activity, label: 'Live' }];
+const navItems = [
+  { id: 'live', icon: Activity, label: 'Live' },
+  { id: 'upstreams', icon: Server, label: 'Upstreams' },
+];
 
 interface SidebarProps {
   activeView: string;
@@ -28,7 +31,7 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
             title={item.label}
             aria-current={activeView === item.id ? 'page' : undefined}
             className={cn(
-              'relative flex h-12 w-12 items-center justify-center rounded-lg transition-colors',
+              'relative flex h-12 w-12 cursor-pointer items-center justify-center rounded-lg transition-colors',
               activeView === item.id
                 ? 'bg-zinc-800 text-amber-400'
                 : 'text-zinc-500 hover:bg-zinc-900 hover:text-zinc-300',

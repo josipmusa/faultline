@@ -38,7 +38,7 @@ func newUpstreamsCmd() *cobra.Command {
 	return cmd
 }
 
-var upstreamColumns = []string{"HOST", "TIER", "REQUESTS", "FAULTED", "LAST SEEN", "NOTE"}
+var upstreamColumns = []string{"HOST", "TIER", "REQUESTS", "FAULTED", "ERRORS", "LAST SEEN", "NOTE"}
 
 func writeUpstreams(w io.Writer, asJSON bool, list []client.Upstream) error {
 	if asJSON {
@@ -58,6 +58,7 @@ func writeUpstreams(w io.Writer, asJSON bool, list []client.Upstream) error {
 			orDash(string(u.Tier)),
 			strconv.Itoa(u.Requests),
 			strconv.Itoa(u.Faulted),
+			strconv.Itoa(u.Errors),
 			u.LastSeen.Local().Format(clockFormat),
 			orDash(upstreamNote(u)),
 		})
@@ -66,8 +67,14 @@ func writeUpstreams(w io.Writer, asJSON bool, list []client.Upstream) error {
 }
 
 func upstreamNote(u client.Upstream) string {
-	if u.Bypassed {
+	switch {
+	case u.Bypassed:
 		return "bypassed"
+	// A route does not consult the bypass list, so a host can be on it and
+	// still be recorded. Saying so, and naming the entry, explains why a
+	// fault would not survive a move to the forward proxy.
+	case u.BypassEntry != "":
+		return "on the bypass list via " + u.BypassEntry
 	}
 	return u.Hint
 }

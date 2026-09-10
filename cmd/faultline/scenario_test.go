@@ -43,7 +43,7 @@ func TestReloaderReseedsTheScenarios(t *testing.T) {
 	store := rules.New()
 	scenarios := rules.NewScenarios(store)
 	out := &syncWriter{}
-	r := newReloader(&config.Config{}, store, scenarios, slog.New(slog.NewTextHandler(out, nil)))
+	r := newReloader(&config.Config{}, store, scenarios, nil, slog.New(slog.NewTextHandler(out, nil)))
 
 	first := &config.Config{Scenarios: []rules.Scenario{{Name: "down", Rules: []string{"fails"}}}}
 	if err := r.Apply(first); err != nil {
@@ -63,7 +63,7 @@ func TestReloaderSaysWhenTheActiveScenarioLeavesTheFile(t *testing.T) {
 	}
 
 	out := &syncWriter{}
-	r := newReloader(&config.Config{}, store, scenarios, slog.New(slog.NewTextHandler(out, nil)))
+	r := newReloader(&config.Config{}, store, scenarios, nil, slog.New(slog.NewTextHandler(out, nil)))
 	if err := r.Apply(&config.Config{Scenarios: []rules.Scenario{{Name: "other"}}}); err != nil {
 		t.Fatalf("Apply: %v", err)
 	}

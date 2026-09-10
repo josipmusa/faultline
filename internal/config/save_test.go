@@ -71,9 +71,15 @@ func read(t *testing.T, path string) string {
 	return string(data)
 }
 
+// mustSave writes rs back, leaving the bypass list the file already holds as
+// it is, which is what saving a rule change does.
 func mustSave(t *testing.T, path string, rs []rules.Rule) {
 	t.Helper()
-	if err := Save(path, rs); err != nil {
+	var bypass []string
+	if cfg, err := Load(path); err == nil {
+		bypass = cfg.Bypass
+	}
+	if err := Save(path, rs, bypass); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 }
@@ -269,7 +275,7 @@ func TestSaveKeepsTheModeOfTheFile(t *testing.T) {
 func TestSaveRefusesAFileItCannotRead(t *testing.T) {
 	path := writeConfig(t, "rules: [\n")
 
-	err := Save(path, nil)
+	err := Save(path, nil, nil)
 	if err == nil {
 		t.Fatal("Save into a broken file returned no error")
 	}
@@ -356,5 +362,100 @@ func TestSaveKeepsSpacesInsideABlockScalar(t *testing.T) {
 	}
 	if got := after.Fault.Params["body"]; got != "first\n   \nlast\n" {
 		t.Errorf("the body came back as %q", got)
+	}
+}
+
+const bypassFile = `# The file a developer wrote by hand.
+
+# Hosts Faultline keeps its hands off.
+bypass:
+  # Our own telemetry, which pins its certificate.
+  - telemetry.internal
+  - httpbin.org
+
+rules:
+  - id: slow-stripe
+    name: Stripe is slow
+    match:
+      host: api.stripe.com
+    fault:
+      type: delay
+      ms: 2000
+`
+
+func TestSaveWritesTheBypassList(t *testing.T) {
+	path := writeConfig(t, bypassFile)
+
+	if err := Save(path, loadRules(t, path), []string{"telemetry.internal", "api.stripe.com"}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	body := read(t, path)
+	for _, want := range []string{
+		"# Hosts Faultline keeps its hands off.",
+		"# Our own telemetry, which pins its certificate.",
+		"- telemetry.internal",
+		"- api.stripe.com",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the saved file lost %q:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, "httpbin.org") {
+		t.Errorf("the host taken off the list is still written:\n%s", body)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load after Save: %v", err)
+	}
+	if !reflect.DeepEqual(cfg.Bypass, []string{"telemetry.internal", "api.stripe.com"}) {
+		t.Errorf("bypass = %q, want what was saved", cfg.Bypass)
+	}
+}
+
+func TestSaveAddsABypassKeyToAFileWithout(t *testing.T) {
+	path := writeConfig(t, commentedFile)
+
+	if err := Save(path, loadRules(t, path), []string{"httpbin.org"}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load after Save: %v", err)
+	}
+	if !reflect.DeepEqual(cfg.Bypass, []string{"httpbin.org"}) {
+		t.Errorf("bypass = %q, want the host added", cfg.Bypass)
+	}
+}
+
+func TestSaveLeavesAFileWithoutABypassListAlone(t *testing.T) {
+	path := writeConfig(t, commentedFile)
+
+	if err := Save(path, loadRules(t, path), nil); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	if got := read(t, path); got != commentedFile {
+		t.Errorf("saving an empty bypass list rewrote the file:\n%s", got)
+	}
+}
+
+// An emptied list has to leave the key behind, or the next load would read the
+// hosts that were just taken off it.
+func TestSaveEmptiesTheBypassList(t *testing.T) {
+	path := writeConfig(t, bypassFile)
+
+	if err := Save(path, loadRules(t, path), nil); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load after Save: %v", err)
+	}
+	if len(cfg.Bypass) != 0 {
+		t.Errorf("bypass = %q, want none", cfg.Bypass)
 	}
 }

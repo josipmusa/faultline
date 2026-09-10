@@ -64,6 +64,22 @@ func (i instance) runErr(t *testing.T, args ...string) error {
 }
 
 // record puts one event in the ring, the way a proxied request would.
+// failed records a request the upstream answered with a 5xx, which is what
+// the errors column counts.
+func (i instance) failed(t *testing.T, id, host string) {
+	t.Helper()
+	i.events.Record(events.Event{
+		ID:         id,
+		Timestamp:  time.Now(),
+		Host:       host,
+		Method:     "GET",
+		Path:       "/boom",
+		Status:     503,
+		DurationMS: 12,
+		Tier:       events.TierPlain,
+	})
+}
+
 func (i instance) record(t *testing.T, id, host string, faulted bool) {
 	t.Helper()
 	i.events.Record(events.Event{

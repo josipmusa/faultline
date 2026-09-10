@@ -7,14 +7,17 @@ import { Header } from '@/components/Header';
 import { RequestStream } from '@/components/RequestStream';
 import { Sidebar } from '@/components/Sidebar';
 import { StreamFilters } from '@/components/StreamFilters';
+import { UpstreamsPanel } from '@/components/UpstreamsPanel';
 import { emptyFilters, filterEvents, hostsOf, methodsOf } from '@/lib/filters';
 import { useEventStream } from '@/lib/useEventStream';
+import { useUpstreams } from '@/lib/useUpstreams';
 
 export default function Home() {
   const [activeView, setActiveView] = useState('live');
   const [filters, setFilters] = useState(emptyFilters);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const { events, rules, connected, error, clear } = useEventStream();
+  const upstreams = useUpstreams(activeView === 'upstreams');
 
   const shown = useMemo(() => filterEvents(events, filters), [events, filters]);
   const hosts = useMemo(() => hostsOf(events), [events]);
@@ -42,36 +45,50 @@ export default function Home() {
           <p className="border-b border-red-500/20 bg-red-500/10 px-6 py-2 text-sm text-red-400">{error}</p>
         )}
 
-        <StreamFilters
-          filters={filters}
-          onChange={setFilters}
-          hosts={hosts}
-          methods={methods}
-          showing={shown.length}
-          total={events.length}
-        />
-
-        <div className="flex flex-1 overflow-hidden">
-          <RequestStream
-            events={shown}
-            rules={byId}
-            selectedId={selected?.id}
-            onSelect={(event) => setSelectedId(event.id === selectedId ? null : event.id)}
-            filtering={shown.length !== events.length}
+        {activeView === 'upstreams' ? (
+          <UpstreamsPanel
+            upstreams={upstreams.upstreams}
+            rules={rules}
+            error={upstreams.error}
+            // A quick action changes a rule, and the rule list refreshes
+            // itself off the stream's rules_changed; the upstream rows are
+            // read again here, because a bypass shows up only in them.
+            onChanged={upstreams.refresh}
           />
-
-          {selected && (
-            <EventInspector
-              // Keyed by the event, so opening another row starts the panel
-              // over rather than showing the last one's capture while the new
-              // one loads.
-              key={selected.id}
-              event={selected}
-              rule={selected.rule_id ? byId.get(selected.rule_id) : undefined}
-              onClose={() => setSelectedId(null)}
+        ) : (
+          <>
+            <StreamFilters
+              filters={filters}
+              onChange={setFilters}
+              hosts={hosts}
+              methods={methods}
+              showing={shown.length}
+              total={events.length}
             />
-          )}
-        </div>
+
+            <div className="flex flex-1 overflow-hidden">
+              <RequestStream
+                events={shown}
+                rules={byId}
+                selectedId={selected?.id}
+                onSelect={(event) => setSelectedId(event.id === selectedId ? null : event.id)}
+                filtering={shown.length !== events.length}
+              />
+
+              {selected && (
+                <EventInspector
+                  // Keyed by the event, so opening another row starts the
+                  // panel over rather than showing the last one's capture
+                  // while the new one loads.
+                  key={selected.id}
+                  event={selected}
+                  rule={selected.rule_id ? byId.get(selected.rule_id) : undefined}
+                  onClose={() => setSelectedId(null)}
+                />
+              )}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

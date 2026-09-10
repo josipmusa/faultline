@@ -98,6 +98,17 @@ func (f *interceptFixture) distrustingClient(t *testing.T) *http.Client {
 	return f.clientWith(t, &tls.Config{MinVersion: tls.VersionTLS12})
 }
 
+// eitherWayClient trusts the Faultline CA and the upstream's own certificate,
+// so the same client works whether its traffic is intercepted or passed
+// through. A host bypassed part way through is exactly that case.
+func (f *interceptFixture) eitherWayClient(t *testing.T) *http.Client {
+	t.Helper()
+	roots := x509.NewCertPool()
+	roots.AddCert(f.ca.Cert)
+	roots.AddCert(f.upstream.Certificate())
+	return f.clientWith(t, &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12})
+}
+
 func (f *interceptFixture) clientWith(t *testing.T, tlsConfig *tls.Config) *http.Client {
 	t.Helper()
 	proxyURL, err := url.Parse(f.proxy.URL)
@@ -321,5 +332,99 @@ func TestInterceptReusedConnection(t *testing.T) {
 
 	if hits := f.upstream.hits.Load(); hits != 2 {
 		t.Fatalf("upstream saw %d requests, want 2", hits)
+	}
+}
+
+// A client keeps its tunnel open, so bypassing a host part way through has to
+// reach the requests still arriving on the tunnel that was already open.
+// Interception cannot be undone for a connection that is already terminated,
+// but the two things a bypass promises the application - no rules and no
+// recording - apply from the next request on, and the requests are counted as
+// passed through so the host still says what it is doing.
+func TestBypassingAHostReachesAnOpenTunnel(t *testing.T) {
+	// No default entries: the fixture's upstream is on loopback, which they
+	// cover, and it has to start out intercepted.
+	bypass := mustBypass(t)
+	f := newInterceptFixtureWith(t, bypass)
+	client := f.eitherWayClient(t)
+
+	get := func() {
+		t.Helper()
+		resp, err := client.Get(f.upstream.URL + "/orders")
+		if err != nil {
+			t.Fatalf("request: %v", err)
+		}
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("status = %d, want 200", resp.StatusCode)
+		}
+	}
+
+	get()
+	before := len(f.recorder.Events())
+	if before == 0 {
+		t.Fatal("the first request was not recorded, so the tunnel is not intercepted")
+	}
+
+	host, _, err := net.SplitHostPort(strings.TrimPrefix(f.upstream.URL, "https://"))
+	if err != nil {
+		t.Fatalf("upstream host: %v", err)
+	}
+	if err := bypass.Add(host); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	// The same client, so the same tunnel: nothing reopens a CONNECT here.
+	get()
+
+	if after := len(f.recorder.Events()); after != before {
+		t.Errorf("recorded %d events after the bypass, want the %d from before", after, before)
+	}
+	seen := bypass.Seen()
+	if len(seen) != 1 || seen[0].Requests != 1 {
+		t.Errorf("Seen() = %+v, want the one request that was passed through", seen)
+	}
+}
+
+// The application must not be able to tell: a bypass is a de-escalation, so a
+// rule that was faulting the host stops applying rather than the connection
+// being broken to force a fresh CONNECT.
+func TestBypassingAHostStopsFaultingAnOpenTunnel(t *testing.T) {
+	bypass := mustBypass(t)
+	f := newInterceptFixtureWith(t, bypass)
+	if err := f.store.Add(rules.Rule{
+		ID:      "boom",
+		Enabled: true,
+		Fault:   rules.Fault{Type: "status", Params: rules.Params{"code": http.StatusServiceUnavailable}},
+	}); err != nil {
+		t.Fatalf("adding rule: %v", err)
+	}
+	client := f.eitherWayClient(t)
+
+	resp, err := client.Get(f.upstream.URL + "/orders")
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want the rule's 503", resp.StatusCode)
+	}
+
+	host, _, err := net.SplitHostPort(strings.TrimPrefix(f.upstream.URL, "https://"))
+	if err != nil {
+		t.Fatalf("upstream host: %v", err)
+	}
+	if err := bypass.Add(host); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	resp, err = client.Get(f.upstream.URL + "/orders")
+	if err != nil {
+		t.Fatalf("request after the bypass: %v", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d, want the upstream's own 200: the host is bypassed now", resp.StatusCode)
 	}
 }

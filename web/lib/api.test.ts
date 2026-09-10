@@ -1,6 +1,19 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { ApiError, apiUrl, clearEvents, getCapture, getEvents, getRules, streamUrl } from './api';
+import {
+  addBypass,
+  ApiError,
+  apiUrl,
+  clearEvents,
+  createRule,
+  deleteRule,
+  getCapture,
+  getEvents,
+  getRules,
+  getUpstreams,
+  removeBypass,
+  streamUrl,
+} from './api';
 
 function respond(body: unknown, init: ResponseInit = {}): Response {
   return new Response(JSON.stringify(body), {
@@ -126,5 +139,91 @@ describe('getCapture', () => {
     await getCapture('a/b');
 
     expect(fetchMock).toHaveBeenCalledWith('/api/events/a%2Fb/capture', expect.anything());
+  });
+});
+
+describe('getUpstreams', () => {
+  it('reads the list as the API orders it', async () => {
+    const fetchMock = stubFetch(
+      respond([
+        { host: 'api.stripe.com', requests: 2, faulted: 1, errors: 0, bypassed: false, last_seen: '' },
+      ]),
+    );
+
+    const list = await getUpstreams();
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/upstreams', expect.anything());
+    expect(list.map((u) => u.host)).toEqual(['api.stripe.com']);
+  });
+});
+
+describe('the bypass list', () => {
+  it('adds a host', async () => {
+    const fetchMock = stubFetch(respond({ host: 'api.stripe.com' }, { status: 201 }));
+
+    await addBypass('api.stripe.com');
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/bypass',
+      expect.objectContaining({ method: 'POST', body: JSON.stringify({ host: 'api.stripe.com' }) }),
+    );
+  });
+
+  // A host carries a port often enough that escaping it is the whole point.
+  it('removes a host, escaping it into the path', async () => {
+    const fetchMock = stubFetch(new Response(null, { status: 204 }));
+
+    await expect(removeBypass('localhost:8080')).resolves.toBeUndefined();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/bypass/localhost%3A8080',
+      expect.objectContaining({ method: 'DELETE' }),
+    );
+  });
+
+  it('reports what the API refused', async () => {
+    stubFetch(respond({ error: 'localhost stays bypassed', field: 'host' }, { status: 409 }));
+
+    await expect(removeBypass('localhost')).rejects.toThrow(ApiError);
+  });
+});
+
+describe('rule writes', () => {
+  it('creates a rule and returns it with any warnings', async () => {
+    const fetchMock = stubFetch(
+      respond(
+        {
+          id: 'delay-api-stripe-com',
+          name: 'delay api.stripe.com',
+          enabled: true,
+          match: { host: 'api.stripe.com' },
+          fault: { type: 'delay', ms: 2000 },
+          warnings: ['api.stripe.com has only been seen encrypted'],
+        },
+        { status: 201 },
+      ),
+    );
+
+    const created = await createRule({
+      name: 'delay api.stripe.com',
+      enabled: true,
+      match: { host: 'api.stripe.com' },
+      fault: { type: 'delay', ms: 2000 },
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/rules', expect.objectContaining({ method: 'POST' }));
+    expect(created.id).toBe('delay-api-stripe-com');
+    expect(created.warnings).toHaveLength(1);
+  });
+
+  it('deletes a rule by id', async () => {
+    const fetchMock = stubFetch(new Response(null, { status: 204 }));
+
+    await expect(deleteRule('slow-stripe')).resolves.toBeUndefined();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/rules/slow-stripe',
+      expect.objectContaining({ method: 'DELETE' }),
+    );
   });
 });

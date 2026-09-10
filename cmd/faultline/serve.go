@@ -204,7 +204,7 @@ func start(cfg *config.Config, adminPort, proxyPort int, routes []reverse.Route,
 	s.api.CapturesFrom(captures)
 
 	if cfg != nil {
-		s.config = config.Watch(cfg, newReloader(cfg, store, scenarios, nil), nil)
+		s.config = config.Watch(cfg, newReloader(cfg, store, scenarios, bypass, nil), nil)
 		s.api.Persist(s.config)
 	}
 

@@ -48,7 +48,7 @@ export function StreamFilters({ filters, onChange, hosts, methods, showing, tota
         aria-pressed={filters.faultedOnly}
         onClick={() => onChange({ ...filters, faultedOnly: !filters.faultedOnly })}
         className={cn(
-          'rounded-md border px-3 py-1.5 text-xs font-medium transition-colors',
+          'cursor-pointer rounded-md border px-3 py-1.5 text-xs font-medium transition-colors',
           filters.faultedOnly
             ? 'border-amber-500/30 bg-amber-500/15 text-amber-300'
             : 'border-zinc-700 bg-zinc-900 text-zinc-400 hover:bg-zinc-800',
@@ -61,7 +61,7 @@ export function StreamFilters({ filters, onChange, hosts, methods, showing, tota
         <button
           type="button"
           onClick={() => onChange(emptyFilters)}
-          className="flex items-center gap-1 rounded-md px-2 py-1.5 text-xs text-zinc-500 transition-colors hover:text-zinc-300"
+          className="flex cursor-pointer items-center gap-1 rounded-md px-2 py-1.5 text-xs text-zinc-500 transition-colors hover:text-zinc-300"
         >
           <X className="h-3 w-3" />
           Clear filters
@@ -100,7 +100,7 @@ function Select({ label, value, options, anyLabel, onChange }: SelectProps) {
         value={value}
         onChange={(e) => onChange(e.target.value)}
         className={cn(
-          'rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-xs',
+          'cursor-pointer rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-xs',
           value === '' ? 'text-zinc-400' : 'text-zinc-100',
         )}
       >

@@ -32,6 +32,13 @@ type Transport struct {
 	captures *capture.Store
 }
 
+// Base is what the pipeline dials with, without the pipeline: the transport a
+// caller passed to New. It is for a caller that has to carry one request past
+// the rules and the recorder while using the same connections, and the same
+// trust, as everything else on this pipeline. A bypass that arrives while a
+// tunnel is open is the case that needs it.
+func (t *Transport) Base() http.RoundTripper { return t.base }
+
 // New wraps base with the fault pipeline. The tier says how much of the traffic
 // this transport can see, and is stamped on every event it records, so a fault
 // that could not apply can later explain itself. A nil base means

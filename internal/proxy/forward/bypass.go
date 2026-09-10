@@ -2,6 +2,7 @@ package forward
 
 import (
 	"cmp"
+	"errors"
 	"fmt"
 	"net"
 	"slices"
@@ -28,12 +29,16 @@ var DefaultBypass = []string{"localhost", "127.0.0.1", "::1"}
 // case-insensitively; an entry with no port covers every port; default ports
 // are dropped from both sides the way rules and events drop them.
 //
+// The list can be changed while Faultline runs, through the API or a saved
+// edit to the configuration file, so a host can be taken out of the way
+// without a restart. The entries from DefaultBypass are the exception: they
+// cannot be removed, because Faultline must never proxy itself.
+//
 // A nil *Bypass bypasses nothing.
 type Bypass struct {
+	mu       sync.Mutex
 	patterns []pattern
-
-	mu   sync.Mutex
-	seen map[string]*Bypassed
+	seen     map[string]*Bypassed
 }
 
 // Bypassed is one host the forward proxy passed through untouched.
@@ -104,21 +109,33 @@ func parsePattern(raw string) (pattern, error) {
 
 // Matches reports whether host, as the proxies name upstreams (default port
 // dropped), is on the list.
-func (b *Bypass) Matches(host string) bool {
+func (b *Bypass) Matches(host string) bool { return b.Covering(host) != "" }
+
+// Covering is the entry that bypasses host, or the empty string when nothing
+// does. It is not always the host: entries are patterns, so a portless entry
+// covers every port and a wildcard covers every subdomain, and a caller that
+// wants a host proxied again has to know which entry to take off the list.
+//
+// The first entry that covers the host wins, which is the same one Matches
+// stopped at.
+func (b *Bypass) Covering(host string) string {
 	if b == nil {
-		return false
+		return ""
 	}
 	name, port, err := net.SplitHostPort(host)
 	if err != nil {
 		name = host
 	}
 	name = strings.ToLower(name)
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	for _, p := range b.patterns {
 		if p.matches(name, port) {
-			return true
+			return p.text
 		}
 	}
-	return false
+	return ""
 }
 
 func (p pattern) matches(name, port string) bool {
@@ -169,9 +186,128 @@ func (b *Bypass) Patterns() []string {
 	if b == nil {
 		return nil
 	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
 	out := make([]string, len(b.patterns))
 	for i, p := range b.patterns {
 		out[i] = p.text
 	}
 	return out
+}
+
+// ErrNotBypassed says the entry asked about is not on the list.
+var ErrNotBypassed = errors.New("not on the bypass list")
+
+// ErrBypassLocked says the entry is one of the defaults, which stay on the
+// list: loopback is how Faultline reaches itself, so proxying it is never
+// something a caller can ask for.
+var ErrBypassLocked = errors.New("a default bypass entry cannot be removed")
+
+// Add puts one entry on the list. An entry already there is left alone, so
+// adding twice is the same as adding once.
+func (b *Bypass) Add(host string) error {
+	p, err := parsePattern(host)
+	if err != nil {
+		return err
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if slices.ContainsFunc(b.patterns, func(q pattern) bool { return q.text == p.text }) {
+		return nil
+	}
+	b.patterns = append(b.patterns, p)
+	return nil
+}
+
+// Remove takes one entry off the list and forgets what was passed through for
+// it, so the host starts being recorded again from nothing rather than
+// carrying counts from when it was skipped.
+func (b *Bypass) Remove(host string) error {
+	p, err := parsePattern(host)
+	if err != nil {
+		return err
+	}
+	if isDefault(p) {
+		return fmt.Errorf("%q: %w", p.text, ErrBypassLocked)
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	at := slices.IndexFunc(b.patterns, func(q pattern) bool { return q.text == p.text })
+	if at < 0 {
+		return fmt.Errorf("%q: %w", p.text, ErrNotBypassed)
+	}
+	b.patterns = slices.Delete(b.patterns, at, at+1)
+
+	for name := range b.seen {
+		if p.matchesHost(name) {
+			delete(b.seen, name)
+		}
+	}
+	return nil
+}
+
+// Replace installs hosts as the whole list, in one step. A list with an entry
+// that does not parse is refused and the list in force is left alone, so a bad
+// edit to the configuration file cannot empty it. What has already been passed
+// through is kept: it says what happened, not what the list says now.
+func (b *Bypass) Replace(hosts []string) error {
+	next := make([]pattern, 0, len(hosts))
+	for _, raw := range hosts {
+		p, err := parsePattern(raw)
+		if err != nil {
+			return err
+		}
+		next = append(next, p)
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.patterns = next
+	return nil
+}
+
+// Configured returns the entries that came from a flag, the configuration file
+// or the API, leaving out the defaults every Bypass starts with. It is what is
+// written back to the file: the defaults are Faultline's own doing and do not
+// belong in somebody's configuration.
+func (b *Bypass) Configured() []string {
+	if b == nil {
+		return nil
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	out := make([]string, 0, len(b.patterns))
+	for _, p := range b.patterns {
+		if !isDefault(p) {
+			out = append(out, p.text)
+		}
+	}
+	return out
+}
+
+// isDefault reports whether the entry is one of the defaults. Comparing the
+// normalized text is enough: parsePattern produces it for both sides, so
+// `LOCALHOST` and `localhost:80` are recognized as the default they are.
+func isDefault(p pattern) bool {
+	for _, raw := range DefaultBypass {
+		if d, err := parsePattern(raw); err == nil && d.text == p.text {
+			return true
+		}
+	}
+	return false
+}
+
+// matchesHost reports whether the entry covers a host as the proxies name
+// them, which is how a removed entry finds what it had been skipping.
+func (p pattern) matchesHost(host string) bool {
+	name, port, err := net.SplitHostPort(host)
+	if err != nil {
+		name = host
+	}
+	return p.matches(strings.ToLower(name), port)
 }

@@ -91,10 +91,14 @@ restart:
   stay in force, and the problem is logged at error level with the file, the
   line, and the field. The next save that does parse recovers, still without a
   restart.
-- **Routes and the bypass list are read once.** A route is a listener, and
-  Faultline does not open and close listeners while it runs. Changing either in
-  the file is reported as needing a restart rather than quietly ignored; the
-  rules in that same save are applied as usual.
+- **The bypass list is applied too.** A list opens nothing, so an edit to
+  `bypass` takes effect with the rest of the save. A host taken off the list is
+  proxied and recorded again from that moment, and starts over with no counts,
+  since what it did while it was skipped was never recorded.
+- **Routes are read once.** A route is a listener, and Faultline does not open
+  and close listeners while it runs. Changing them in the file is reported as
+  needing a restart rather than quietly ignored; the rules in that same save
+  are applied as usual.
 
 The file is polled rather than watched through the operating system, which is
 what makes it work with editors that save by writing a temporary file and
@@ -104,11 +108,18 @@ Faultline never reads the half written middle of a save.
 ## Changes made through the API
 
 When a file is in use, every rule change through the API or the UI is written
-back to it: create, update, delete, enable, disable. The file stays yours.
+back to it: create, update, delete, enable, disable. So is a change to the
+bypass list. The file stays yours.
 
-- Comments, routes, bypass entries, scenarios, and the order of the rules
-  already written are left as they are. A rule nobody changed keeps the words it
-  was written with, down to the quoting.
+- Comments, routes, scenarios, and the order of the rules already written are
+  left as they are. A rule nobody changed keeps the words it was written with,
+  down to the quoting.
+- A bypass entry already in the file keeps its spelling and the comment above
+  it; a host added over the API is appended to `bypass`, and one removed is
+  dropped. The entries Faultline always keeps for itself, loopback among them,
+  are never written into the file: they are not yours to maintain. Emptying the
+  list leaves the `bypass` key behind, because dropping the key would make the
+  next read of the file put the hosts back.
 - A rule that changed is rewritten where it stands, keeping the comment above
   it. A rule Faultline has never seen is added at the end of `rules`, and one
   written inside a scenario is edited inside that scenario, not moved.

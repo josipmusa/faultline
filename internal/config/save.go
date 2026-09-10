@@ -11,9 +11,9 @@ import (
 	"github.com/josipmusa/faultline/internal/rules"
 )
 
-// Save writes rs as the rules of the file at path and leaves everything else it
-// holds exactly as it was: the comments, the routes, the bypass list, and the
-// scenarios with the rules written inside them.
+// Save writes rs as the rules and bypass as the bypass list of the file at
+// path, and leaves everything else it holds exactly as it was: the comments,
+// the routes, and the scenarios with the rules written inside them.
 //
 // The file is edited as a YAML tree rather than written out from a struct, so a
 // rule nobody touched keeps the words it was written with, and a rule that did
@@ -23,7 +23,7 @@ import (
 //
 // Save refuses a file it cannot read in full, rather than overwriting what it
 // does not understand.
-func Save(path string, rs []rules.Rule) error {
+func Save(path string, rs []rules.Rule, bypass []string) error {
 	data, err := os.ReadFile(path) // #nosec G304 -- the path is the operator's own config file
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("config: reading %s: %w", path, err)
@@ -42,6 +42,7 @@ func Save(path string, rs []rules.Rule) error {
 	if err := e.apply(rs); err != nil {
 		return err
 	}
+	e.applyBypass(bypass)
 
 	out, err := render(doc, data)
 	if err != nil {
@@ -204,6 +205,42 @@ func (e *edit) appendNew(rs []rules.Rule) error {
 		e.defs[r.ID] = place{seq: e.top, node: node, enabled: true}
 	}
 	return nil
+}
+
+// applyBypass writes hosts as the bypass list. An entry already written keeps
+// the node it was written with, so its spelling and the comment above it
+// survive; a new one is appended and one no longer on the list is dropped.
+//
+// A file with no bypass list and nothing to write is left alone, so Faultline's
+// own defaults never appear in somebody's configuration. An emptied list keeps
+// its key, because dropping the key would make the next load read the hosts
+// that were just taken off it.
+func (e *edit) applyBypass(hosts []string) {
+	seq, written := child(e.root, "bypass")
+	if !written {
+		if len(hosts) == 0 {
+			return
+		}
+		seq = &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
+		e.root.Content = append(e.root.Content, scalarNode("bypass"), seq)
+	}
+
+	kept := make(map[string]*yaml.Node, len(seq.Content))
+	for _, item := range seq.Content {
+		if node := resolve(item); node.Kind == yaml.ScalarNode {
+			kept[node.Value] = item
+		}
+	}
+
+	next := make([]*yaml.Node, 0, len(hosts))
+	for _, host := range hosts {
+		if node, ok := kept[host]; ok {
+			next = append(next, node)
+			continue
+		}
+		next = append(next, scalarNode(host))
+	}
+	seq.Content = next
 }
 
 // appendTo adds node to the sequence under key, creating that key at the end of

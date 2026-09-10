@@ -43,6 +43,33 @@ export interface Capture {
   response: CaptureSide;
 }
 
+/** One host Faultline has seen, as `GET /api/upstreams` reports it. A
+ * bypassed host was passed through on purpose: nothing was recorded for it, so
+ * it has no tier, and the counts it carries are from before it was bypassed.
+ * Being on the list is a separate fact: the list belongs to the forward proxy,
+ * and an explicit route does not consult it, so a routed host can be on the
+ * list and recorded all the same.
+ * `hint` is advice for something wrong that no status code explains, such as a
+ * client that refused the interception certificate. */
+export interface Upstream {
+  host: string;
+  tier?: Tier;
+  requests: number;
+  /** Requests a rule acted on, on purpose. */
+  faulted: number;
+  /** Requests that went wrong: a 5xx, or one that never got a status. */
+  errors: number;
+  /** Its requests were passed through untouched, so nothing was recorded. */
+  bypassed: boolean;
+  /** The entry on the bypass list that covers this host, absent when none
+   * does. Often not the host itself: a portless entry covers every port and
+   * `*.internal` covers every subdomain, so this is the entry somebody would
+   * have to take off the list to have the host proxied again. */
+  bypass_entry?: string;
+  last_seen: string;
+  hint?: string;
+}
+
 export interface Match {
   host?: string;
   method?: string;
@@ -65,6 +92,14 @@ export interface Rule {
   match: Match;
   fault: Fault;
   behavior?: Behavior;
+}
+
+/** A rule as an endpoint about one rule returns it: the rule, plus anything
+ * worth saying about it that is not part of it. A warning is something in the
+ * rule's way that does not make it invalid, such as a response-tier fault on a
+ * host Faultline has only ever seen encrypted. */
+export interface CreatedRule extends Rule {
+  warnings?: string[];
 }
 
 /** Every frame on the event stream is a tagged envelope, so a client switches

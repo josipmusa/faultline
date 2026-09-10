@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log/slog"
 	"os"
 	"slices"
@@ -77,23 +78,23 @@ func bypassFor(cfg *config.Config, specs []string) (*forward.Bypass, error) {
 // edit to the file is applied to, and where the rules written back to it come
 // from.
 //
-// Rules are swapped whole. Routes and the bypass list are read once at startup,
-// because a route is a listener and Faultline does not open or close those
-// while it runs, so a change to either is reported and waits for a restart.
+// Rules and the bypass list are swapped whole. Routes are read once at
+// startup, because a route is a listener and Faultline does not open or close
+// those while it runs, so a change to them is reported and waits for a restart.
 type reloader struct {
 	store     *rules.Store
 	scenarios *rules.Scenarios
 	log       *slog.Logger
 
 	routes []reverse.Route
-	bypass []string
+	bypass *forward.Bypass
 }
 
-func newReloader(cfg *config.Config, store *rules.Store, scenarios *rules.Scenarios, log *slog.Logger) *reloader {
+func newReloader(cfg *config.Config, store *rules.Store, scenarios *rules.Scenarios, bypass *forward.Bypass, log *slog.Logger) *reloader {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &reloader{store: store, scenarios: scenarios, log: log, routes: cfg.Routes, bypass: cfg.Bypass}
+	return &reloader{store: store, scenarios: scenarios, log: log, routes: cfg.Routes, bypass: bypass}
 }
 
 func (r *reloader) Apply(cfg *config.Config) error {
@@ -102,10 +103,15 @@ func (r *reloader) Apply(cfg *config.Config) error {
 		r.log.Warn("config: the routes changed, and a route is a listener: restart faultline to open it. " +
 			"The rules in this save are in force already.")
 	}
-	if !slices.Equal(r.bypass, cfg.Bypass) {
-		r.bypass = cfg.Bypass
-		r.log.Warn("config: the bypass list changed, and it is read once at startup: restart faultline to apply it. " +
-			"The rules in this save are in force already.")
+	// The bypass list is applied here, not reported: unlike a route it opens
+	// nothing, so an edit can simply take effect. A list that does not parse
+	// refuses the whole save, which leaves the rules alone as well and is the
+	// point: the file is applied atomically or not at all.
+	if r.bypass != nil && !slices.Equal(r.bypass.Configured(), cfg.Bypass) {
+		if err := r.bypass.Replace(append(slices.Clone(forward.DefaultBypass), cfg.Bypass...)); err != nil {
+			return fmt.Errorf("config: the bypass list: %w", err)
+		}
+		r.log.Info("config: the bypass list changed and is in force", "bypass", r.bypass.Configured())
 	}
 	r.store.Replace(cfg.Rules)
 
@@ -120,6 +126,10 @@ func (r *reloader) Apply(cfg *config.Config) error {
 }
 
 func (r *reloader) Rules() []rules.Rule { return r.store.List() }
+
+// Bypass is what the file should say the bypass list is: the entries somebody
+// configured, without the defaults Faultline keeps for itself.
+func (r *reloader) Bypass() []string { return r.bypass.Configured() }
 
 func sameRoutes(a, b []reverse.Route) bool {
 	return slices.EqualFunc(a, b, func(x, y reverse.Route) bool {

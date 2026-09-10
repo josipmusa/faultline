@@ -151,7 +151,11 @@ func TestReloaderSwapsTheRulesAndSaysWhatNeedsARestart(t *testing.T) {
 		Routes: []reverse.Route{{Name: "stripe", Upstream: mustParse(t, "https://api.stripe.com"), Port: 9100}},
 		Bypass: []string{"*.internal"},
 	}
-	r := newReloader(before, store, rules.NewScenarios(store), log)
+	bypass, err := bypassFor(before, nil)
+	if err != nil {
+		t.Fatalf("bypassFor: %v", err)
+	}
+	r := newReloader(before, store, rules.NewScenarios(store), bypass, log)
 
 	same := *before
 	same.Rules = []rules.Rule{{ID: "a", Name: "a", Enabled: true, Fault: rules.Fault{Type: "delay", Params: rules.Params{"ms": 10}}}}
@@ -173,17 +177,65 @@ func TestReloaderSwapsTheRulesAndSaysWhatNeedsARestart(t *testing.T) {
 	}
 
 	logged := out.String()
-	if !strings.Contains(logged, "the routes changed") || !strings.Contains(logged, "the bypass list changed") {
+	if !strings.Contains(logged, "the routes changed") {
 		t.Errorf("a change that needs a restart was not reported:\n%s", logged)
 	}
-	if strings.Count(logged, "level=WARN") != 2 {
-		t.Errorf("want one warning each for the routes and the bypass list:\n%s", logged)
+	if strings.Count(logged, "level=WARN") != 1 {
+		t.Errorf("want the one warning the routes earn:\n%s", logged)
+	}
+
+	// The bypass list is applied rather than reported: it is a list, not a
+	// listener, so nothing has to be reopened for an edit to take effect.
+	if !bypass.Matches("httpbin.org") {
+		t.Errorf("the host the file added is not bypassed; patterns are %q", bypass.Patterns())
+	}
+	if strings.Contains(logged, "restart faultline to apply") {
+		t.Errorf("a bypass edit still asks for a restart:\n%s", logged)
+	}
+}
+
+// A bypass list the file cannot describe leaves the one in force alone, the
+// same as any other invalid save.
+func TestReloaderKeepsTheBypassListWhenTheFileIsWrong(t *testing.T) {
+	store := rules.New()
+	out := &syncWriter{}
+
+	before := &config.Config{Bypass: []string{"httpbin.org"}}
+	bypass, err := bypassFor(before, nil)
+	if err != nil {
+		t.Fatalf("bypassFor: %v", err)
+	}
+	r := newReloader(before, store, rules.NewScenarios(store), bypass, slog.New(slog.NewTextHandler(out, nil)))
+
+	broken := *before
+	broken.Bypass = []string{"*.*.internal"}
+	if err := r.Apply(&broken); err == nil {
+		t.Fatal("Apply took a bypass list it cannot parse")
+	}
+	if !bypass.Matches("httpbin.org") {
+		t.Errorf("the list in force was lost; patterns are %q", bypass.Patterns())
+	}
+}
+
+// What is written back is the list as it stands, without the defaults
+// Faultline adds for itself.
+func TestReloaderReadsTheBypassListBackWithoutTheDefaults(t *testing.T) {
+	store := rules.New()
+	cfg := &config.Config{Bypass: []string{"httpbin.org"}}
+	bypass, err := bypassFor(cfg, nil)
+	if err != nil {
+		t.Fatalf("bypassFor: %v", err)
+	}
+	r := newReloader(cfg, store, rules.NewScenarios(store), bypass, slog.New(slog.DiscardHandler))
+
+	if got := r.Bypass(); len(got) != 1 || got[0] != "httpbin.org" {
+		t.Errorf("Bypass() = %q, want only the configured host", got)
 	}
 }
 
 func TestReloaderReadsTheRulesBackFromTheStore(t *testing.T) {
 	store := rules.New()
-	r := newReloader(&config.Config{}, store, rules.NewScenarios(store), slog.New(slog.DiscardHandler))
+	r := newReloader(&config.Config{}, store, rules.NewScenarios(store), nil, slog.New(slog.DiscardHandler))
 
 	if err := store.Add(rules.Rule{ID: "a", Name: "a", Fault: rules.Fault{Type: "delay", Params: rules.Params{"ms": 1}}}); err != nil {
 		t.Fatalf("Add: %v", err)

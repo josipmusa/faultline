@@ -65,7 +65,7 @@ func NewServer(transport http.RoundTripper, dialer *faults.Dialer, intercept *In
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Server{
+	s := &Server{
 		handler:   proxyHandler(transport, logger),
 		untouched: proxyHandler(bareTransport(), logger),
 		transport: transport,
@@ -74,6 +74,13 @@ func NewServer(transport http.RoundTripper, dialer *faults.Dialer, intercept *In
 		bypass:    bypass,
 		log:       logger,
 	}
+	// The interceptor serves many requests on one tunnel, so it has to be able
+	// to ask about the list between them: the host may go on it long after the
+	// CONNECT that opened the tunnel.
+	if intercept != nil && bypass != nil {
+		intercept.bypassed = s.bypassed
+	}
+	return s
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {

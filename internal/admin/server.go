@@ -90,6 +90,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/events/{id}/capture", s.getCapture)
 	s.mux.HandleFunc("DELETE /api/events", s.clearEvents)
 	s.mux.HandleFunc("GET /api/upstreams", s.listUpstreams)
+	s.mux.HandleFunc("POST /api/bypass", s.addBypass)
+	s.mux.HandleFunc("DELETE /api/bypass/{host}", s.removeBypass)
 	s.mux.HandleFunc("GET /api/sessions/current/report", s.sessionReport)
 
 	// The UI takes over /, so unknown endpoints keep the JSON error shape under

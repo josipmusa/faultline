@@ -35,6 +35,10 @@ type Interceptor struct {
 	transport http.RoundTripper
 	events    *events.Recorder
 	log       *slog.Logger
+
+	// bypassed answers whether a tunnel's host has been put on the bypass
+	// list since the tunnel was opened. Set by the Server that owns the list.
+	bypassed func(addr string) bool
 }
 
 // NewInterceptor wires interception onto the intercepted-tier pipeline. The
@@ -85,7 +89,7 @@ func (i *Interceptor) handler(target string) http.Handler {
 			r.Out.URL.Scheme = "https"
 			r.Out.URL.Host = target
 		},
-		Transport: i.transport,
+		Transport: i.tunnelTransport(target),
 		ErrorLog:  slog.NewLogLogger(i.log.Handler(), slog.LevelDebug),
 		// Flush every write instead of waiting for a buffer to fill, so a fault
 		// that paces or cuts a body reaches the client as it happens rather
@@ -100,6 +104,33 @@ func (i *Interceptor) handler(target string) http.Handler {
 			_, _ = io.WriteString(w, "faultline: upstream unreachable\n")
 		},
 	})
+}
+
+// tunnelTransport is the pipeline for one tunnel's requests, which drops out
+// of the way if the host is bypassed while the tunnel is open. Without a
+// bypass list there is nothing to consult and the pipeline is used directly.
+func (i *Interceptor) tunnelTransport(target string) http.RoundTripper {
+	if i.bypassed == nil {
+		return i.transport
+	}
+	return &tunnelTransport{
+		faulted:   i.transport,
+		untouched: withoutTheFaultPipeline(i.transport),
+		addr:      target,
+		bypassed:  i.bypassed,
+	}
+}
+
+// withoutTheFaultPipeline is what a bypassed request inside an open tunnel
+// travels over: the transport the pipeline itself dials with, so the request
+// reaches the upstream over the same connections and the same trust as the
+// ones before it, with none of the rules or the recording. A transport that is
+// not a fault pipeline is already that.
+func withoutTheFaultPipeline(t http.RoundTripper) http.RoundTripper {
+	if p, ok := t.(interface{ Base() http.RoundTripper }); ok {
+		return p.Base()
+	}
+	return t
 }
 
 func (i *Interceptor) record(e events.Event, start time.Time) {

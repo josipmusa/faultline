@@ -11,8 +11,14 @@ func TestUpstreamsListsWhatWasSeen(t *testing.T) {
 	i := newInstance(t)
 	i.record(t, "1", "httpbin.org", false)
 	i.record(t, "2", "httpbin.org", true)
+	i.failed(t, "3", "httpbin.org")
 
-	wantLine(t, i.run(t, "upstreams"), "httpbin.org", "plain", "2", "1")
+	out := i.run(t, "upstreams")
+	if !strings.Contains(out, "ERRORS") {
+		t.Errorf("the table has no errors column:\n%s", out)
+	}
+	// Three requests, one faulted on purpose, one that failed.
+	wantLine(t, out, "httpbin.org", "plain", "3", "1", "1")
 }
 
 func TestUpstreamsJSONIsTheAPIsOwnShape(t *testing.T) {

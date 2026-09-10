@@ -1,4 +1,4 @@
-import type { Capture, Event, Rule } from '@/types';
+import type { Capture, CreatedRule, Event, Rule, Upstream } from '@/types';
 
 /** Where the API lives. Empty means same origin, which is the embedded build:
  * the binary serves both the UI and the API on the admin port. `npm run dev`
@@ -83,4 +83,41 @@ export function getRules(): Promise<Rule[]> {
  * was encrypted and there was never one; the message says which. */
 export function getCapture(id: string): Promise<Capture> {
   return request<Capture>(`/api/events/${encodeURIComponent(id)}/capture`);
+}
+
+/** The hosts Faultline has seen, in the order the API sorts them. A bypassed
+ * host is in the list too, which is how the UI can say that nothing is being
+ * recorded for it on purpose. */
+export function getUpstreams(): Promise<Upstream[]> {
+  return request<Upstream[]>('/api/upstreams');
+}
+
+/** Puts a host on the forward proxy's bypass list, so its traffic is passed
+ * through untouched from the next request on. */
+export function addBypass(host: string): Promise<{ host: string }> {
+  return request<{ host: string }>('/api/bypass', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ host }),
+  });
+}
+
+/** Takes a host off the bypass list, so it is proxied and recorded again. */
+export function removeBypass(host: string): Promise<void> {
+  return request<void>(`/api/bypass/${encodeURIComponent(host)}`, { method: 'DELETE' });
+}
+
+/** Creates a rule. The id is the API's to derive when the rule does not carry
+ * one, and the response may carry warnings: a response-tier fault on a host
+ * only ever seen encrypted is accepted and cannot apply yet. */
+export function createRule(rule: Omit<Rule, 'id'> & { id?: string }): Promise<CreatedRule> {
+  return request<CreatedRule>('/api/rules', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(rule),
+  });
+}
+
+export function deleteRule(id: string): Promise<void> {
+  return request<void>(`/api/rules/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }

@@ -3,8 +3,10 @@ package forward
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -286,5 +288,115 @@ func TestBypassWinsOverInterception(t *testing.T) {
 	}
 	if seen := bypass.Seen(); len(seen) != 1 {
 		t.Errorf("Seen() = %+v, want the upstream", seen)
+	}
+}
+
+func TestBypassAdd(t *testing.T) {
+	b := mustBypass(t, DefaultBypass...)
+
+	if err := b.Add("API.Stripe.com:443"); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if !b.Matches("api.stripe.com") {
+		t.Error("the host added is not matched")
+	}
+	if got := b.Configured(); len(got) != 1 || got[0] != "api.stripe.com" {
+		t.Errorf("Configured() = %q, want the one host added, normalized", got)
+	}
+
+	// Adding the same entry again is what a second click on the panel's
+	// toggle would do, and it must not stack up entries.
+	if err := b.Add("api.stripe.com"); err != nil {
+		t.Fatalf("Add again: %v", err)
+	}
+	if got := b.Configured(); len(got) != 1 {
+		t.Errorf("Configured() = %q, want the entry only once", got)
+	}
+
+	if err := b.Add("*.*.bad"); err == nil {
+		t.Error("Add accepted a malformed entry")
+	}
+}
+
+func TestBypassRemove(t *testing.T) {
+	b := mustBypass(t, append(DefaultBypass, "httpbin.org")...)
+	b.Saw("httpbin.org")
+
+	if err := b.Remove("httpbin.org"); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+	if b.Matches("httpbin.org") {
+		t.Error("the host removed is still matched")
+	}
+	if seen := b.Seen(); len(seen) != 0 {
+		t.Errorf("Seen() = %+v, want the host forgotten so it can be recorded afresh", seen)
+	}
+
+	if err := b.Remove("httpbin.org"); !errors.Is(err, ErrNotBypassed) {
+		t.Errorf("removing an entry that is not there = %v, want ErrNotBypassed", err)
+	}
+	if err := b.Remove("localhost"); !errors.Is(err, ErrBypassLocked) {
+		t.Errorf("removing localhost = %v, want ErrBypassLocked: faultline must not proxy itself", err)
+	}
+	if !b.Matches("localhost") {
+		t.Error("localhost stopped being bypassed")
+	}
+}
+
+func TestBypassReplace(t *testing.T) {
+	b := mustBypass(t, append(DefaultBypass, "httpbin.org")...)
+	b.Saw("httpbin.org")
+
+	if err := b.Replace(append(slices.Clone(DefaultBypass), "api.stripe.com")); err != nil {
+		t.Fatalf("Replace: %v", err)
+	}
+	if b.Matches("httpbin.org") {
+		t.Error("a host the new list leaves out is still matched")
+	}
+	if !b.Matches("api.stripe.com") || !b.Matches("localhost") {
+		t.Error("the new list is not in force")
+	}
+	if seen := b.Seen(); len(seen) != 1 {
+		t.Errorf("Seen() = %+v, want what was already passed through to stand", seen)
+	}
+
+	if err := b.Replace([]string{"api.stripe.com", "*.*.bad"}); err == nil {
+		t.Fatal("Replace accepted a list with a malformed entry")
+	}
+	if !b.Matches("api.stripe.com") || !b.Matches("localhost") {
+		t.Error("a rejected Replace changed the list; the old one must stay in force")
+	}
+}
+
+// Entries are patterns, so what bypasses a host is often not the host: a
+// portless entry covers every port, and a wildcard covers every subdomain.
+// Naming the entry is what lets a caller say which one to take off the list.
+func TestBypassCovering(t *testing.T) {
+	b := mustBypass(t, append(DefaultBypass, "*.internal", "httpbin.org")...)
+
+	tests := map[string]string{
+		"127.0.0.1:8777":  "127.0.0.1",
+		"db.internal":     "*.internal",
+		"httpbin.org":     "httpbin.org",
+		"httpbin.org:444": "httpbin.org",
+		"api.stripe.com":  "",
+	}
+	for host, want := range tests {
+		if got := b.Covering(host); got != want {
+			t.Errorf("Covering(%q) = %q, want %q", host, got, want)
+		}
+	}
+}
+
+// Removing one host must not take a whole wildcard with it: the entry covers
+// names nobody asked about.
+func TestBypassRemoveDoesNotReachThroughAWildcard(t *testing.T) {
+	b := mustBypass(t, "*.internal")
+
+	if err := b.Remove("db.internal"); !errors.Is(err, ErrNotBypassed) {
+		t.Errorf("Remove(db.internal) = %v, want ErrNotBypassed", err)
+	}
+	if !b.Matches("db.internal") {
+		t.Error("the wildcard was removed")
 	}
 }

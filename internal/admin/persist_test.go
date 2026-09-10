@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/josipmusa/faultline/internal/config"
+	"github.com/josipmusa/faultline/internal/proxy/forward"
 	"github.com/josipmusa/faultline/internal/rules"
 )
 
@@ -104,10 +105,14 @@ func TestAStoreErrorReachesTheClientThroughThePersister(t *testing.T) {
 
 // applier is the smallest thing a config file can be applied to: the server's
 // own rule store.
-type applier struct{ store *rules.Store }
+type applier struct {
+	store  *rules.Store
+	bypass *forward.Bypass
+}
 
 func (a applier) Apply(cfg *config.Config) error { a.store.Replace(cfg.Rules); return nil }
 func (a applier) Rules() []rules.Rule            { return a.store.List() }
+func (a applier) Bypass() []string               { return a.bypass.Configured() }
 
 func TestARuleAddedOverTheAPIReachesTheFile(t *testing.T) {
 	const body = `# The rules of this application.
@@ -130,7 +135,7 @@ rules:
 
 	s := newTestServer(t)
 	s.rules.Replace(cfg.Rules)
-	s.Persist(config.Watch(cfg, applier{s.rules}, slog.New(slog.DiscardHandler)))
+	s.Persist(config.Watch(cfg, applier{store: s.rules}, slog.New(slog.DiscardHandler)))
 
 	wantStatus(t, do(t, s, http.MethodPost, "/api/rules",
 		`{"id":"orders-503","name":"Orders answers 503","fault":{"type":"status","code":503}}`), http.StatusCreated)
@@ -152,5 +157,60 @@ rules:
 	}
 	if len(reloaded.Rules) != 2 {
 		t.Errorf("the saved file holds %d rules, want 2", len(reloaded.Rules))
+	}
+}
+
+// A bypass added over the API is a change like a rule change, so it belongs in
+// the file too: the host stays out of the way after a restart.
+func TestABypassAddedOverTheAPIReachesTheFile(t *testing.T) {
+	const body = `# The rules of this application.
+
+# Hosts we keep our hands off.
+bypass:
+  # Pins its certificate.
+  - telemetry.internal
+
+rules:
+  - id: slow-stripe
+    name: Stripe is slow
+    fault:
+      type: delay
+      ms: 100
+`
+	path := filepath.Join(t.TempDir(), "faultline.yaml")
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatalf("writing the config: %v", err)
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	bypass, err := forward.NewBypass(append(forward.DefaultBypass, cfg.Bypass...))
+	if err != nil {
+		t.Fatalf("NewBypass: %v", err)
+	}
+	s := newTestServerWith(t, bypass)
+	s.rules.Replace(cfg.Rules)
+	s.Persist(config.Watch(cfg, applier{store: s.rules, bypass: bypass}, slog.New(slog.DiscardHandler)))
+
+	wantStatus(t, do(t, s, http.MethodPost, "/api/bypass", `{"host":"httpbin.org"}`), http.StatusCreated)
+	wantStatus(t, do(t, s, http.MethodDelete, "/api/bypass/telemetry.internal", ""), http.StatusNoContent)
+
+	saved, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading the config back: %v", err)
+	}
+	for _, want := range []string{"- httpbin.org", "# Hosts we keep our hands off.", "# The rules of this application."} {
+		if !strings.Contains(string(saved), want) {
+			t.Errorf("the saved file lost %q:\n%s", want, saved)
+		}
+	}
+	if strings.Contains(string(saved), "telemetry.internal") {
+		t.Errorf("the host taken off the list is still in the file:\n%s", saved)
+	}
+	// The defaults are Faultline's own and are not somebody's configuration.
+	if strings.Contains(string(saved), "localhost") {
+		t.Errorf("the default bypass entries were written to the file:\n%s", saved)
 	}
 }

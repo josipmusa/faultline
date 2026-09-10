@@ -190,8 +190,9 @@ func TestListUpstreamsIncludesBypassedHosts(t *testing.T) {
 		t.Errorf("recorded upstreams are marked bypassed: %+v", got[:2])
 	}
 	local := got[2]
-	if !local.Bypassed || local.Requests != 2 || local.Faulted != 0 || local.Tier != "" || local.LastSeen.IsZero() {
-		t.Errorf("localhost = %+v, want bypassed, two requests, no tier, a last_seen", local)
+	if !local.Bypassed || local.BypassEntry != "localhost" || local.Requests != 2 || local.Faulted != 0 ||
+		local.Tier != "" || local.LastSeen.IsZero() {
+		t.Errorf("localhost = %+v, want bypassed by the localhost entry, two requests, no tier, a last_seen", local)
 	}
 	if !strings.Contains(w.Body.String(), `"bypassed":false`) || strings.Contains(w.Body.String(), `"tier":""`) {
 		t.Errorf("body = %s, want bypassed always present and an empty tier omitted", w.Body.String())
@@ -299,5 +300,128 @@ func TestSessionReportOfAQuietSessionIsZero(t *testing.T) {
 	wantStatus(t, w, http.StatusOK)
 	if got := decodeBody[events.Report](t, w); got != (events.Report{}) {
 		t.Errorf("report = %+v, want every count zero", got)
+	}
+}
+
+// A host with traffic behind it that is bypassed now says so, without
+// claiming its recorded requests were skipped: the panel's toggle reads
+// whether the host is on the list, and the counts say what already happened.
+func TestListUpstreamsNamesTheEntryBypassingARecordedHost(t *testing.T) {
+	bypass, err := forward.NewBypass(nil)
+	if err != nil {
+		t.Fatalf("NewBypass: %v", err)
+	}
+	s := newTestServerWith(t, bypass)
+	seed(t, s)
+
+	wantStatus(t, do(t, s, http.MethodPost, "/api/bypass", `{"host":"httpbin.org"}`), http.StatusCreated)
+
+	got := decodeBody[[]Upstream](t, do(t, s, http.MethodGet, "/api/upstreams", ""))
+	if len(got) != 2 {
+		t.Fatalf("got %d upstreams, want the two recorded ones: %+v", len(got), got)
+	}
+	if got[0].BypassEntry != "" || got[0].Bypassed {
+		t.Errorf("%s is marked bypassed and is not: %+v", got[0].Host, got[0])
+	}
+	if got[1].BypassEntry != "httpbin.org" || got[1].Requests == 0 {
+		t.Errorf("httpbin.org = %+v, want the entry that bypasses it and the requests it made before", got[1])
+	}
+	// Its requests were recorded, so nothing about it was passed through.
+	if got[1].Bypassed {
+		t.Errorf("httpbin.org = %+v, want bypassed false: its traffic was recorded", got[1])
+	}
+}
+
+// An explicit route never consults the bypass list, so a routed upstream that
+// happens to match it is proxied, recorded and faultable. The row has to say
+// both things: on the list, and not bypassed.
+func TestListUpstreamsSeparatesTheListFromWhatWasSkipped(t *testing.T) {
+	bypass, err := forward.NewBypass(forward.DefaultBypass)
+	if err != nil {
+		t.Fatalf("NewBypass: %v", err)
+	}
+	s := newTestServerWith(t, bypass)
+	s.events.Record(events.Event{
+		ID: events.NextID(), Timestamp: time.Now(), Host: "127.0.0.1:8777",
+		Method: "GET", Path: "/get", Status: 200, Tier: events.TierPlain,
+	})
+
+	got := decodeBody[[]Upstream](t, do(t, s, http.MethodGet, "/api/upstreams", ""))
+	if len(got) != 1 {
+		t.Fatalf("got %d upstreams, want the routed one: %+v", len(got), got)
+	}
+	// The entry is the portless default, not the host with its port: that is
+	// what a caller would have to take off the list.
+	if got[0].BypassEntry != "127.0.0.1" {
+		t.Errorf("%+v, want the loopback entry that covers it", got[0])
+	}
+	if got[0].Bypassed || got[0].Tier != events.TierPlain || got[0].Requests != 1 {
+		t.Errorf("%+v, want a recorded plain row that was not skipped", got[0])
+	}
+}
+
+// The error count is what went wrong rather than what a rule did on purpose: a
+// request that never got a status, and a 5xx. A 4xx is the upstream answering.
+func TestListUpstreamsCountsErrors(t *testing.T) {
+	s := newTestServer(t)
+	base := time.Now().Add(-time.Minute)
+	for i, e := range []events.Event{
+		{Host: "httpbin.org", Method: "GET", Path: "/get", Status: 200, Tier: events.TierPlain},
+		{Host: "httpbin.org", Method: "GET", Path: "/gone", Status: 404, Tier: events.TierPlain},
+		{Host: "httpbin.org", Method: "GET", Path: "/boom", Status: 503, Tier: events.TierPlain},
+		{Host: "httpbin.org", Method: "CONNECT", Tier: events.TierEncrypted,
+			Error: "client rejected certificate; CA not trusted or pinned"},
+	} {
+		e.ID = events.NextID()
+		e.Timestamp = base.Add(time.Duration(i) * time.Second)
+		s.events.Record(e)
+	}
+
+	got := decodeBody[[]Upstream](t, do(t, s, http.MethodGet, "/api/upstreams", ""))
+	if len(got) != 1 {
+		t.Fatalf("got %d upstreams, want the one host: %+v", len(got), got)
+	}
+	if got[0].Requests != 4 || got[0].Errors != 2 {
+		t.Errorf("httpbin.org = %+v, want 4 requests of which 2 are errors", got[0])
+	}
+}
+
+// A host bypassed part way through has both: the events from before and the
+// requests passed through since. That is one host and has to be one row, or
+// the list would hold two rows with the same name.
+func TestListUpstreamsFoldsABypassedHostIntoItsRecordedRow(t *testing.T) {
+	bypass, err := forward.NewBypass(nil)
+	if err != nil {
+		t.Fatalf("NewBypass: %v", err)
+	}
+	s := newTestServerWith(t, bypass)
+	seed(t, s) // two requests to httpbin.org, one of them faulted
+
+	wantStatus(t, do(t, s, http.MethodPost, "/api/bypass", `{"host":"httpbin.org"}`), http.StatusCreated)
+	bypass.Saw("httpbin.org")
+
+	got := decodeBody[[]Upstream](t, do(t, s, http.MethodGet, "/api/upstreams", ""))
+	hosts := make([]string, len(got))
+	for i, u := range got {
+		hosts[i] = u.Host
+	}
+	if len(got) != 2 {
+		t.Fatalf("hosts = %q, want one row per host", hosts)
+	}
+
+	httpbin := got[1]
+	if httpbin.Host != "httpbin.org" {
+		t.Fatalf("hosts = %q, want httpbin.org second", hosts)
+	}
+	if httpbin.Requests != 3 {
+		t.Errorf("requests = %d, want the 2 recorded plus the 1 passed through", httpbin.Requests)
+	}
+	if !httpbin.Bypassed || httpbin.BypassEntry != "httpbin.org" {
+		t.Errorf("%+v, want it marked bypassed by its own entry", httpbin)
+	}
+	// What was recorded stays recorded: the tier and the counts are about the
+	// requests Faultline actually saw.
+	if httpbin.Tier != events.TierPlain || httpbin.Faulted != 1 {
+		t.Errorf("%+v, want the tier and faulted count from the events", httpbin)
 	}
 }
