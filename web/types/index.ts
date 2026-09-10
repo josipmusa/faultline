@@ -24,6 +24,25 @@ export interface Event {
   tier: Tier;
 }
 
+/** One half of a captured exchange. `body` is base64, the way Go marshals
+ * bytes; `decodeBody` in `lib/body` is what reads it. `truncated` says the
+ * body was longer than the capture cap and only its first part was kept. */
+export interface CaptureSide {
+  headers: Record<string, string[]>;
+  body?: string;
+  truncated: boolean;
+}
+
+/** What went over the wire for one event. Captures live apart from events and
+ * are fetched by event id: an event is small and every one of them travels on
+ * the stream, a capture is large and is wanted only when somebody opens it.
+ * Encrypted traffic has none, which is why the inspector explains the tier. */
+export interface Capture {
+  event_id: string;
+  request: CaptureSide;
+  response: CaptureSide;
+}
+
 export interface Match {
   host?: string;
   method?: string;

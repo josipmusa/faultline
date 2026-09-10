@@ -1,7 +1,9 @@
 'use client';
 
-import type { Event } from '@/types';
+import type { Event, Rule } from '@/types';
 import { cn } from '@/lib/utils';
+
+import { FaultBadge, TierBadge } from './EventInspector';
 
 const methodColors: Record<string, string> = {
   GET: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
@@ -29,9 +31,16 @@ function time(timestamp: string): string {
 
 interface RequestStreamProps {
   events: Event[];
+  /** Rules by id, so a faulted row can name the rule rather than number it. */
+  rules: Map<string, Rule>;
+  selectedId?: string;
+  onSelect: (event: Event) => void;
+  /** Set when filters are hiding everything, so the empty state can say so
+   * rather than claiming no traffic has arrived. */
+  filtering: boolean;
 }
 
-export function RequestStream({ events }: RequestStreamProps) {
+export function RequestStream({ events, rules, selectedId, onSelect, filtering }: RequestStreamProps) {
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       <div className="flex-1 overflow-auto">
@@ -44,14 +53,33 @@ export function RequestStream({ events }: RequestStreamProps) {
               <th scope="col" className="px-4 py-2 text-left font-medium">Path</th>
               <th scope="col" className="w-20 px-4 py-2 text-left font-medium">Status</th>
               <th scope="col" className="w-24 px-4 py-2 text-right font-medium">Duration</th>
+              <th scope="col" className="w-24 px-4 py-2 text-left font-medium">Tier</th>
+              <th scope="col" className="w-48 px-4 py-2 text-left font-medium">Fault</th>
             </tr>
           </thead>
           <tbody>
             {events.map((event) => (
               // The animation plays as the row mounts, so only a new row
               // announces itself; the rows already on screen stay still.
-              <tr key={event.id} className="row-enter border-b border-zinc-800/50">
-                <td className="px-4 py-2 font-mono text-xs text-zinc-500">{time(event.timestamp)}</td>
+              <tr
+                key={event.id}
+                onClick={() => onSelect(event)}
+                className={cn(
+                  'row-enter cursor-pointer border-b border-zinc-800/50 transition-colors hover:bg-zinc-800/40',
+                  // A faulted row is tinted, so it reads as faulted before
+                  // any of its text does.
+                  event.faulted && 'bg-amber-500/[0.06]',
+                  event.id === selectedId && 'bg-zinc-800/60',
+                )}
+              >
+                <td
+                  className={cn(
+                    'border-l-2 px-4 py-2 font-mono text-xs text-zinc-500',
+                    event.faulted ? 'border-amber-500' : 'border-transparent',
+                  )}
+                >
+                  {time(event.timestamp)}
+                </td>
                 <td className="px-4 py-2">
                   <span
                     className={cn(
@@ -68,6 +96,14 @@ export function RequestStream({ events }: RequestStreamProps) {
                   {event.status === 0 ? '-' : event.status}
                 </td>
                 <td className="px-4 py-2 text-right font-mono text-xs text-zinc-400">{event.duration_ms}ms</td>
+                <td className="px-4 py-2">
+                  <TierBadge tier={event.tier} />
+                </td>
+                <td className="px-4 py-2">
+                  {event.faulted && (
+                    <FaultBadge ruleId={event.rule_id} rule={event.rule_id ? rules.get(event.rule_id) : undefined} />
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -75,7 +111,7 @@ export function RequestStream({ events }: RequestStreamProps) {
 
         {events.length === 0 && (
           <p className="flex h-64 items-center justify-center text-sm text-zinc-500">
-            No requests yet. Waiting for traffic.
+            {filtering ? 'No requests match these filters.' : 'No requests yet. Waiting for traffic.'}
           </p>
         )}
       </div>

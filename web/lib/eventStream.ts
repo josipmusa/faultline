@@ -15,6 +15,9 @@ export interface EventStreamOptions {
   /** How many events to keep. Older ones fall off the end. */
   cap: number;
   open?: (url: string) => Socket;
+  /** Reads the recorder's current events, newest first. Called on every
+   * successful connect, not only the first: see `reseed`. */
+  backlog?: () => Promise<Event[]>;
 }
 
 const reconnectBaseMs = 1000;
@@ -38,6 +41,9 @@ export class EventStream {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private attempts = 0;
   private stopped = false;
+  /** Events that arrived over the socket while a backlog read was in flight.
+   * They are newer than anything the read can return, so they survive it. */
+  private racing: Event[] | null = null;
 
   constructor(opts: EventStreamOptions) {
     this.opts = opts;
@@ -80,11 +86,36 @@ export class EventStream {
     this.emit();
   }
 
-  /** Seeds the list from GET /api/events, which is where the backlog comes
-   * from: the socket only sends what happens after it connects. */
-  seed(events: Event[]) {
-    this.events = events.slice(0, this.opts.cap);
-    this.emit();
+  /** Re-reads the backlog on every connect, so the list always belongs to the
+   * process now on the other end of the socket.
+   *
+   * Event ids are a per-process counter that starts again at 1 on every run.
+   * A list that spans a restart therefore holds two different events sharing
+   * an id, which collide on their React key and leave rows on screen that the
+   * data no longer contains. Replacing the list on connect also fills in
+   * whatever happened while the socket was down, which the stream alone
+   * cannot carry.
+   *
+   * A backlog that cannot be read leaves the list as it is: a stale list is
+   * more use than an empty one, and the failure surfaces through the caller.
+   */
+  private async reseed() {
+    if (!this.opts.backlog) {
+      return;
+    }
+
+    this.racing = [];
+    try {
+      const backlog = await this.opts.backlog();
+      const known = new Set(backlog.map((e) => e.id));
+      const missed = (this.racing ?? []).filter((e) => !known.has(e.id));
+      this.events = [...missed, ...backlog].slice(0, this.opts.cap);
+      this.emit();
+    } catch {
+      // Reported by whoever supplied the backlog reader; the list stands.
+    } finally {
+      this.racing = null;
+    }
   }
 
   private connect() {
@@ -94,6 +125,7 @@ export class EventStream {
     socket.onopen = () => {
       this.attempts = 0;
       this.setConnected(true);
+      void this.reseed();
     };
     socket.onmessage = (e) => this.receive(e.data);
     socket.onclose = () => {
@@ -146,6 +178,7 @@ export class EventStream {
   }
 
   private record(event: Event) {
+    this.racing?.unshift(event);
     this.events = [event, ...this.events].slice(0, this.opts.cap);
     this.emit();
   }

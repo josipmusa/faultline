@@ -35,6 +35,20 @@ export function useEventStream(): LiveState {
         // below runs, and by then hydration has re-created this on the client.
         url: typeof window === 'undefined' ? '' : streamUrl(window.location.href),
         cap: eventCap,
+        // Read on every connect, not only the first: the list has to belong
+        // to the process now on the other end of the socket, since event ids
+        // start again at 1 whenever the binary restarts.
+        backlog: () =>
+          getEvents(eventCap).then(
+            (events) => {
+              setError(null);
+              return events;
+            },
+            (err: unknown) => {
+              setError(message(err));
+              throw err;
+            },
+          ),
       }),
   );
 
@@ -47,11 +61,8 @@ export function useEventStream(): LiveState {
   useEffect(() => stream.subscribeRulesChanged(readRules), [stream, readRules]);
 
   useEffect(() => {
-    // The socket only carries what happens after it connects, so the backlog
-    // comes from the API.
-    getEvents(eventCap)
-      .then((backlog) => stream.seed(backlog))
-      .catch((err: unknown) => setError(message(err)));
+    // The socket only carries what happens after it connects; the backlog
+    // comes from the API, read by the stream itself on every open.
     readRules();
     stream.start();
 

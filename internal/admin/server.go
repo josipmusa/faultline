@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/josipmusa/faultline/internal/capture"
 	"github.com/josipmusa/faultline/internal/events"
 	"github.com/josipmusa/faultline/internal/proxy/forward"
 	"github.com/josipmusa/faultline/internal/rules"
@@ -29,6 +30,7 @@ type Server struct {
 	rules     *rules.Store
 	scenarios *rules.Scenarios
 	events    *events.Recorder
+	captures  *capture.Store
 	bypass    *forward.Bypass
 	trust     []string
 	log       *slog.Logger
@@ -85,6 +87,7 @@ func (s *Server) routes() {
 
 	s.mux.HandleFunc("GET /api/events", s.listEvents)
 	s.mux.HandleFunc("GET /api/events/stream", s.streamEvents)
+	s.mux.HandleFunc("GET /api/events/{id}/capture", s.getCapture)
 	s.mux.HandleFunc("DELETE /api/events", s.clearEvents)
 	s.mux.HandleFunc("GET /api/upstreams", s.listUpstreams)
 	s.mux.HandleFunc("GET /api/sessions/current/report", s.sessionReport)

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { ApiError, apiUrl, clearEvents, getEvents, getRules, streamUrl } from './api';
+import { ApiError, apiUrl, clearEvents, getCapture, getEvents, getRules, streamUrl } from './api';
 
 function respond(body: unknown, init: ResponseInit = {}): Response {
   return new Response(JSON.stringify(body), {
@@ -93,5 +93,38 @@ describe('failures', () => {
 
     expect(err).toBeInstanceOf(ApiError);
     expect((err as ApiError).message).toContain('502');
+  });
+});
+
+describe('getCapture', () => {
+  it('fetches the capture filed against an event', async () => {
+    const fetchMock = stubFetch(
+      respond({ event_id: '7', request: { headers: {}, truncated: false }, response: { headers: {}, truncated: false } }),
+    );
+
+    const got = await getCapture('7');
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/events/7/capture', expect.anything());
+    expect(got.event_id).toBe('7');
+  });
+
+  // An event whose capture has aged out of the budget is a 404 the inspector
+  // shows as a notice, so the error has to arrive intact rather than as a
+  // generic failure.
+  it('reports a capture the server no longer holds', async () => {
+    stubFetch(respond({ error: 'the capture for event 7 is no longer held' }, { status: 404 }));
+
+    await expect(getCapture('7')).rejects.toMatchObject({
+      status: 404,
+      message: 'the capture for event 7 is no longer held',
+    });
+  });
+
+  it('escapes an id that is not URL safe', async () => {
+    const fetchMock = stubFetch(respond({ event_id: 'a/b' }));
+
+    await getCapture('a/b');
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/events/a%2Fb/capture', expect.anything());
   });
 });

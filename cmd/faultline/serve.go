@@ -17,6 +17,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/josipmusa/faultline/internal/admin"
+	"github.com/josipmusa/faultline/internal/capture"
 	"github.com/josipmusa/faultline/internal/config"
 	"github.com/josipmusa/faultline/internal/events"
 	"github.com/josipmusa/faultline/internal/faults"
@@ -163,7 +164,11 @@ func start(cfg *config.Config, adminPort, proxyPort int, routes []reverse.Route,
 	// One gate behind every pipeline: a rule that fails the first two requests
 	// fails two altogether, not two per tier.
 	gate := faults.NewGate()
+	// One capture store behind every pipeline too, so the inspector reads an
+	// exchange the same way whichever door it came through.
+	captures := capture.NewStore(0)
 	pipeline := faults.New(nil, store, s.recorder, events.TierPlain, gate)
+	pipeline.CaptureTo(captures)
 
 	fail := func(err error) (*stack, error) {
 		_ = s.stop(context.Background())
@@ -189,11 +194,14 @@ func start(cfg *config.Config, adminPort, proxyPort int, routes []reverse.Route,
 		if err != nil {
 			return fail(err)
 		}
-		interceptor = forward.NewInterceptor(issuer, faults.New(nil, store, s.recorder, events.TierIntercepted, gate), s.recorder, nil)
+		intercepted := faults.New(nil, store, s.recorder, events.TierIntercepted, gate)
+		intercepted.CaptureTo(captures)
+		interceptor = forward.NewInterceptor(issuer, intercepted, s.recorder, nil)
 	}
 
 	s.proxy = forward.NewServer(pipeline, faults.NewDialer(store, s.recorder, gate), interceptor, bypass, nil)
 	s.api = admin.NewServer(store, scenarios, s.recorder, bypass, trustVars, nil)
+	s.api.CapturesFrom(captures)
 
 	if cfg != nil {
 		s.config = config.Watch(cfg, newReloader(cfg, store, scenarios, nil), nil)

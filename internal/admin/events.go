@@ -48,6 +48,9 @@ func (s *Server) listEvents(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) clearEvents(w http.ResponseWriter, _ *http.Request) {
 	s.events.Clear()
+	if s.captures != nil {
+		s.captures.Clear()
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 

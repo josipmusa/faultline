@@ -48,12 +48,15 @@ function event(id: string, over: Partial<Event> = {}): Event {
   };
 }
 
-function newStream(opts: { cap?: number; onRulesChanged?: () => void } = {}) {
+function newStream(
+  opts: { cap?: number; onRulesChanged?: () => void; backlog?: () => Promise<Event[]> } = {},
+) {
   FakeSocket.opened = [];
   const stream = new EventStream({
     url: 'ws://localhost:9000/api/events/stream',
     cap: opts.cap ?? 100,
     open: (url) => new FakeSocket(url),
+    backlog: opts.backlog,
   });
   if (opts.onRulesChanged) {
     stream.subscribeRulesChanged(opts.onRulesChanged);
@@ -209,5 +212,79 @@ describe('clear', () => {
 
     expect(stream.events).toHaveLength(0);
     expect(seen).toHaveBeenCalled();
+  });
+});
+
+// Event ids are a per-process counter that starts again at 1 on every run, so
+// a list spanning a restart holds two different events with the same id: the
+// rows collide on their React key and the view stops matching its own data.
+// The list therefore belongs to one connection, and every open re-reads it.
+describe('re-seeding on connect', () => {
+  it('reads the backlog when the socket first opens', async () => {
+    const backlog = vi.fn(() => Promise.resolve([event('2'), event('1')]));
+    const { stream, socket } = newStream({ backlog });
+
+    socket().onopen?.();
+    await vi.waitFor(() => expect(stream.events.map((e) => e.id)).toEqual(['2', '1']));
+    expect(backlog).toHaveBeenCalledTimes(1);
+  });
+
+  it('replaces the list when the binary restarts under it', async () => {
+    // The old process got to event 3; the new one starts again at 1.
+    let answer: Event[] = [event('3'), event('2'), event('1')];
+    const { stream, socket } = newStream({ backlog: () => Promise.resolve(answer) });
+
+    socket().onopen?.();
+    await vi.waitFor(() => expect(stream.events).toHaveLength(3));
+
+    // The reconnect is on a timer, which the test drives rather than waits on.
+    answer = [event('1', { path: '/after-the-restart' })];
+    vi.useFakeTimers();
+    try {
+      socket().onclose?.();
+      vi.runOnlyPendingTimers();
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(FakeSocket.opened).toHaveLength(2);
+    socket().onopen?.();
+
+    await vi.waitFor(() => {
+      expect(stream.events.map((e) => e.id)).toEqual(['1']);
+      expect(stream.events[0].path).toBe('/after-the-restart');
+    });
+  });
+
+  it('keeps events that arrived while the backlog was in flight', async () => {
+    let release: (events: Event[]) => void = () => {};
+    const backlog = () => new Promise<Event[]>((resolve) => (release = resolve));
+    const { stream, socket } = newStream({ backlog });
+
+    socket().onopen?.();
+    socket().send({ type: 'event', event: event('9', { path: '/raced-in' }) });
+    release([event('8'), event('7')]);
+
+    await vi.waitFor(() => expect(stream.events.map((e) => e.id)).toEqual(['9', '8', '7']));
+  });
+
+  it('does not duplicate an event that is in the backlog as well', async () => {
+    let release: (events: Event[]) => void = () => {};
+    const backlog = () => new Promise<Event[]>((resolve) => (release = resolve));
+    const { stream, socket } = newStream({ backlog });
+
+    socket().onopen?.();
+    socket().send({ type: 'event', event: event('8') });
+    release([event('8'), event('7')]);
+
+    await vi.waitFor(() => expect(stream.events.map((e) => e.id)).toEqual(['8', '7']));
+  });
+
+  it('leaves the list alone when the backlog cannot be read', async () => {
+    const { stream, socket } = newStream({ backlog: () => Promise.reject(new Error('offline')) });
+
+    socket().send({ type: 'event', event: event('1') });
+    socket().onopen?.();
+
+    await vi.waitFor(() => expect(stream.events.map((e) => e.id)).toEqual(['1']));
   });
 });

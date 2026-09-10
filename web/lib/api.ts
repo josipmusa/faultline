@@ -1,4 +1,4 @@
-import type { Event, Rule } from '@/types';
+import type { Capture, Event, Rule } from '@/types';
 
 /** Where the API lives. Empty means same origin, which is the embedded build:
  * the binary serves both the UI and the API on the admin port. `npm run dev`
@@ -76,4 +76,11 @@ export function clearEvents(): Promise<void> {
 
 export function getRules(): Promise<Rule[]> {
   return request<Rule[]>('/api/rules');
+}
+
+/** The headers and bodies recorded for one event. A 404 means the event is
+ * unknown, or its capture has aged out of the capture budget, or the traffic
+ * was encrypted and there was never one; the message says which. */
+export function getCapture(id: string): Promise<Capture> {
+  return request<Capture>(`/api/events/${encodeURIComponent(id)}/capture`);
 }

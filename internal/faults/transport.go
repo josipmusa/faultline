@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/josipmusa/faultline/internal/capture"
 	"github.com/josipmusa/faultline/internal/events"
 	"github.com/josipmusa/faultline/internal/rules"
 )
@@ -25,6 +26,10 @@ type Transport struct {
 	events *events.Recorder
 	tier   events.Tier
 	gate   *Gate
+
+	// captures holds the headers and bodies of recent exchanges, or is nil
+	// when nothing is capturing them. Set with CaptureTo.
+	captures *capture.Store
 }
 
 // New wraps base with the fault pipeline. The tier says how much of the traffic
@@ -63,27 +68,34 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 
 	next := t.upstream(host)
+	// The capture is filed before the event is recorded, so a client that
+	// sees an event on the stream can always fetch the capture behind it.
+	sent, tee := t.teeRequest(req)
 
 	if rule, applier, ok := t.match(host, req); ok {
 		e.Faulted, e.RuleID = true, rule.ID
 
-		resp, err := applier.Respond(rule.ID, req, next)
+		resp, err := applier.Respond(rule.ID, sent, next)
 		if err != nil {
+			t.file(e.ID, req, tee, nil)
 			t.record(e, start) // no status: the request never got one
 			return nil, err
 		}
 		e.Status, e.BytesOut = resp.StatusCode, knownLength(resp.ContentLength)
+		t.file(e.ID, req, tee, resp)
 		t.record(e, start)
 		return resp, nil
 	}
 
-	resp, err := next.RoundTrip(req)
+	resp, err := next.RoundTrip(sent)
 	if err != nil {
+		t.file(e.ID, req, tee, nil)
 		t.record(e, start)
 		return nil, err
 	}
 
 	e.Status, e.BytesOut = resp.StatusCode, knownLength(resp.ContentLength)
+	t.file(e.ID, req, tee, resp)
 	t.record(e, start)
 	return resp, nil
 }
