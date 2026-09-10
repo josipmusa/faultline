@@ -1,4 +1,7 @@
-# Faultline
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo-dark.svg">
+  <img src="docs/assets/logo-light.svg" alt="Faultline" width="314">
+</picture>
 
 > **Status: pre-alpha.** Nothing here works yet. The CLI is a skeleton. See
 > [ROADMAP.md](ROADMAP.md) for what is being built and in what order.

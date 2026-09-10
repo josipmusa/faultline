@@ -2,6 +2,7 @@
 
 import { Activity, Server } from 'lucide-react';
 
+import { FaultlineMark } from '@/components/FaultlineMark';
 import { cn } from '@/lib/utils';
 
 /** The nav carries one entry per panel that exists. Later panels add their
@@ -19,8 +20,10 @@ interface SidebarProps {
 export function Sidebar({ activeView, onViewChange }: SidebarProps) {
   return (
     <nav className="flex w-16 flex-col items-center gap-6 border-r border-zinc-800 bg-zinc-950 py-6">
-      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br from-amber-500 to-orange-600 text-lg font-bold text-white">
-        F
+      {/* Exactly 32px: the icon is drawn on a 32 unit grid, so any other size
+        * lands its edges between pixels and blurs them. */}
+      <div className="flex h-10 w-10 items-center justify-center">
+        <FaultlineMark className="h-8 w-8 text-brand" />
       </div>
       <div className="flex flex-1 flex-col gap-2">
         {navItems.map((item) => (
