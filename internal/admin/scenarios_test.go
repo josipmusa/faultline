@@ -3,6 +3,7 @@ package admin
 import (
 	"net/http"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/josipmusa/faultline/internal/config"
@@ -199,5 +200,93 @@ func TestActivationIsRefusedWhileTheConfigFileIsBroken(t *testing.T) {
 	wantStatus(t, w, http.StatusConflict)
 	if got := enabledIDs(t, s); got != nil {
 		t.Errorf("enabled = %v, want nothing changed when the change cannot be saved", got)
+	}
+}
+
+func TestCreateScenarioAppendsItInactive(t *testing.T) {
+	s := newTestServer(t)
+	twoScenarios(t, s)
+
+	w := do(t, s, http.MethodPost, "/api/scenarios", `{"name":"everything-slow","rules":["slow","down"]}`)
+
+	wantStatus(t, w, http.StatusCreated)
+	got := decodeBody[Scenario](t, w)
+	if got.Name != "everything-slow" || !slices.Equal(got.Rules, []string{"slow", "down"}) {
+		t.Errorf("created = %+v, want the scenario as posted", got)
+	}
+	if got.Active {
+		t.Error("the new scenario is active; creating one says what a situation is, activating puts it in force")
+	}
+	if on := enabledIDs(t, s); on != nil {
+		t.Errorf("enabled = %v, want no rule touched by creating a scenario", on)
+	}
+
+	list := decodeBody[[]Scenario](t, do(t, s, http.MethodGet, "/api/scenarios", ""))
+	if len(list) != 3 || list[2].Name != "everything-slow" {
+		t.Errorf("list = %+v, want the new scenario written last", list)
+	}
+}
+
+func TestCreateScenarioRefusesADuplicateName(t *testing.T) {
+	s := newTestServer(t)
+	twoScenarios(t, s)
+
+	w := do(t, s, http.MethodPost, "/api/scenarios", `{"name":"orders-flaky","rules":["slow"]}`)
+
+	wantError(t, w, http.StatusConflict, "name")
+	if list := decodeBody[[]Scenario](t, do(t, s, http.MethodGet, "/api/scenarios", "")); len(list) != 2 {
+		t.Errorf("list holds %d scenarios, want the two it had", len(list))
+	}
+}
+
+func TestCreateScenarioRefusesAnEmptyName(t *testing.T) {
+	s := newTestServer(t)
+	twoScenarios(t, s)
+
+	wantError(t, do(t, s, http.MethodPost, "/api/scenarios", `{"rules":["slow"]}`), http.StatusBadRequest, "name")
+}
+
+func TestCreateScenarioRefusesARuleThatIsNotThere(t *testing.T) {
+	s := newTestServer(t)
+	twoScenarios(t, s)
+
+	w := do(t, s, http.MethodPost, "/api/scenarios", `{"name":"ghost","rules":["slow","nothing"]}`)
+
+	wantError(t, w, http.StatusBadRequest, "rules")
+	if got := decodeBody[apiError](t, w); !strings.Contains(got.Message, "nothing") {
+		t.Errorf("error = %q, want it to name the rule that is not there", got.Message)
+	}
+}
+
+func TestCreateScenarioRefusesAnUnknownField(t *testing.T) {
+	s := newTestServer(t)
+	twoScenarios(t, s)
+
+	wantError(t, do(t, s, http.MethodPost, "/api/scenarios",
+		`{"name":"typo","rules":["slow"],"active":true}`), http.StatusBadRequest, "")
+}
+
+func TestCreatingAScenarioIsPersistedLikeARuleChange(t *testing.T) {
+	s, c := persisting(t)
+	twoScenarios(t, s)
+
+	wantStatus(t, do(t, s, http.MethodPost, "/api/scenarios",
+		`{"name":"everything-slow","rules":["slow"]}`), http.StatusCreated)
+
+	if c.changes != 1 {
+		t.Errorf("%d changes went through the configuration file, want 1", c.changes)
+	}
+}
+
+func TestCreatingAScenarioIsRefusedWhileTheConfigFileIsBroken(t *testing.T) {
+	s, c := persisting(t)
+	twoScenarios(t, s)
+	c.fail = &config.Error{File: "faultline.yaml", Line: 9, Message: "this is not valid YAML"}
+
+	w := do(t, s, http.MethodPost, "/api/scenarios", `{"name":"everything-slow","rules":["slow"]}`)
+
+	wantStatus(t, w, http.StatusConflict)
+	if list := decodeBody[[]Scenario](t, do(t, s, http.MethodGet, "/api/scenarios", "")); len(list) != 2 {
+		t.Errorf("list = %+v, want nothing added when the change cannot be saved", list)
 	}
 }

@@ -11,9 +11,9 @@ import (
 	"github.com/josipmusa/faultline/internal/rules"
 )
 
-// Save writes rs as the rules and bypass as the bypass list of the file at
-// path, and leaves everything else it holds exactly as it was: the comments,
-// the routes, and the scenarios with the rules written inside them.
+// Save writes rs as the rules, bypass as the bypass list and scenarios as the
+// named situations of the file at path, and leaves everything else it holds
+// exactly as it was: the comments and the routes.
 //
 // The file is edited as a YAML tree rather than written out from a struct, so a
 // rule nobody touched keeps the words it was written with, and a rule that did
@@ -21,9 +21,16 @@ import (
 // appended to the top level rules; the order of the rules already there is left
 // alone, because the file belongs to whoever wrote it.
 //
+// A scenario the file already declares is left exactly as it is, including the
+// rules written inside it; only one the file has never seen is appended. A
+// scenario's rules list is not rewritten, because it may hold a whole rule
+// written in place and writing that back as an id would leave a file that no
+// longer loads. Dropping the entries that named a deleted rule is a rule
+// change, and is done above.
+//
 // Save refuses a file it cannot read in full, rather than overwriting what it
 // does not understand.
-func Save(path string, rs []rules.Rule, bypass []string) error {
+func Save(path string, rs []rules.Rule, bypass []string, scenarios []rules.Scenario) error {
 	data, err := os.ReadFile(path) // #nosec G304 -- the path is the operator's own config file
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("config: reading %s: %w", path, err)
@@ -43,6 +50,9 @@ func Save(path string, rs []rules.Rule, bypass []string) error {
 		return err
 	}
 	e.applyBypass(bypass)
+	if err := e.applyScenarios(scenarios); err != nil {
+		return err
+	}
 
 	out, err := render(doc, data)
 	if err != nil {
@@ -94,6 +104,9 @@ type edit struct {
 	top   *yaml.Node         // the top level rules list, nil when the file has none
 	defs  map[string]place   // id to the node that defines that rule
 	named map[string][]place // id to the scenario entries that only name it
+
+	scenarios *yaml.Node      // the scenarios list, nil when the file has none
+	declared  map[string]bool // the names the file already declares
 }
 
 func (e *edit) collect() {
@@ -106,11 +119,17 @@ func (e *edit) collect() {
 		}
 	}
 
+	e.declared = map[string]bool{}
+
 	scenarios, ok := child(e.root, "scenarios")
 	if !ok || scenarios.Kind != yaml.SequenceNode {
 		return
 	}
+	e.scenarios = scenarios
 	for _, scenario := range scenarios.Content {
+		if name, named := child(resolve(scenario), "name"); named && name.Kind == yaml.ScalarNode {
+			e.declared[name.Value] = true
+		}
 		list, listed := child(resolve(scenario), "rules")
 		if !listed || list.Kind != yaml.SequenceNode {
 			continue
@@ -243,12 +262,61 @@ func (e *edit) applyBypass(hosts []string) {
 	seq.Content = next
 }
 
+// applyScenarios appends every scenario the file does not declare yet, in the
+// order it is given, naming its rules by id.
+//
+// Appending is all it does. A scenario already written keeps the rules list it
+// was written with, comments, inline rules and all, because that list is the
+// file's way of saying where a rule lives and this function has no way to say
+// it back. Being written last is also what keeps a new scenario loadable: the
+// loader reads scenarios in order, so an entry appended at the end can name any
+// rule the file holds, including one written inside an earlier scenario.
+func (e *edit) applyScenarios(scenarios []rules.Scenario) error {
+	for _, scenario := range scenarios {
+		if e.declared[scenario.Name] {
+			continue
+		}
+		for _, id := range scenario.Rules {
+			if _, written := e.defs[id]; !written {
+				return fmt.Errorf("config: the scenario %q names the rule %q, which is not in the file; "+
+					"nothing was written, because a file naming a rule that is not there would not load",
+					scenario.Name, id)
+			}
+		}
+		e.scenarios = appendTo(e.root, e.scenarios, "scenarios", scenarioNode(scenario))
+		e.declared[scenario.Name] = true
+	}
+	return nil
+}
+
+// scenarioNode writes a scenario as the file spells one: a name and the ids of
+// the rules it turns on.
+func scenarioNode(s rules.Scenario) *yaml.Node {
+	list := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
+	for _, id := range s.Rules {
+		list.Content = append(list.Content, scalarNode(id))
+	}
+
+	m := newMapping()
+	m.add("name", scalarNode(s.Name))
+	m.add("rules", list)
+	return m.node
+}
+
 // appendTo adds node to the sequence under key, creating that key at the end of
 // the mapping when the file has none.
+//
+// A key the file did not have is a section of its own, so it is written with a
+// blank line above it, the way a file somebody wrote spaces its sections out. A
+// leading newline on the head comment is how the encoder is asked for that.
 func appendTo(root, seq *yaml.Node, key string, node *yaml.Node) *yaml.Node {
 	if seq == nil {
 		seq = &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
-		root.Content = append(root.Content, scalarNode(key), seq)
+		name := scalarNode(key)
+		if len(root.Content) > 0 {
+			name.HeadComment = "\n"
+		}
+		root.Content = append(root.Content, name, seq)
 	}
 	seq.Content = append(seq.Content, node)
 	return seq

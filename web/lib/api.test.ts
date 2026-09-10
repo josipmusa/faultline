@@ -13,9 +13,13 @@ import {
   getCatalogue,
   getEvents,
   getRule,
+  getReport,
   getRules,
+  getScenarios,
   getUpstreams,
+  createScenario,
   removeBypass,
+  setScenarioActive,
   streamUrl,
   updateRule,
 } from './api';
@@ -311,5 +315,80 @@ describe('editing one rule', () => {
     await getRule('a/b');
 
     expect(fetchMock).toHaveBeenCalledWith('/api/rules/a%2Fb', expect.anything());
+  });
+});
+
+describe('scenarios', () => {
+  it('reads the list in the order the file declares it', async () => {
+    const fetchMock = stubFetch(
+      respond([
+        { name: 'payments-down', rules: ['slow-stripe'], active: true },
+        { name: 'orders-flaky', rules: [], active: false },
+      ]),
+    );
+
+    const list = await getScenarios();
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/scenarios', expect.anything());
+    expect(list.map((s) => s.name)).toEqual(['payments-down', 'orders-flaky']);
+    expect(list[0].active).toBe(true);
+  });
+
+  it('turns one on and off through its own endpoints', async () => {
+    const on = stubFetch(respond({ name: 'payments-down', rules: [], active: true }));
+    await setScenarioActive('payments-down', true);
+    expect(on).toHaveBeenCalledWith(
+      '/api/scenarios/payments-down/activate',
+      expect.objectContaining({ method: 'POST' }),
+    );
+
+    const off = stubFetch(respond({ name: 'payments-down', rules: [], active: false }));
+    await setScenarioActive('payments-down', false);
+    expect(off).toHaveBeenCalledWith(
+      '/api/scenarios/payments-down/deactivate',
+      expect.objectContaining({ method: 'POST' }),
+    );
+  });
+
+  it('escapes a name on its way into the path', async () => {
+    const fetchMock = stubFetch(respond({ name: 'orders/flaky', rules: [], active: true }));
+
+    await setScenarioActive('orders/flaky', true);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/scenarios/orders%2Fflaky/activate',
+      expect.anything(),
+    );
+  });
+
+  it('creates one from a name and the rules it names', async () => {
+    const fetchMock = stubFetch(
+      respond({ name: 'everything-slow', rules: ['slow-stripe'], active: false }, { status: 201 }),
+    );
+
+    const created = await createScenario({ name: 'everything-slow', rules: ['slow-stripe'] });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/scenarios',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ name: 'everything-slow', rules: ['slow-stripe'] }),
+      }),
+    );
+    expect(created.active).toBe(false);
+  });
+});
+
+describe('the session report', () => {
+  it('reads the five figures the CLI prints', async () => {
+    const fetchMock = stubFetch(
+      respond({ total: 42, faulted: 12, retries: 8, max_retry_wait_ms: 1002, abandoned: 0 }),
+    );
+
+    const report = await getReport();
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/sessions/current/report', expect.anything());
+    expect(report.total).toBe(42);
+    expect(report.max_retry_wait_ms).toBe(1002);
   });
 });

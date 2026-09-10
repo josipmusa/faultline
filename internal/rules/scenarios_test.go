@@ -403,3 +403,52 @@ func TestSwitchNotifiesOnlyWhenSomethingChanged(t *testing.T) {
 		t.Error("a switch that turned a rule on did not notify")
 	}
 }
+
+func TestScenariosAddAppendsAfterTheFilesOwn(t *testing.T) {
+	_, sc := scenarios(t)
+
+	if err := sc.Add(Scenario{Name: "third", Rules: []string{"c"}}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	list, active := sc.List()
+	if got := len(list); got != 3 {
+		t.Fatalf("list holds %d scenarios, want 3", got)
+	}
+	if list[2].Name != "third" || !slices.Equal(list[2].Rules, []string{"c"}) {
+		t.Errorf("list[2] = %+v, want third naming c, written last", list[2])
+	}
+	if active != "" {
+		t.Errorf("active = %q, want nothing: creating a scenario is not rehearsing it", active)
+	}
+	if on := enabled(t, sc.rules); on != nil {
+		t.Errorf("enabled = %v, want none: Add touches no rule", on)
+	}
+}
+
+func TestScenariosAddRefusesANameAlreadyDeclared(t *testing.T) {
+	_, sc := scenarios(t)
+
+	err := sc.Add(Scenario{Name: "second", Rules: []string{"a"}})
+	if !errors.Is(err, ErrScenarioExists) {
+		t.Fatalf("Add: %v, want ErrScenarioExists", err)
+	}
+	if list, _ := sc.List(); len(list) != 2 {
+		t.Errorf("list holds %d scenarios, want the two it had", len(list))
+	}
+}
+
+func TestScenariosAddKeepsNoSliceTheCallerHolds(t *testing.T) {
+	_, sc := scenarios(t)
+
+	ids := []string{"a", "b"}
+	if err := sc.Add(Scenario{Name: "third", Rules: ids}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	ids[0] = "c"
+
+	list, _ := sc.List()
+	if !slices.Equal(list[2].Rules, []string{"a", "b"}) {
+		t.Errorf("rules = %v, want the ids as they were given", list[2].Rules)
+	}
+}

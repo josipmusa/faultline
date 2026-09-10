@@ -84,6 +84,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/rules/{id}/disable", s.disableRule)
 
 	s.mux.HandleFunc("GET /api/scenarios", s.listScenarios)
+	s.mux.HandleFunc("POST /api/scenarios", s.createScenario)
 	s.mux.HandleFunc("POST /api/scenarios/{name}/activate", s.activateScenario)
 	s.mux.HandleFunc("POST /api/scenarios/{name}/deactivate", s.deactivateScenario)
 

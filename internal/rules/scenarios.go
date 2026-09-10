@@ -10,6 +10,11 @@ import (
 // it into a 404, the same way ErrNotFound is turned into one for a rule.
 var ErrNoScenario = errors.New("scenario not found")
 
+// ErrScenarioExists is returned for a name a scenario already has. The API
+// boundary turns it into a 409: a scenario is named once, and a second one
+// under the same name would make the file ambiguous about which is which.
+var ErrScenarioExists = errors.New("scenario already exists")
+
 // Scenarios holds the scenarios a configuration file declared and remembers
 // which one of them is on. It is safe for concurrent use.
 //
@@ -114,6 +119,25 @@ func (s *Scenarios) Deactivate(name string) (Scenario, error) {
 		s.active = ""
 	}
 	return s.list[i].Clone(), nil
+}
+
+// Add declares a new scenario, after the ones already declared. It touches no
+// rule: creating a scenario says what a situation is, and turning it on is what
+// puts it in force, so a scenario arrives inactive however its rules stand.
+//
+// Being written last is also what keeps it loadable. A rule may be written
+// inside the scenario that names it, and the loader reads scenarios in order,
+// so a scenario appended at the end can name any rule the file holds while one
+// inserted before them could name a rule that does not exist yet.
+func (s *Scenarios) Add(scenario Scenario) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.indexOf(scenario.Name) >= 0 {
+		return ErrScenarioExists
+	}
+	s.list = append(s.list, scenario.Clone())
+	return nil
 }
 
 // Forget drops a rule id from every scenario naming it. Deleting a rule through

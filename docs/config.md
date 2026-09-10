@@ -111,9 +111,9 @@ When a file is in use, every rule change through the API or the UI is written
 back to it: create, update, delete, enable, disable. So is a change to the
 bypass list. The file stays yours.
 
-- Comments, routes, scenarios, and the order of the rules already written are
-  left as they are. A rule nobody changed keeps the words it was written with,
-  down to the quoting.
+- Comments, routes, the scenarios already written, and the order of the rules
+  already written are left as they are. A rule nobody changed keeps the words it
+  was written with, down to the quoting.
 - A bypass entry already in the file keeps its spelling and the comment above
   it; a host added over the API is appended to `bypass`, and one removed is
   dropped. The entries Faultline always keeps for itself, loopback among them,
@@ -125,6 +125,10 @@ bypass list. The file stays yours.
   written inside a scenario is edited inside that scenario, not moved.
 - Deleting a rule also removes it from every scenario naming it, in the file and
   in memory, because a scenario cannot name a rule that is not there.
+- A scenario created through the API is appended after the scenarios the file
+  declares, naming its rules by id. A scenario already written is never
+  rewritten: its list of rules may hold a whole rule written in place, and
+  writing that back as an id would leave a file that no longer loads.
 - Activating and deactivating a scenario are rule changes too, so the `enabled`
   flags they set are written back the same way. They have to be: a later save of
   the file is applied over them, and flags that lived only in memory would be
@@ -198,13 +202,17 @@ a rule declared under `rules`, which is how one rule joins more than one
 scenario, or a whole rule written in place, which is how a rule that belongs to
 one situation stays next to it.
 
-Scenarios come from the file. They are not created or edited through the API:
-turning one on and off is. `faultline run --scenario <name>` turns one on for
-the length of one command and off again after, and prints the report of what
-happened while it was on; see [docs/cli.md](cli.md#sessions-and-reports).
+Scenarios come from the file, and a new one can be created through the API or
+the UI, which is how a set of rules arranged by hand is named and committed.
+Editing or deleting one is the file's business.
+
+`faultline run --scenario <name>` turns one on for the length of one command and
+off again after, and prints the report of what happened while it was on; see
+[docs/cli.md](cli.md#sessions-and-reports).
 
 ```
 GET  /api/scenarios                      the file's scenarios, in file order
+POST /api/scenarios                      { "name": "...", "rules": ["id", ...] }
 POST /api/scenarios/<name>/activate
 POST /api/scenarios/<name>/deactivate
 ```
@@ -212,6 +220,13 @@ POST /api/scenarios/<name>/deactivate
 Each entry in the list is its `name`, the `rules` it names, and `active`, which
 is true for the one that is on. A name no scenario has is a `404`.
 
+- **A created scenario names rules that already exist.** A rule id no rule has
+  is a `400` naming it, and a name a scenario already has is a `409`; a scenario
+  is a name for a set of rules, not another way to declare them.
+- **Creating a scenario turns nothing on.** It arrives inactive however its
+  rules stand, because activating is what puts a situation in force, and doing
+  it here would start the behavior state of every rule it names over as a side
+  effect of saving.
 - **Activating enables the scenario's rules and starts their behavior state
   over.** A `first_n: 2` rule fails the next two requests however many it failed
   before, so activating a scenario is always the beginning of a rehearsal, not

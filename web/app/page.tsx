@@ -6,11 +6,13 @@ import { EventInspector } from '@/components/EventInspector';
 import { Header } from '@/components/Header';
 import { RequestStream } from '@/components/RequestStream';
 import { RulesPanel, type Editing } from '@/components/RulesPanel';
+import { ScenariosPanel } from '@/components/ScenariosPanel';
 import { Sidebar } from '@/components/Sidebar';
 import { StreamFilters } from '@/components/StreamFilters';
 import { UpstreamsPanel } from '@/components/UpstreamsPanel';
 import { emptyFilters, filterEvents, hostsOf, methodsOf } from '@/lib/filters';
 import { useEventStream } from '@/lib/useEventStream';
+import { useScenarios } from '@/lib/useScenarios';
 import { useUpstreams } from '@/lib/useUpstreams';
 
 export default function Home() {
@@ -20,6 +22,7 @@ export default function Home() {
   const [editing, setEditing] = useState<Editing>(null);
   const { events, rules, connected, error, clear } = useEventStream();
   const upstreams = useUpstreams(activeView === 'upstreams');
+  const session = useScenarios(activeView === 'scenarios');
 
   const shown = useMemo(() => filterEvents(events, filters), [events, filters]);
   const hosts = useMemo(() => hostsOf(events), [events]);
@@ -49,7 +52,7 @@ export default function Home() {
           connected={connected}
           eventCount={events.length}
           ruleCount={rules.length}
-          onClear={() => void clear()}
+          onReset={() => void clear()}
         />
 
         {error && (
@@ -58,6 +61,18 @@ export default function Home() {
 
         {activeView === 'rules' ? (
           <RulesPanel rules={rules} editing={editing} onEditingChange={setEditing} />
+        ) : activeView === 'scenarios' ? (
+          <ScenariosPanel
+            scenarios={session.scenarios}
+            rules={rules}
+            report={session.report}
+            error={session.error}
+            // Turning a scenario on is a rule change, so the rule list
+            // refreshes itself off the stream's rules_changed; which scenario
+            // is active is per run state the socket never carries, so the
+            // panel's own reads are asked for again here.
+            onChanged={session.refresh}
+          />
         ) : activeView === 'upstreams' ? (
           <UpstreamsPanel
             upstreams={upstreams.upstreams}

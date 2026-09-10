@@ -127,6 +127,13 @@ func (r *reloader) Apply(cfg *config.Config) error {
 
 func (r *reloader) Rules() []rules.Rule { return r.store.List() }
 
+// Scenarios is what the file should say the scenarios are: the ones it
+// declared, plus any created through the API since.
+func (r *reloader) Scenarios() []rules.Scenario {
+	list, _ := r.scenarios.List()
+	return list
+}
+
 // Bypass is what the file should say the bypass list is: the entries somebody
 // configured, without the defaults Faultline keeps for itself.
 func (r *reloader) Bypass() []string { return r.bypass.Configured() }

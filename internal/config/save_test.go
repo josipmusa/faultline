@@ -71,17 +71,29 @@ func read(t *testing.T, path string) string {
 	return string(data)
 }
 
-// mustSave writes rs back, leaving the bypass list the file already holds as
-// it is, which is what saving a rule change does.
+// mustSave writes rs back, leaving the bypass list and the scenarios the file
+// already holds as they are, which is what saving a rule change does.
 func mustSave(t *testing.T, path string, rs []rules.Rule) {
 	t.Helper()
 	var bypass []string
+	var scenarios []rules.Scenario
 	if cfg, err := Load(path); err == nil {
-		bypass = cfg.Bypass
+		bypass, scenarios = cfg.Bypass, cfg.Scenarios
 	}
-	if err := Save(path, rs, bypass); err != nil {
+	if err := Save(path, rs, bypass, scenarios); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
+}
+
+// loadScenarios is the scenario list as the file declares it, which is what a
+// save that changes nothing about them passes back.
+func loadScenarios(t *testing.T, path string) []rules.Scenario {
+	t.Helper()
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	return cfg.Scenarios
 }
 
 func find(rs []rules.Rule, id string) (rules.Rule, bool) {
@@ -275,7 +287,7 @@ func TestSaveKeepsTheModeOfTheFile(t *testing.T) {
 func TestSaveRefusesAFileItCannotRead(t *testing.T) {
 	path := writeConfig(t, "rules: [\n")
 
-	err := Save(path, nil, nil)
+	err := Save(path, nil, nil, nil)
 	if err == nil {
 		t.Fatal("Save into a broken file returned no error")
 	}
@@ -386,7 +398,7 @@ rules:
 func TestSaveWritesTheBypassList(t *testing.T) {
 	path := writeConfig(t, bypassFile)
 
-	if err := Save(path, loadRules(t, path), []string{"telemetry.internal", "api.stripe.com"}); err != nil {
+	if err := Save(path, loadRules(t, path), []string{"telemetry.internal", "api.stripe.com"}, loadScenarios(t, path)); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 
@@ -417,7 +429,7 @@ func TestSaveWritesTheBypassList(t *testing.T) {
 func TestSaveAddsABypassKeyToAFileWithout(t *testing.T) {
 	path := writeConfig(t, commentedFile)
 
-	if err := Save(path, loadRules(t, path), []string{"httpbin.org"}); err != nil {
+	if err := Save(path, loadRules(t, path), []string{"httpbin.org"}, loadScenarios(t, path)); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 
@@ -433,7 +445,7 @@ func TestSaveAddsABypassKeyToAFileWithout(t *testing.T) {
 func TestSaveLeavesAFileWithoutABypassListAlone(t *testing.T) {
 	path := writeConfig(t, commentedFile)
 
-	if err := Save(path, loadRules(t, path), nil); err != nil {
+	if err := Save(path, loadRules(t, path), nil, loadScenarios(t, path)); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 
@@ -447,7 +459,7 @@ func TestSaveLeavesAFileWithoutABypassListAlone(t *testing.T) {
 func TestSaveEmptiesTheBypassList(t *testing.T) {
 	path := writeConfig(t, bypassFile)
 
-	if err := Save(path, loadRules(t, path), nil); err != nil {
+	if err := Save(path, loadRules(t, path), nil, loadScenarios(t, path)); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 
@@ -458,4 +470,93 @@ func TestSaveEmptiesTheBypassList(t *testing.T) {
 	if len(cfg.Bypass) != 0 {
 		t.Errorf("bypass = %q, want none", cfg.Bypass)
 	}
+}
+
+func TestSaveAppendsANewScenarioNamingRulesTheFileHolds(t *testing.T) {
+	path := writeConfig(t, commentedFile)
+
+	added := rules.Scenario{Name: "stripe-slow-only", Rules: []string{"slow-stripe"}}
+	if err := Save(path, loadRules(t, path), nil, append(loadScenarios(t, path), added)); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load after Save: %v", err)
+	}
+	if len(cfg.Scenarios) != 2 {
+		t.Fatalf("the file declares %d scenarios, want 2", len(cfg.Scenarios))
+	}
+	if got := cfg.Scenarios[1]; got.Name != added.Name || !reflect.DeepEqual(got.Rules, added.Rules) {
+		t.Errorf("scenarios[1] = %+v, want %+v written last", got, added)
+	}
+	body := read(t, path)
+	if !strings.Contains(body, "# Stripe takes its time.") {
+		t.Errorf("appending a scenario lost a comment:\n%s", body)
+	}
+	if !strings.Contains(body, "name: Stripe answers 503") {
+		t.Errorf("appending a scenario lost the rule written inside the other one:\n%s", body)
+	}
+}
+
+// A scenario the file already declares is never rewritten: its rules list may
+// hold a whole rule written in place, and writing that list back as ids would
+// leave a file that no longer loads.
+func TestSaveLeavesTheScenariosTheFileWritesExactlyAsTheyAre(t *testing.T) {
+	path := writeConfig(t, commentedFile)
+
+	if err := Save(path, loadRules(t, path), nil, loadScenarios(t, path)); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	if got := read(t, path); got != commentedFile {
+		t.Errorf("saving the scenarios it already holds rewrote the file:\n%s", got)
+	}
+}
+
+func TestSaveAddsAScenariosKeyToAFileWithout(t *testing.T) {
+	path := writeConfig(t, bypassFile)
+
+	added := rules.Scenario{Name: "stripe-slow-only", Rules: []string{"slow-stripe"}}
+	if err := Save(path, loadRules(t, path), loadBypass(t, path), []rules.Scenario{added}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load after Save: %v", err)
+	}
+	if len(cfg.Scenarios) != 1 || !reflect.DeepEqual(cfg.Scenarios[0].Rules, added.Rules) {
+		t.Errorf("scenarios = %+v, want the one added", cfg.Scenarios)
+	}
+	// A section of its own gets a line of its own: the file spaces its keys
+	// out, and a key appended against the end of the last one reads as part
+	// of it.
+	if body := read(t, path); !strings.Contains(body, "\n\nscenarios:") {
+		t.Errorf("the new key is jammed against what came before it:\n%s", body)
+	}
+}
+
+// A scenario naming a rule the file does not hold would not load, so it is
+// refused rather than written.
+func TestSaveRefusesAScenarioNamingARuleThatIsNotThere(t *testing.T) {
+	path := writeConfig(t, commentedFile)
+
+	added := rules.Scenario{Name: "ghost", Rules: []string{"nothing-by-that-id"}}
+	err := Save(path, loadRules(t, path), nil, append(loadScenarios(t, path), added))
+	if err == nil {
+		t.Fatalf("Save wrote a scenario naming a rule that is not there")
+	}
+	if got := read(t, path); got != commentedFile {
+		t.Errorf("the refused save changed the file:\n%s", got)
+	}
+}
+
+func loadBypass(t *testing.T, path string) []string {
+	t.Helper()
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	return cfg.Bypass
 }

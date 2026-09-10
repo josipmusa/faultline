@@ -1,4 +1,4 @@
-import type { Capture, Catalogue, CreatedRule, Event, Rule, Upstream } from '@/types';
+import type { Capture, Catalogue, CreatedRule, Event, Report, Rule, Scenario, Upstream } from '@/types';
 
 /** Where the API lives. Empty means same origin, which is the embedded build:
  * the binary serves both the UI and the API on the admin port. `npm run dev`
@@ -156,4 +156,37 @@ export function enableRule(id: string): Promise<CreatedRule> {
 /** Switches a rule off, keeping it for later. */
 export function disableRule(id: string): Promise<CreatedRule> {
   return request<CreatedRule>(`/api/rules/${encodeURIComponent(id)}/disable`, { method: 'POST' });
+}
+
+/** The scenarios the configuration declares, in file order, with `active` on
+ * the one that is on. There is never more than one. */
+export function getScenarios(): Promise<Scenario[]> {
+  return request<Scenario[]>('/api/scenarios');
+}
+
+/** Turns a scenario on or off. Turning one on enables its rules and starts
+ * their behavior state over, and turns off whichever scenario was on, so this
+ * is a switch between situations rather than a checkbox per scenario. */
+export function setScenarioActive(name: string, active: boolean): Promise<Scenario> {
+  const action = active ? 'activate' : 'deactivate';
+  return request<Scenario>(`/api/scenarios/${encodeURIComponent(name)}/${action}`, { method: 'POST' });
+}
+
+/** Declares a new scenario over the rules it names, which have to exist
+ * already. It arrives inactive: naming a situation and putting it in force are
+ * two things, and activating would start the behavior state of every rule it
+ * names over. */
+export function createScenario(scenario: { name: string; rules: string[] }): Promise<Scenario> {
+  return request<Scenario>('/api/scenarios', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(scenario),
+  });
+}
+
+/** How the application behaved this session. Reset it by clearing the events,
+ * which is what the header's Reset session does: the report is a reading of
+ * the recorder, so emptying the recorder starts the counts over. */
+export function getReport(): Promise<Report> {
+  return request<Report>('/api/sessions/current/report');
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { Activity, Server, Zap } from 'lucide-react';
+import { Activity, Layers, Server, Zap } from 'lucide-react';
 
 import { FaultlineMark } from '@/components/FaultlineMark';
 import { cn } from '@/lib/utils';
@@ -11,6 +11,7 @@ const navItems = [
   { id: 'live', icon: Activity, label: 'Live' },
   { id: 'upstreams', icon: Server, label: 'Upstreams' },
   { id: 'rules', icon: Zap, label: 'Rules' },
+  { id: 'scenarios', icon: Layers, label: 'Scenarios' },
 ];
 
 interface SidebarProps {

@@ -106,13 +106,22 @@ func TestAStoreErrorReachesTheClientThroughThePersister(t *testing.T) {
 // applier is the smallest thing a config file can be applied to: the server's
 // own rule store.
 type applier struct {
-	store  *rules.Store
-	bypass *forward.Bypass
+	store     *rules.Store
+	bypass    *forward.Bypass
+	scenarios *rules.Scenarios
 }
 
 func (a applier) Apply(cfg *config.Config) error { a.store.Replace(cfg.Rules); return nil }
 func (a applier) Rules() []rules.Rule            { return a.store.List() }
 func (a applier) Bypass() []string               { return a.bypass.Configured() }
+
+func (a applier) Scenarios() []rules.Scenario {
+	if a.scenarios == nil {
+		return nil
+	}
+	list, _ := a.scenarios.List()
+	return list
+}
 
 func TestARuleAddedOverTheAPIReachesTheFile(t *testing.T) {
 	const body = `# The rules of this application.
@@ -212,5 +221,53 @@ rules:
 	// The defaults are Faultline's own and are not somebody's configuration.
 	if strings.Contains(string(saved), "localhost") {
 		t.Errorf("the default bypass entries were written to the file:\n%s", saved)
+	}
+}
+
+// A scenario created over the API is a change like a rule change, so it belongs
+// in the file: it is committed with the repository and rehearsed again later.
+func TestAScenarioCreatedOverTheAPIReachesTheFile(t *testing.T) {
+	const body = `# The rules of this application.
+rules:
+  # Stripe takes its time.
+  - id: slow-stripe
+    name: Stripe is slow
+    fault:
+      type: delay
+      ms: 100
+`
+	path := filepath.Join(t.TempDir(), "faultline.yaml")
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatalf("writing the config: %v", err)
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	s := newTestServer(t)
+	s.rules.Replace(cfg.Rules)
+	s.scenarios.Replace(cfg.Scenarios)
+	s.Persist(config.Watch(cfg, applier{store: s.rules, scenarios: s.scenarios}, slog.New(slog.DiscardHandler)))
+
+	wantStatus(t, do(t, s, http.MethodPost, "/api/scenarios",
+		`{"name":"stripe-slow","rules":["slow-stripe"]}`), http.StatusCreated)
+
+	saved, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading the config back: %v", err)
+	}
+	for _, want := range []string{"scenarios:", "name: stripe-slow", "- slow-stripe", "# Stripe takes its time."} {
+		if !strings.Contains(string(saved), want) {
+			t.Errorf("the saved file lost %q:\n%s", want, saved)
+		}
+	}
+
+	reloaded, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("the saved file no longer loads: %v", err)
+	}
+	if len(reloaded.Scenarios) != 1 || reloaded.Scenarios[0].Name != "stripe-slow" {
+		t.Errorf("the saved file holds %+v, want the scenario that was created", reloaded.Scenarios)
 	}
 }

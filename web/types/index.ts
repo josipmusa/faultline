@@ -149,3 +149,30 @@ export interface Catalogue {
   faults: CatalogueEntry[];
   behaviors: CatalogueEntry[];
 }
+
+/** One named situation, as `GET /api/scenarios` reports it: the rules that go
+ * on and off together, named by id in the order the file writes them, and
+ * whether this is the one that is on. Only one is at a time. */
+export interface Scenario {
+  name: string;
+  rules: string[];
+  active: boolean;
+}
+
+/** What the application did while Faultline watched, as
+ * `GET /api/sessions/current/report` reports it. It cannot be derived in the
+ * browser: retries and abandoned attempts are the recorder's reading of its
+ * whole ring, not of the events this view happens to keep. */
+export interface Report {
+  total: number;
+  faulted: number;
+  /** Requests that look like a repeat of an earlier attempt. */
+  retries: number;
+  /** The longest a retry waited after the attempt it repeats, so the backoff
+   * the application actually used. Zero when nothing retried. */
+  max_retry_wait_ms: number;
+  /** Attempts worth retrying that nothing repeated before their window
+   * closed. Almost always zero while a run is still going: an attempt whose
+   * window is still open counts as neither. */
+  abandoned: number;
+}

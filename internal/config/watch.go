@@ -30,6 +30,10 @@ type Applier interface {
 	// Bypass returns the hosts the forward proxy is passing through untouched,
 	// leaving out Faultline's own defaults, to write back to the file.
 	Bypass() []string
+	// Scenarios returns the named situations as they stand now, to write back
+	// to the file. A scenario created through the API is in the list and not
+	// yet in the file, which is how it gets there.
+	Scenarios() []rules.Scenario
 }
 
 // File is the configuration file in use: it watches for edits and applies them,
@@ -200,7 +204,7 @@ var ErrNotSaved = errors.New("could not be written to the configuration file")
 // its own write does not come back as an edit and reset behavior state. The
 // caller holds the lock.
 func (f *File) save() error {
-	if err := Save(f.path, f.apply.Rules(), f.apply.Bypass()); err != nil {
+	if err := Save(f.path, f.apply.Rules(), f.apply.Bypass(), f.apply.Scenarios()); err != nil {
 		return fmt.Errorf("%w: %w", ErrNotSaved, err)
 	}
 	if now, err := statOf(f.path); err == nil {

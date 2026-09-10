@@ -29,10 +29,11 @@ rules:
 type recorder struct {
 	store *rules.Store
 
-	mu      sync.Mutex
-	applied int
-	fail    error
-	bypass  []string
+	mu        sync.Mutex
+	applied   int
+	fail      error
+	bypass    []string
+	scenarios []rules.Scenario
 }
 
 func newRecorder() *recorder { return &recorder{store: rules.New()} }
@@ -49,7 +50,7 @@ func (r *recorder) Apply(cfg *Config) error {
 	r.store.Replace(cfg.Rules)
 
 	r.mu.Lock()
-	r.bypass = cfg.Bypass
+	r.bypass, r.scenarios = cfg.Bypass, cfg.Scenarios
 	r.mu.Unlock()
 	return nil
 }
@@ -60,6 +61,12 @@ func (r *recorder) Bypass() []string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.bypass
+}
+
+func (r *recorder) Scenarios() []rules.Scenario {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.scenarios
 }
 
 func (r *recorder) applies() int {
