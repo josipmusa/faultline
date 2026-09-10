@@ -37,7 +37,8 @@ func NewDialer(store *rules.Store, rec *events.Recorder, gate *Gate) *Dialer {
 }
 
 // Dial connects to addr, a host:port from a CONNECT request line, after
-// applying the first matching connection fault. It returns a *RefusedError when
+// applying the first connection fault whose rule matches and whose behavior
+// accepts. It returns a *RefusedError when
 // a rule refused the connection, the context error when the client gave up
 // during a delay, and the dial error when the upstream is unreachable.
 func (d *Dialer) Dial(ctx context.Context, addr string) (net.Conn, error) {
@@ -51,7 +52,7 @@ func (d *Dialer) Dial(ctx context.Context, addr string) (net.Conn, error) {
 		Tier:   events.TierEncrypted,
 	}
 
-	if rule, applier, ok := d.match(host); ok && d.gate.Applies(rule) {
+	if rule, applier, ok := d.match(host); ok {
 		e.Faulted, e.RuleID = true, rule.ID
 
 		conn, err := applier.Dial(ctx, rule.ID, addr, d.dial)
@@ -81,11 +82,13 @@ func (d *Dialer) Dial(ctx context.Context, addr string) (net.Conn, error) {
 	return conn, nil
 }
 
-// match returns the first enabled rule that both applies to a bare connection
-// and carries a fault that can act on one. A response fault on a host-only rule
-// is skipped rather than blocking the rules behind it: it needs to see the
-// request, and the encrypted tier on the event says why it did not run. So is a
-// rule whose fault will not build, which is reported and then ignored.
+// match returns the first enabled rule that applies to a bare connection,
+// carries a fault that can act on one, and whose behavior accepts this
+// connection. A response fault on a host-only rule is skipped rather than
+// blocking the rules behind it: it needs to see the request, and the encrypted
+// tier on the event says why it did not run. So is a rule whose fault will not
+// build, which is reported and then ignored, and so is a rule whose behavior
+// declines, which has counted the connection and hands it on.
 func (d *Dialer) match(host string) (rules.Rule, Tunneler, bool) {
 	if d.rules == nil {
 		return rules.Rule{}, nil, false
@@ -99,7 +102,8 @@ func (d *Dialer) match(host string) (rules.Rule, Tunneler, bool) {
 			slog.Default().Warn("rule applies no fault", "rule", r.ID, "err", err)
 			continue
 		}
-		if tunneler, ok := applier.(Tunneler); ok {
+		tunneler, ok := applier.(Tunneler)
+		if ok && d.gate.Applies(r) {
 			return r, tunneler, true
 		}
 	}

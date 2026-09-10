@@ -47,8 +47,8 @@ func New(base http.RoundTripper, store *rules.Store, rec *events.Recorder, tier 
 	return &Transport{base: base, rules: store, events: rec, tier: tier, gate: gate}
 }
 
-// RoundTrip applies the first matching rule and forwards the request unless a
-// fault answered it outright.
+// RoundTrip applies the first rule that matches the request and whose behavior
+// accepts it, and forwards the request unless the fault answered it outright.
 func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	start := time.Now()
 	host := hostOf(req)
@@ -64,24 +64,17 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 
 	next := t.upstream(host)
 
-	if rule, ok := t.match(host, req); ok {
-		// The first matching rule decides, behavior included: a rule whose
-		// behavior passes this request passes it upstream rather than handing
-		// it to the next rule.
-		if applier, ok := t.build(rule); ok && t.gate.Applies(rule) {
-			e.Faulted, e.RuleID = true, rule.ID
+	if rule, applier, ok := t.match(host, req); ok {
+		e.Faulted, e.RuleID = true, rule.ID
 
-			resp, err := applier.Respond(rule.ID, req, next)
-			if err != nil {
-				t.record(e, start) // no status: the request never got one
-				return nil, err
-			}
-			e.Status, e.BytesOut = resp.StatusCode, knownLength(resp.ContentLength)
-			t.record(e, start)
-			return resp, nil
+		resp, err := applier.Respond(rule.ID, req, next)
+		if err != nil {
+			t.record(e, start) // no status: the request never got one
+			return nil, err
 		}
-		// A fault that cannot be built applies nothing, so the event reports
-		// no fault, and the request goes upstream untouched.
+		e.Status, e.BytesOut = resp.StatusCode, knownLength(resp.ContentLength)
+		t.record(e, start)
+		return resp, nil
 	}
 
 	resp, err := next.RoundTrip(req)
@@ -114,30 +107,32 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
 
-// build configures the rule's fault. A rule the API accepted always builds; one
-// that does not can only have come from elsewhere, so it is reported and then
-// treated as no rule at all rather than failing the request.
-func (t *Transport) build(r rules.Rule) (Applier, bool) {
-	applier, err := Build(r.Fault)
-	if err != nil {
-		slog.Default().Warn("rule applies no fault", "rule", r.ID, "err", err)
-		return nil, false
-	}
-	return applier, true
-}
-
-// match returns the first enabled rule that applies to the request. Store order
-// is rule precedence.
-func (t *Transport) match(host string, req *http.Request) (rules.Rule, bool) {
+// match returns the first enabled rule that applies to the request, with its
+// fault ready to run. Store order is rule precedence, and a rule decides a
+// request only when it matches, builds, and its behavior accepts: a rule whose
+// behavior declines has counted the request but hands it to the rules behind
+// it, so a spent first_n or a percent miss never shadows the rule after it. A
+// rule the API accepted always builds; one that does not can only have come
+// from elsewhere, so it is reported and then skipped rather than failing the
+// request.
+func (t *Transport) match(host string, req *http.Request) (rules.Rule, Applier, bool) {
 	if t.rules == nil {
-		return rules.Rule{}, false
+		return rules.Rule{}, nil, false
 	}
 	for _, r := range t.rules.List() {
-		if r.Matches(host, req.Method, req.URL.Path, req.Header) {
-			return r, true
+		if !r.Matches(host, req.Method, req.URL.Path, req.Header) {
+			continue
+		}
+		applier, err := Build(r.Fault)
+		if err != nil {
+			slog.Default().Warn("rule applies no fault", "rule", r.ID, "err", err)
+			continue
+		}
+		if t.gate.Applies(r) {
+			return r, applier, true
 		}
 	}
-	return rules.Rule{}, false
+	return rules.Rule{}, nil, false
 }
 
 // record timestamps the event and hands it to the recorder. The duration covers

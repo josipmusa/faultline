@@ -192,7 +192,14 @@ Goal: everything is declarable in `faultline.yaml`, hot-reloaded, and controllab
   - Passed 2026-09-09 in an empty directory against the built binary: `faultline init` wrote `faultline.yaml`, `faultline serve` came up on it with `config: faultline.yaml, watched for changes` and no validation error, and `rule list` showed `slow-stripe` and `stripe-503` both off. **The starter is its own file, not `examples/faultline.yaml`.** It is `internal/config/starter.yaml`, embedded as `config.Starter`, because the two answer different questions: the example is a reference that shows every section at once, a live route and a bypass entry included, while the starter is written into a stranger's empty directory and therefore has to be inert. A route in it would bind 9100 on the next `serve`, and fail the command outright when something else already has that port; a `bypass` entry would hide hosts from the event stream before anyone asked. So the starter carries 5.1's schema header, one disabled `delay` rule, one scenario whose inline `status` rule waits for its scenario, and `bypass` and `routes` as commented syntax at the end, with the comments saying that the hosts are an illustration to be edited. Tests hold all three properties - it parses, nothing is enabled, nothing is bound - since a starter that faults traffic on sight is a trap, and the file sits next to the loader rather than next to the command because this package is what decides what a configuration file may say. **The refusal to overwrite is the file system's**: `O_EXCL`, so nothing can appear between a stat and a write, and the message names both ways on, `faultline init <file>` and `--force`; a path that is a directory is told apart from a file that is already there, because "already there" would be a lie. The mode is 0644, the mode `internal/config` gives a file it writes itself, so a later API write does not quietly change it.
   - **Walking the Stage 5 gate turned up one thing the gate as written cannot do.** A scenario that delays *and* fails the same host does not exist: `Transport.RoundTrip` takes the first matching rule and stops, behavior included. With the delay rule first, all 52 calls were 200 after 1.6s and the `first_n: 2` 503 never fired; with the 503 rule first, calls 1 and 2 were 503 in 10ms and 1ms and calls 3 to 5 came back in 136ms with no delay at all, the spent rule still shadowing the one behind it. Everything else in the gate held: the hand-added scenario loaded, `run --scenario httpbin-bad` printed `scenario: httpbin-bad active for this run` and ended with `REQUESTS 52, FAULTED 52, RETRIES 51, MAX RETRY WAIT 2003ms, ABANDONED 0`, editing `ms: 1500` to `4000` while it ran logged `config: reloaded path=faultline.yaml rules=4` and the next call took 4.135s instead of 1.636s, and deactivation wrote `enabled: false` back with the hand-written comment and the new delay intact. One thing seen in passing and not this task's: `faultline run -- go run ...` cannot be interrupted through Faultline when there is no terminal, because `run` hands the signal to its child and `go run` does not pass it on to the binary it built; a SIGINT to the application itself ended the run and printed the report as it should.
 
+- [x] **5.7 Behavior fall-through.** A rule whose behavior declines a request hands it to the next matching rule instead of sending it upstream untouched. The first enabled rule that matches *and whose behavior accepts* decides; a rule with no behavior is unchanged, so an unconditional rule still shadows the ones behind it and store order is still precedence. This closes the open question the stage gate raised: a scenario that fails the first calls and slows the rest is a `first_n` `status` written above a `delay`. Spec in `docs/specs/2026-09-10-behavior-fall-through.md`.
+  - Verify (Agent): a `first_n: 1` 503 ahead of a 500 on one host gives 503 then 500; a rule behind the one that applied does not spend its behavior; the same on the connection tier, a `first_n: 1` `refuse` ahead of a `delay` giving a refused CONNECT then a delayed dial.
+  - Verify (Manual): the Stage 5 gate as written, a scenario whose `first_n: 2` 503 rule is written above a delay rule for `httpbin.org`, run under `faultline run --scenario`, giving 503, 503, then delayed 200s.
+  - Passed 2026-09-10, agent verify under `-race` and the manual gate confirmed by the human against the built binary: a scenario with a `first_n: 2` 503 written above a 1500ms delay for `httpbin.org`, run under `faultline run --scenario`, gave two 503s and then delayed 200s, and editing the delay while it ran took effect on the next call. One thing seen on the way: `faultline run -- go run ./examples/go-client` from an empty directory fails before any request with `go.mod file not found`, because the child inherits the working directory; the guide now builds the example first or uses `go run -C`. The change is the gate check moving inside the match loop of `Transport` and `Dialer`, so `match` now returns the rule together with its built fault and a rule is skipped for any of three reasons: it does not match, its fault will not build, or its behavior said no. Behavior state advances for every rule consulted and for no other, which is what makes a shadowed `first_n` still whole when the rule ahead of it runs out, and a test holds that. Fall-through is for a behavior declining only; a response fault that cannot act on a bare connection was already skipped by the dialer, and one that cannot act on encrypted traffic is still that rule's event with the tier saying why. Composing faults across rules, delayed 503s, was considered and left closed: it needs an order of application, a story for two response faults on one request, and a `Faultline-Fault` header naming several rules, and if it ever comes it belongs inside one rule as a list of faults. One thing to carry into Stage 6: order is now how a scenario is built, the file gives full control over it, and rules created over the API land in creation order with no way to reorder, so 6.4 should at least show the order.
+
 **Stage 5 gate (Manual).** From an empty directory: `faultline init`, edit the file to add a scenario that delays and fails httpbin, `faultline run --scenario <it> -- go run ./examples/go-client`, read the report. Then, while it runs, edit the file to change the delay and observe the change live.
+
+  - Passed 2026-09-10, confirmed by the human against the built binary once 5.7 landed: a scenario with a `first_n: 2` 503 above a 1500ms delay for `httpbin.org` gave two 503s and then delayed 200s, editing the delay while it ran took effect on the next call, and the report counted every request as faulted.
 
 ### How to run the Stage 5 verification
 
@@ -214,9 +221,11 @@ worth knowing before you start rather than after:
 - **A match on a host needs the port when the upstream is not on 443 or 80.** An
   event from a local upstream records `127.0.0.1:8099`, so `host: 127.0.0.1`
   matches nothing.
-- **The first matching rule wins, behavior included.** Two rules on one host is
-  one rule doing anything; the one written second never fires, even when the
-  first one's behavior has passed the request through. See the note on the gate
+- **Order is precedence, and a behavior that declines hands the request on.**
+  The first rule that matches and whose behavior accepts decides. A rule with no
+  behavior always accepts, so a `delay` written above a `status` on the same host
+  means the `status` never fires; a `first_n` `status` written above a `delay`
+  gives the failures and then the slow responses. See the note on the gate
   below.
 - **A saved edit takes effect in about a second, not instantly.** A change has to
   hold still for one poll before it is applied, because a file being saved is
@@ -294,7 +303,7 @@ two routes, or through the forward proxy:
 | `faultline rule add --name "Httpbin is slow" --host httpbin.org --fault delay --set ms=2000` | a one-row table, the rule created |
 | `faultline rule list` | every rule, with match, fault and behavior in columns |
 | A call to httpbin through Faultline | about two seconds slower |
-| `faultline rule add --host httpbin.org --fault status --set code=503 --name "Down"` | remember the shadowing rule: disable the delay first or this never fires |
+| `faultline rule add --host httpbin.org --fault status --set code=503 --name "Down"` | remember that order is precedence: the delay has no behavior, so disable it first or this never fires |
 | `faultline events tail` | live rows as traffic arrives; Ctrl-C exits cleanly, code 0 |
 | `faultline events export` | one JSON object per line, `retry_of` visible on a retry |
 | `faultline upstreams` | each host with tier, counts and last seen |
@@ -357,18 +366,20 @@ refuses to overwrite and names both ways on, `faultline init <file>` and
 From an empty directory: `faultline init`, edit the file to add a scenario
 against `httpbin.org`, run the Go example under it, read the report, and while
 it runs change the delay in the file and watch the next call take the new time.
+The empty directory has no `go.mod`, so `go run ./examples/go-client` fails
+there before making a request; run `go run -C <faultline checkout>
+./examples/go-client`, or build the example once and run the binary.
 
-**Read the gate's own wording with one correction.** It asks for a scenario that
-delays *and* fails httpbin, and that is not a thing Faultline can currently do:
-the first matching rule decides and the ones behind it never run, which is
-deliberate and has been true since Stage 3. Walking the gate with the delay rule
-first, every call was a 200 that took the delay and the `503` rule never fired;
-with the `503` rule first, the first two calls were 503 and the calls after them
-had no delay at all, because a rule whose behavior has been spent still matches
-and still shadows. So rehearse a scenario that delays *or* fails, and treat
-"both at once" as an open product question: whether a rule whose behavior
-declines should fall through to the next matching rule is worth deciding before
-the UI makes rule lists easy to build.
+**The gate's wording asks for a scenario that delays *and* fails httpbin, and
+5.7 is what makes that possible.** Write the `first_n: 2` `status` rule above the
+`delay` rule. The first two calls are 503s, and every call after them takes the
+delay, because a rule whose behavior has run out hands the request to the next
+matching rule. The other order does not work and is not meant to: a `delay` with
+no behavior accepts every request, so a `status` written below it never fires.
+Before 5.7 neither order worked, since the first matching rule decided whether
+or not its behavior applied, and a spent `first_n` shadowed everything behind
+it; the stage was gated with a scenario that delayed *or* failed, and this
+paragraph carried the open question 5.7 then answered.
 
 ---
 

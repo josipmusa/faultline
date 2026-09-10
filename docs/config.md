@@ -171,6 +171,14 @@ live in the schema.
 - `fault` and `behavior` are tagged by `type`. The rest of the keys are that
   type's parameters, and no other key is accepted: `delay` takes `ms` and
   `jitter_ms`, `status` takes `code` and `body`, and so on.
+- **Order is precedence.** A request is decided by the first enabled rule, in
+  file order, that matches it and whose behavior accepts it. A rule with no
+  behavior always accepts, so a `delay` written above a `status` on the same
+  host means the `status` never fires. A rule whose behavior declines, such as a
+  `first_n` that has run out or a `percent` that missed, hands the request to
+  the next matching rule, so a `first_n: 2` `status` written above a `delay`
+  gives two failures and then slow responses. A rule behind the one that
+  applied never sees the request and never spends its behavior.
 
 ## scenarios
 
