@@ -145,3 +145,28 @@ func TestGateCountsOnceUnderConcurrentRequests(t *testing.T) {
 		t.Errorf("first_n 100 applied to %d of 400 concurrent requests", applied)
 	}
 }
+
+func TestGateResetRearmsASpentBehavior(t *testing.T) {
+	store := storeWith(t, firstNRule("spent", 2))
+	gate := NewGate()
+
+	if got := gateDecisions(t, gate, store, "spent", 3); got != "FFP" {
+		t.Fatalf("first_n 2 gave %q, want %q", got, "FFP")
+	}
+
+	gate.Reset()
+
+	if got := gateDecisions(t, gate, store, "spent", 3); got != "FFP" {
+		t.Errorf("after Reset, first_n 2 gave %q, want %q: the rule should count from the start again", got, "FFP")
+	}
+}
+
+func TestGateResetIsSafeWithNothingToForget(t *testing.T) {
+	gate := NewGate()
+	gate.Reset()
+
+	store := storeWith(t, firstNRule("fresh", 1))
+	if got := gateDecisions(t, gate, store, "fresh", 2); got != "FP" {
+		t.Errorf("after Reset on an empty gate, first_n 1 gave %q, want %q", got, "FP")
+	}
+}

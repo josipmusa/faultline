@@ -21,6 +21,7 @@ import (
 	"github.com/josipmusa/faultline/internal/config"
 	"github.com/josipmusa/faultline/internal/events"
 	"github.com/josipmusa/faultline/internal/faults"
+	faultmcp "github.com/josipmusa/faultline/internal/mcp"
 	"github.com/josipmusa/faultline/internal/proxy/forward"
 	"github.com/josipmusa/faultline/internal/proxy/reverse"
 	"github.com/josipmusa/faultline/internal/rules"
@@ -202,6 +203,18 @@ func start(cfg *config.Config, adminPort, proxyPort int, routes []reverse.Route,
 	s.proxy = forward.NewServer(pipeline, faults.NewDialer(store, s.recorder, gate), interceptor, bypass, nil)
 	s.api = admin.NewServer(store, scenarios, s.recorder, bypass, trustVars, nil)
 	s.api.CapturesFrom(captures)
+	// The gate is the only thing holding behavior state, so resetting a session
+	// has to go through it or a spent first_n stays spent.
+	s.api.Rearms(gate)
+
+	// The agent interface is a client of the API like the UI and the CLI, and
+	// in process it reaches it without going back out through the socket the
+	// admin server is answering on.
+	inProcess, err := faultmcp.InProcess(s.api)
+	if err != nil {
+		return fail(err)
+	}
+	s.api.MountMCP(faultmcp.Handler(inProcess, version))
 
 	if cfg != nil {
 		s.config = config.Watch(cfg, newReloader(cfg, store, scenarios, bypass, nil), nil)

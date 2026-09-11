@@ -27,6 +27,7 @@ faultline run -- <your app's start command>
 - [CONTRIBUTING.md](CONTRIBUTING.md) — how to work on it.
 - [docs/cli.md](docs/cli.md) - the command line.
 - [docs/config.md](docs/config.md) — the faultline.yaml file.
+- [docs/agents.md](docs/agents.md) - the MCP interface for coding agents.
 - [docs/frontends.md](docs/frontends.md) — why browser traffic needs an explicit route.
 
 ## Development

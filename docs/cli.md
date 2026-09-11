@@ -275,3 +275,16 @@ The commands are a thin layer over the Go client in
 [clients/go](../clients/go), which is the same client the CLI uses. A test that
 wants to add a rule, exercise its own code and assert on what Faultline
 observed can use it directly rather than shelling out.
+
+## For coding agents
+
+`faultline mcp` serves the same capabilities to an agent over the Model Context
+Protocol, on stdio:
+
+```
+claude mcp add faultline -- faultline mcp
+```
+
+It talks to the instance at `--admin` like every other command here. The same
+tools are also served at `/mcp` on the admin port. See
+[agents.md](agents.md).

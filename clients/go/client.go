@@ -73,12 +73,16 @@ type Client struct {
 
 // New returns a client for the admin API at addr. A bare host and port is
 // taken as http, so both "localhost:9000" and "http://localhost:9000" work.
-func New(addr string) (*Client, error) {
+func New(addr string, opts ...Option) (*Client, error) {
 	base, err := parseAddr(addr)
 	if err != nil {
 		return nil, err
 	}
-	return &Client{base: base, http: &http.Client{Timeout: requestTimeout}}, nil
+	c := &Client{base: base, http: &http.Client{Timeout: requestTimeout}}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c, nil
 }
 
 // Addr is the address this client talks to, as it will appear in errors.

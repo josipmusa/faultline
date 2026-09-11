@@ -37,6 +37,12 @@ type Server struct {
 	mux       *http.ServeMux
 	watcher   *ruleWatcher
 	persist   Persister
+	rearm     Rearmer
+	mcp       http.Handler
+	// draining is closed when Shutdown begins, so a request that would
+	// otherwise outlive the server can end itself.
+	drain     chan struct{}
+	drainOnce sync.Once
 
 	mu       sync.Mutex
 	http     *http.Server
@@ -65,6 +71,7 @@ func NewServer(store *rules.Store, scenarios *rules.Scenarios, rec *events.Recor
 		log:       logger,
 		mux:       http.NewServeMux(),
 		watcher:   newRuleWatcher(store.Changes()),
+		drain:     make(chan struct{}),
 	}
 	s.routes()
 	return s
@@ -98,6 +105,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/bypass", s.addBypass)
 	s.mux.HandleFunc("DELETE /api/bypass/{host}", s.removeBypass)
 	s.mux.HandleFunc("GET /api/sessions/current/report", s.sessionReport)
+	s.mux.HandleFunc("POST /api/sessions/current/reset", s.resetSession)
+
+	s.mux.HandleFunc("/mcp", s.serveMCP)
 
 	// The UI takes over /, so unknown endpoints keep the JSON error shape under
 	// /api rather than answering a mistyped page with it.
@@ -143,12 +153,24 @@ func (s *Server) Addr() string {
 // Shutdown stops serving, letting in-flight requests finish within ctx.
 // Shutdown stops taking new work and waits, until ctx expires, for what is
 // already running to finish: first the event streams, then the plain requests.
+// drained is closed once the server has started shutting down. A handler for a
+// request that would otherwise outlive the server waits on it.
+func (s *Server) drained() <-chan struct{} { return s.drain }
+
+// Shutdown stops serving, letting in-flight requests finish within ctx.
+// Shutdown stops taking new work and waits, until ctx expires, for what is
+// already running to finish: first the event streams, then the plain requests.
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.mu.Lock()
 	srv := s.http
 	s.http, s.addr = nil, ""
 	s.draining = true
 	s.mu.Unlock()
+
+	// Ending the long-lived requests comes before waiting for the HTTP server:
+	// a streamable MCP session is an ordinary connection that never goes idle,
+	// so Shutdown would wait out its whole deadline on one.
+	s.drainOnce.Do(func() { close(s.drain) })
 
 	// Closing the watcher tells every open stream to close. Waiting for them is
 	// on us: a hijacked connection is invisible to http.Server.Shutdown, so

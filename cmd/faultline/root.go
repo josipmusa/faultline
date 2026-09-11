@@ -1,8 +1,6 @@
 package main
 
 import (
-	"fmt"
-
 	"github.com/spf13/cobra"
 )
 
@@ -26,21 +24,9 @@ func newRootCmd() *cobra.Command {
 		newEventsCmd(),
 		newUpstreamsCmd(),
 		newCACmd(),
-		placeholder("mcp", "Serve the MCP interface for coding agents"),
+		newMCPCmd(),
 		newVersionCmd(),
 	)
 
 	return root
-}
-
-// placeholder returns a subcommand that is declared but not built yet.
-func placeholder(use, short string) *cobra.Command {
-	return &cobra.Command{
-		Use:   use,
-		Short: short,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			_, err := fmt.Fprintln(cmd.OutOrStdout(), "not implemented")
-			return err
-		},
-	}
 }

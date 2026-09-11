@@ -3,6 +3,7 @@ package client_test
 import (
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -123,5 +124,61 @@ func TestARequestRespectsACancelledContext(t *testing.T) {
 
 	if _, err := h.client.Rules(ctx); !errors.Is(err, context.Canceled) {
 		t.Fatalf("Rules() error = %v, want context.Canceled", err)
+	}
+}
+
+// TestWithTransportTalksToAHandlerWithoutASocket covers the in-process case:
+// the MCP interface on the admin port is a client of the API in the same
+// process, and dialing itself would mean the admin server addressing its own
+// socket.
+func TestWithTransportTalksToAHandlerWithoutASocket(t *testing.T) {
+	var served int
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		served++
+		if r.URL.Path != "/api/rules" {
+			t.Errorf("path = %q, want /api/rules", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `[{"id":"slow","name":"slow"}]`)
+	})
+
+	c, err := client.New("http://in-process", client.WithTransport(client.HandlerTransport(handler)))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	list, err := c.Rules(context.Background())
+	if err != nil {
+		t.Fatalf("Rules: %v", err)
+	}
+	if len(list) != 1 || list[0].ID != "slow" {
+		t.Errorf("Rules() = %+v, want the one rule the handler wrote", list)
+	}
+	if served != 1 {
+		t.Errorf("the handler was called %d times, want 1", served)
+	}
+}
+
+// An error status still has to arrive as an APIError with its field, or an
+// agent in process gets a worse message than one over a socket.
+func TestWithTransportCarriesAPIErrorsThrough(t *testing.T) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = io.WriteString(w, `{"error":"ms must be positive","field":"fault.ms"}`)
+	})
+
+	c, err := client.New("http://in-process", client.WithTransport(client.HandlerTransport(handler)))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	_, err = c.Rules(context.Background())
+	var apiErr *client.APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("Rules() error = %v, want an APIError", err)
+	}
+	if apiErr.Field != "fault.ms" || apiErr.Status != http.StatusBadRequest {
+		t.Errorf("APIError = %+v, want field fault.ms and status 400", apiErr)
 	}
 }

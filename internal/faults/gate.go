@@ -61,3 +61,17 @@ func (g *Gate) Applies(r rules.Rule) bool {
 	}
 	return entry.decider.Applies()
 }
+
+// Reset forgets the behavior state of every rule, so a spent first_n or a
+// percent that has been rolling since startup counts from the beginning again.
+// The rules themselves are untouched: this is the effect editing every one of
+// them would have, without changing any of them.
+//
+// It is what an agent or a person does between two runs of the same test, and
+// it is the only way to re-arm a rule without disturbing it.
+func (g *Gate) Reset() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	g.state = map[string]*gated{}
+}
