@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
-	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -130,7 +128,7 @@ func run(ctx context.Context, out, errOut io.Writer, in io.Reader, cfg *config.C
 	if ca != nil {
 		caPath = ca.CertPath
 	}
-	javaStore := javaTrustStore(caPath, errOut)
+	javaStore := runner.JavaTrustStoreOrNone(caPath, errOut)
 	trustVars := runner.TrustVars(caPath, javaStore)
 
 	s, err := start(cfg, adminPort, proxyPort, routes, ca, bypass, trustVars)
@@ -163,8 +161,8 @@ func run(ctx context.Context, out, errOut io.Writer, in io.Reader, cfg *config.C
 	// the run says so as it happens rather than only in /api/upstreams.
 	stopWatching := watchDistrust(s.recorder, errOut, trustVars)
 
-	env := runner.Env(os.Environ(), s.proxyURL(), noProxy(bypass), caPath, javaStore)
-	code, runErr := runner.Run(ctx, args, env, in, out, errOut)
+	env := runner.Env(os.Environ(), s.proxyURL(), bypass.NoProxy(), caPath, javaStore)
+	code, runErr := runner.Cmd{Args: args, Env: env, Stdin: in, Stdout: out, Stderr: errOut}.Run(ctx)
 	stopWatching()
 
 	// Whatever ended the child, the scenario comes off and the report goes out,
@@ -214,38 +212,4 @@ func ensureCA(dir string, notice io.Writer) (*tlsmitm.CA, error) {
 		return nil, err
 	}
 	return ca, nil
-}
-
-// javaTrustStore builds the trust store a JVM child needs, beside the CA it
-// trusts, and returns where it is. A JVM cannot be handed a certificate to
-// add to its own roots, so this is the only way it can trust Faultline and
-// its real dependencies at once.
-//
-// A machine with no JDK is silent: most children are not JVMs and there is
-// nothing to do. A JDK that fails gets one line, because a JVM child will
-// then fail every HTTPS call for a reason that is not visible from the
-// failure, and the rest of the run is unaffected either way.
-func javaTrustStore(caPath string, notice io.Writer) string {
-	store, err := runner.JavaTrustStore(filepath.Dir(caPath), caPath)
-	switch {
-	case errors.Is(err, runner.ErrNoJDK):
-		return ""
-	case err != nil:
-		_, _ = fmt.Fprintf(notice, "java: no trust store, JVM children will not trust Faultline: %v\n", err)
-		return ""
-	}
-	return store
-}
-
-// noProxy renders the bypass list the way NO_PROXY wants it, so the child
-// skips the proxy for exactly the hosts the proxy would have passed through
-// anyway, the admin port among them.
-func noProxy(bypass *forward.Bypass) []string {
-	patterns := bypass.Patterns()
-	entries := make([]string, 0, len(patterns))
-	for _, p := range patterns {
-		// NO_PROXY spells a subdomain wildcard as a bare leading dot.
-		entries = append(entries, strings.TrimPrefix(p, "*"))
-	}
-	return entries
 }

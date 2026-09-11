@@ -24,6 +24,7 @@ type harness struct {
 	rules     *rules.Store
 	scenarios *rules.Scenarios
 	events    *events.Recorder
+	api       *admin.Server
 	url       string
 }
 
@@ -36,7 +37,7 @@ func newHarness(t *testing.T) harness {
 	store := rules.New()
 	scenarios := rules.NewScenarios(store)
 
-	bypass, err := forward.NewBypass(nil)
+	bypass, err := forward.NewBypass(forward.DefaultBypass)
 	if err != nil {
 		t.Fatalf("bypass: %v", err)
 	}
@@ -51,7 +52,7 @@ func newHarness(t *testing.T) harness {
 	if err != nil {
 		t.Fatalf("new client: %v", err)
 	}
-	return harness{client: c, rules: store, scenarios: scenarios, events: rec, url: ts.URL}
+	return harness{client: c, rules: store, scenarios: scenarios, events: rec, api: api, url: ts.URL}
 }
 
 func TestNewAcceptsAnAddressWithoutAScheme(t *testing.T) {

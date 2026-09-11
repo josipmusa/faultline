@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -191,4 +192,26 @@ func executable(name string) string {
 		return name + ".exe"
 	}
 	return name
+}
+
+// JavaTrustStoreOrNone is JavaTrustStore with the policy every caller wants: a
+// machine with no JDK is silent, because most children are not JVMs and there
+// is nothing to do, and a JDK that fails gets one line on notice, because a JVM
+// child will then fail every HTTPS call for a reason that is not visible from
+// the failure. Either way the rest of the run is unaffected.
+func JavaTrustStoreOrNone(caPath string, notice io.Writer) string {
+	if caPath == "" {
+		return ""
+	}
+	store, err := JavaTrustStore(filepath.Dir(caPath), caPath)
+	switch {
+	case errors.Is(err, ErrNoJDK):
+		return ""
+	case err != nil:
+		if notice != nil {
+			_, _ = fmt.Fprintf(notice, "java: no trust store, JVM children will not trust Faultline: %v\n", err)
+		}
+		return ""
+	}
+	return store
 }

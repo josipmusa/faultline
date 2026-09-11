@@ -39,6 +39,10 @@ type Server struct {
 	persist   Persister
 	rearm     Rearmer
 	mcp       http.Handler
+	// proxyURL and intercepting are how a child reaches the upstreams through
+	// this instance; both are zero until ProxiesAt says otherwise.
+	proxyURL     string
+	intercepting bool
 	// draining is closed when Shutdown begins, so a request that would
 	// otherwise outlive the server can end itself.
 	drain     chan struct{}

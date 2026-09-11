@@ -10,17 +10,21 @@ describe, and a rule an agent adds appears in the UI immediately.
 
 ## Adding it to an agent
 
-Over stdio, against an instance you start yourself:
+Over stdio:
 
 ```
 claude mcp add faultline -- faultline mcp
 ```
 
-`faultline mcp` talks to the instance at `--admin`, which defaults to
-`http://localhost:9000`. It needs one running: start it with `faultline serve`,
-or wrap your application with `faultline run -- <command>`. Until 7.2 lands,
-`faultline mcp` does not start one for you, and it says so plainly if nothing is
-listening.
+`faultline mcp` looks for an instance at `--admin`, which defaults to
+`http://localhost:9000`. If one is there, the agent joins it, so its rules and
+the ones in your UI are the same rules. If none is, it starts one in the same
+process and stops it again when the agent disconnects, so an agent needs no
+setup step of its own. While the session lasts the UI is on the admin port as
+usual, and you can watch what the agent is doing.
+
+The instance it starts reads `faultline.yaml` from the working directory and
+creates the interception CA if there is none, exactly as `faultline run` does.
 
 The same tools are served over HTTP at `/mcp` on the admin port, for an agent
 that would rather connect to a Faultline that is already up:
@@ -54,6 +58,27 @@ calls, which is often not what its configuration suggests.
 | `list_scenarios` | the scenarios the configuration file declares, and which is active |
 | `activate_scenario` | put a whole situation in force |
 | `deactivate_scenario` | take it out of force |
+
+**Running the application**
+
+`start_wrapped` is `faultline run` as a tool: it runs a command with its
+outbound calls going through Faultline and reports the exit code, how long it
+took, and the end of each output stream.
+
+```json
+{ "command": ["go", "test", "./..."], "dir": "examples/go-client", "timeout_ms": 120000 }
+```
+
+The command is a list and is run directly, so there is no shell: wrap it in
+`sh -c` yourself if you need a pipe or a redirection. It runs to completion or
+until its timeout, 60 seconds by default and 300 at most, which suits a test
+suite or a script rather than a development server that never exits. A timeout
+is an answer rather than a failure: `timed_out` comes back true with the output
+so far, and nothing is left running.
+
+Only the end of each stream comes back - the last hundred lines or eight
+kilobytes, whichever is smaller - with `stdout_truncated` and
+`stderr_truncated` saying when there was more.
 
 **Starting over**
 

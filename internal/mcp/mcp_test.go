@@ -24,6 +24,7 @@ type harness struct {
 	rules     *rules.Store
 	scenarios *rules.Scenarios
 	events    *events.Recorder
+	api       *admin.Server
 	gate      *rearmCount
 }
 
@@ -50,6 +51,9 @@ func newHarness(t *testing.T) harness {
 	t.Cleanup(func() { _ = api.Shutdown(context.Background()) })
 	gate := &rearmCount{}
 	api.Rearms(gate)
+	// A running instance has a proxy, which is what start_wrapped asks it for.
+	// HTTPS is passed through, so a test needs no CA on the machine running it.
+	api.ProxiesAt("http://127.0.0.1:9001", false)
 
 	c, err := faultmcp.InProcess(api)
 	if err != nil {
@@ -71,7 +75,7 @@ func newHarness(t *testing.T) harness {
 	}
 	t.Cleanup(func() { _ = session.Close() })
 
-	return harness{session: session, rules: store, scenarios: scenarios, events: rec, gate: gate}
+	return harness{session: session, rules: store, scenarios: scenarios, events: rec, api: api, gate: gate}
 }
 
 // call invokes a tool and fails the test if the tool reported an error.
@@ -146,14 +150,14 @@ func TestEveryToolIsRegistered(t *testing.T) {
 	for _, want := range []string{
 		"list_upstreams", "list_rules", "add_rule", "remove_rule", "set_rule_enabled",
 		"list_scenarios", "activate_scenario", "deactivate_scenario",
-		"get_events", "wait_for_event", "get_report", "reset_session",
+		"get_events", "wait_for_event", "get_report", "reset_session", "start_wrapped",
 	} {
 		if !got[want] {
 			t.Errorf("tool %s is not registered", want)
 		}
 	}
-	if len(listed.Tools) != 12 {
-		t.Errorf("%d tools registered, want 12: %v", len(listed.Tools), got)
+	if len(listed.Tools) != 13 {
+		t.Errorf("%d tools registered, want 13: %v", len(listed.Tools), got)
 	}
 }
 

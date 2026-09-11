@@ -55,6 +55,9 @@ type (
 	Params = rules.Params
 	// Scenario is a named group of rules, and whether it is the active one.
 	Scenario = admin.Scenario
+	// Config is how the instance is configured: its file, and how a child
+	// process reaches its upstreams through it.
+	Config = admin.Config
 	// Event is one call that went through Faultline.
 	Event = events.Event
 	// Report is the current session's counts.

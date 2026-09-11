@@ -6,10 +6,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	client "github.com/josipmusa/faultline/clients/go"
 	"github.com/josipmusa/faultline/internal/proxy/forward"
 	"github.com/josipmusa/faultline/internal/proxy/reverse"
 	"github.com/josipmusa/faultline/internal/tlsmitm"
@@ -435,4 +437,51 @@ func fetch(t *testing.T, target string) string {
 		t.Fatalf("reading %s: %v", target, err)
 	}
 	return string(body)
+}
+
+// The proxy gets its port when it starts, so the API cannot report where a
+// child should send its traffic until then. This is the wiring that says it
+// did: a running instance answers the question an agent asks before it wraps
+// a command.
+func TestServeSaysHowToAttachAChild(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// The bypass list the command builds, not nil: its defaults are what keep
+	// a child off the admin port, and reporting them is half the point here.
+	bypass, err := bypassList(nil)
+	if err != nil {
+		t.Fatalf("bypassList: %v", err)
+	}
+
+	out := &syncWriter{}
+	served := make(chan error, 1)
+	go func() { served <- serve(ctx, out, nil, 0, 0, nil, nil, bypass) }()
+
+	adminAddr := waitForAddr(t, out, "admin: http://")
+	proxyAddr := waitForAddr(t, out, "proxy: http://")
+
+	c, err := client.New("http://" + adminAddr)
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+	cfg, err := c.Config(ctx)
+	if err != nil {
+		t.Fatalf("Config: %v", err)
+	}
+
+	if cfg.ProxyURL != "http://"+proxyAddr {
+		t.Errorf("config says the proxy is at %q, want %q, the port it printed", cfg.ProxyURL, "http://"+proxyAddr)
+	}
+	if !slices.Contains(cfg.NoProxy, "localhost") {
+		t.Errorf("no_proxy is %v, want the defaults that keep a child off the admin port", cfg.NoProxy)
+	}
+	if cfg.Intercepting {
+		t.Error("config says HTTPS is intercepted while serve was given no CA")
+	}
+
+	cancel()
+	if err := <-served; err != nil {
+		t.Fatalf("serve: %v", err)
+	}
 }

@@ -400,3 +400,23 @@ func TestBypassRemoveDoesNotReachThroughAWildcard(t *testing.T) {
 		t.Error("the wildcard was removed")
 	}
 }
+
+// NO_PROXY spells a subdomain wildcard as a bare leading dot, so the list a
+// child is handed is not the list the proxy matches against, character for
+// character.
+func TestNoProxyUsesTheNoProxySpelling(t *testing.T) {
+	bypass, err := NewBypass([]string{"localhost", "*.internal"})
+	if err != nil {
+		t.Fatalf("NewBypass: %v", err)
+	}
+	got := bypass.NoProxy()
+	want := []string{"localhost", ".internal"}
+	if len(got) != len(want) {
+		t.Fatalf("NoProxy() = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("NoProxy()[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}

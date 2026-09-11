@@ -224,6 +224,8 @@ func start(cfg *config.Config, adminPort, proxyPort int, routes []reverse.Route,
 	if err := s.proxy.Start(proxyPort); err != nil {
 		return fail(err)
 	}
+	// The API can only say how to attach a child once the proxy has a port.
+	s.api.ProxiesAt(s.proxyURL(), ca != nil)
 	if err := s.api.Start(adminPort); err != nil {
 		return fail(err)
 	}

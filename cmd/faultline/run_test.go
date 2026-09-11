@@ -13,7 +13,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/josipmusa/faultline/internal/proxy/forward"
 	"github.com/josipmusa/faultline/internal/proxy/reverse"
 	"github.com/josipmusa/faultline/internal/tlsmitm"
 )
@@ -95,23 +94,6 @@ func TestRunNeedsACommand(t *testing.T) {
 	root.SetErr(&bytes.Buffer{})
 	if err := root.Execute(); err == nil {
 		t.Fatal("run with no command was accepted")
-	}
-}
-
-func TestNoProxyUsesTheNoProxySpelling(t *testing.T) {
-	bypass, err := forward.NewBypass([]string{"localhost", "*.internal"})
-	if err != nil {
-		t.Fatalf("NewBypass: %v", err)
-	}
-	got := noProxy(bypass)
-	want := []string{"localhost", ".internal"}
-	if len(got) != len(want) {
-		t.Fatalf("noProxy = %v, want %v", got, want)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Errorf("noProxy[%d] = %q, want %q", i, got[i], want[i])
-		}
 	}
 }
 

@@ -311,3 +311,16 @@ func (p pattern) matchesHost(host string) bool {
 	}
 	return p.matches(strings.ToLower(name), port)
 }
+
+// NoProxy is the bypass list spelled the way the NO_PROXY variable wants it,
+// for handing to a child process so it skips the proxy for exactly the hosts
+// the proxy would have passed through anyway, the admin port among them.
+func (b *Bypass) NoProxy() []string {
+	patterns := b.Patterns()
+	entries := make([]string, 0, len(patterns))
+	for _, p := range patterns {
+		// NO_PROXY spells a subdomain wildcard as a bare leading dot.
+		entries = append(entries, strings.TrimPrefix(p, "*"))
+	}
+	return entries
+}

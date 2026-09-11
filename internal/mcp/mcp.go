@@ -32,7 +32,12 @@ const Name = "faultline"
 // NewServer returns an MCP server whose tools act through c. The version is the
 // binary's own, passed in because it is stamped into the command at link time
 // and this package must report the same one `faultline version` does.
-func NewServer(c *client.Client, version string) *sdk.Server {
+func NewServer(c *client.Client, version string, opts ...Option) *sdk.Server {
+	var cfg options
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+
 	s := sdk.NewServer(&sdk.Implementation{Name: Name, Version: version}, &sdk.ServerOptions{
 		Instructions: instructions,
 	})
@@ -41,18 +46,30 @@ func NewServer(c *client.Client, version string) *sdk.Server {
 	addEventTools(s, c)
 	addScenarioTools(s, c)
 	addSessionTools(s, c)
+	addWrapTools(s, c, cfg.mirror)
 
 	return s
 }
 
-// ServeStdio runs the server on stdio until the agent goes away or ctx is
-// cancelled. This is what `faultline mcp` does.
+// Option configures a server.
+type Option func(*options)
+
+type options struct{ mirror io.Writer }
+
+// Mirrors echoes a wrapped command's output to w as it arrives, for a human
+// watching the terminal the agent started Faultline in. It is never stdout in
+// a stdio session, which is the protocol itself.
+func Mirrors(w io.Writer) Option { return func(o *options) { o.mirror = w } }
+
+// Serve runs the server on t until the agent goes away or ctx is cancelled.
+// `faultline mcp` serves stdio, which is a transport like any other, so a test
+// can drive the same server over an in-memory pair.
 //
 // An agent closing the session, and a Ctrl-C, are how this normally ends, so
 // neither is reported as a failure: a command that prints an error every time it
 // is used correctly teaches its user to ignore its errors.
-func ServeStdio(ctx context.Context, c *client.Client, version string) error {
-	if err := NewServer(c, version).Run(ctx, &sdk.StdioTransport{}); !endedCleanly(err) {
+func Serve(ctx context.Context, c *client.Client, version string, t sdk.Transport, opts ...Option) error {
+	if err := NewServer(c, version, opts...).Run(ctx, t); !endedCleanly(err) {
 		return err
 	}
 	return nil

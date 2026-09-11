@@ -285,6 +285,6 @@ Protocol, on stdio:
 claude mcp add faultline -- faultline mcp
 ```
 
-It talks to the instance at `--admin` like every other command here. The same
-tools are also served at `/mcp` on the admin port. See
-[agents.md](agents.md).
+It joins the instance at `--admin` like every other command here, and starts one
+for the session if none is running. The same tools are also served at `/mcp` on
+the admin port. See [agents.md](agents.md).
