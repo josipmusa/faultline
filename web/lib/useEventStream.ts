@@ -15,6 +15,10 @@ export interface LiveState {
   events: Event[];
   rules: Rule[];
   connected: boolean;
+  /** The view is holding as many events as it keeps, so there may be older
+   * traffic it has already dropped. What the chart reads to know how far back
+   * it can honestly draw. */
+  atCap: boolean;
   /** Set when the API could not be reached, so the view can say why. */
   error: string | null;
   clear: () => Promise<void>;
@@ -90,7 +94,7 @@ export function useEventStream(): LiveState {
     }
   }, [stream]);
 
-  return { events, rules, connected, error, clear };
+  return { events, rules, connected, atCap: events.length >= eventCap, error, clear };
 }
 
 function message(err: unknown): string {
