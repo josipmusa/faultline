@@ -1,4 +1,14 @@
-import type { Capture, Catalogue, CreatedRule, Event, Report, Rule, Scenario, Upstream } from '@/types';
+import type {
+  Capture,
+  Catalogue,
+  ConfigInfo,
+  CreatedRule,
+  Event,
+  Report,
+  Rule,
+  Scenario,
+  Upstream,
+} from '@/types';
 
 /** Where the API lives. Empty means same origin, which is the embedded build:
  * the binary serves both the UI and the API on the admin port. `npm run dev`
@@ -127,6 +137,11 @@ export function deleteRule(id: string): Promise<void> {
  * from this, so a fault added to the binary appears without a UI change. */
 export function getCatalogue(): Promise<Catalogue> {
   return request<Catalogue>('/api/catalogue');
+}
+
+/** Whether rule changes are written to a configuration file, and to which. */
+export function getConfig(): Promise<ConfigInfo> {
+  return request<ConfigInfo>('/api/config');
 }
 
 /** One rule. Unlike the list, this carries the warnings about it, so the

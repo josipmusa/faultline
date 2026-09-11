@@ -18,7 +18,10 @@ import (
 type counter struct {
 	changes int
 	fail    error
+	path    string
 }
+
+func (c *counter) Path() string { return c.path }
 
 func (c *counter) Change(mutate func() error) error {
 	c.changes++

@@ -1,19 +1,25 @@
 'use client';
 
-import { CircleDot, RotateCcw } from 'lucide-react';
+import { CircleDot, FileText, RotateCcw } from 'lucide-react';
 
+import { configNotice } from '@/lib/configNotice';
 import { cn } from '@/lib/utils';
+import type { ConfigInfo } from '@/types';
 
 interface HeaderProps {
   connected: boolean;
   eventCount: number;
   ruleCount: number;
+  /** Where rule changes go, or null while that is still unknown. */
+  config: ConfigInfo | null;
   /** Empties the recorder, which is what starts the session report over: the
    * report is a reading of the events, so the two are one action. */
   onReset: () => void;
 }
 
-export function Header({ connected, eventCount, ruleCount, onReset }: HeaderProps) {
+export function Header({ connected, eventCount, ruleCount, config, onReset }: HeaderProps) {
+  const notice = configNotice(config);
+
   return (
     <header className="flex h-16 items-center justify-between border-b border-zinc-800 bg-zinc-950 px-6">
       <div className="flex items-center gap-3">
@@ -30,6 +36,19 @@ export function Header({ connected, eventCount, ruleCount, onReset }: HeaderProp
         </span>
         <Count label="events" value={eventCount} />
         <Count label={ruleCount === 1 ? 'rule' : 'rules'} value={ruleCount} />
+
+        {notice && (
+          <span
+            title={notice.title}
+            className={cn(
+              'flex items-center gap-1.5 text-sm',
+              notice.persisted ? 'text-zinc-400' : 'text-zinc-500 italic',
+            )}
+          >
+            <FileText className="h-3.5 w-3.5" />
+            {notice.label}
+          </span>
+        )}
       </div>
 
       <button

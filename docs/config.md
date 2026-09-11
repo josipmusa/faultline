@@ -62,6 +62,11 @@ with its rules in memory, exactly as it did before there was a file.
 `--config <path>` names another file. That one has to exist; being told to use a
 file that is not there is an error, because you meant that file.
 
+Which of the two you are in is on screen. The header names the file in use, with
+its whole path on hover, and says `in-memory` when there is none, so a rule
+typed into the UI never leaves you guessing whether it will still be there
+tomorrow.
+
 ```
 faultline run --config ../ops/faultline.yaml -- npm run dev
 ```

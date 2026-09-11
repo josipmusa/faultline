@@ -176,3 +176,11 @@ export interface Report {
    * window is still open counts as neither. */
   abandoned: number;
 }
+
+/** Where rule changes go, as `GET /api/config` reports it. `persisted` is the
+ * answer and `path` only says which file: a persister with no single path on
+ * disk would still not be holding the rules in memory. */
+export interface ConfigInfo {
+  persisted: boolean;
+  path?: string;
+}

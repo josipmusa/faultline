@@ -11,6 +11,7 @@ import {
   enableRule,
   getCapture,
   getCatalogue,
+  getConfig,
   getEvents,
   getRule,
   getReport,
@@ -390,5 +391,22 @@ describe('the session report', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/sessions/current/report', expect.anything());
     expect(report.total).toBe(42);
     expect(report.max_retry_wait_ms).toBe(1002);
+  });
+});
+
+describe('config', () => {
+  it('reads which file rule changes are written to', async () => {
+    const fetchMock = stubFetch(respond({ persisted: true, path: '/ops/faultline.yaml' }));
+
+    const config = await getConfig();
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/config', expect.anything());
+    expect(config).toEqual({ persisted: true, path: '/ops/faultline.yaml' });
+  });
+
+  it('reads an instance holding its rules in memory', async () => {
+    stubFetch(respond({ persisted: false }));
+
+    expect(await getConfig()).toEqual({ persisted: false });
   });
 });

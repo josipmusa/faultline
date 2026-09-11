@@ -73,6 +73,8 @@ func NewServer(store *rules.Store, scenarios *rules.Scenarios, rec *events.Recor
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/health", s.health)
 
+	s.mux.HandleFunc("GET /api/config", s.getConfig)
+
 	s.mux.HandleFunc("GET /api/catalogue", s.listCatalogue)
 
 	s.mux.HandleFunc("GET /api/rules", s.listRules)

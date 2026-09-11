@@ -15,6 +15,11 @@ type Persister interface {
 	// Change makes one change to the rule store and saves the result. The
 	// mutation's own error comes back unchanged.
 	Change(mutate func() error) error
+
+	// Path is the file being written to, which the API reports so the UI can
+	// name it. A persister that cannot say where it writes cannot answer the
+	// question a user asks before editing a rule.
+	Path() string
 }
 
 // Persist makes every rule change through the API write the rule set back to

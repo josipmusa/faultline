@@ -11,6 +11,7 @@ import { Sidebar } from '@/components/Sidebar';
 import { StreamFilters } from '@/components/StreamFilters';
 import { UpstreamsPanel } from '@/components/UpstreamsPanel';
 import { emptyFilters, filterEvents, hostsOf, methodsOf } from '@/lib/filters';
+import { useConfig } from '@/lib/useConfig';
 import { useEventStream } from '@/lib/useEventStream';
 import { useScenarios } from '@/lib/useScenarios';
 import { useUpstreams } from '@/lib/useUpstreams';
@@ -23,6 +24,7 @@ export default function Home() {
   const { events, rules, connected, error, clear } = useEventStream();
   const upstreams = useUpstreams(activeView === 'upstreams');
   const session = useScenarios(activeView === 'scenarios');
+  const config = useConfig();
 
   const shown = useMemo(() => filterEvents(events, filters), [events, filters]);
   const hosts = useMemo(() => hostsOf(events), [events]);
@@ -52,6 +54,7 @@ export default function Home() {
           connected={connected}
           eventCount={events.length}
           ruleCount={rules.length}
+          config={config}
           onReset={() => void clear()}
         />
 
