@@ -392,6 +392,25 @@ describe('the session report', () => {
     expect(report.total).toBe(42);
     expect(report.max_retry_wait_ms).toBe(1002);
   });
+
+  it('carries the warnings for rules that cannot fire', async () => {
+    stubFetch(
+      respond({
+        total: 3,
+        faulted: 0,
+        retries: 0,
+        max_retry_wait_ms: 0,
+        abandoned: 0,
+        warnings: ['rule stripe-503: api.stripe.com has only been seen encrypted'],
+      }),
+    );
+
+    const report = await getReport();
+
+    expect(report.warnings).toEqual([
+      'rule stripe-503: api.stripe.com has only been seen encrypted',
+    ]);
+  });
 });
 
 describe('config', () => {

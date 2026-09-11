@@ -377,3 +377,50 @@ type eventsOut struct {
 type scenariosOut struct {
 	Scenarios []client.Scenario `json:"scenarios"`
 }
+
+// statusRuleArgs is a response-tier fault, which is the kind that cannot apply
+// to a host Faultline has only ever seen encrypted.
+func statusRuleArgs(name, host string, code int) map[string]any {
+	return map[string]any{
+		"name":  name,
+		"match": map[string]any{"host": host},
+		"fault": map[string]any{"type": "status", "code": code},
+	}
+}
+
+func (h harness) encrypted(t *testing.T, host string) {
+	t.Helper()
+	h.events.Record(events.Event{
+		ID:        events.NextID(),
+		Timestamp: time.Now(),
+		Host:      host,
+		Method:    "CONNECT",
+		Tier:      events.TierEncrypted,
+	})
+}
+
+func TestAddRuleCarriesTheWarningThatItCannotFire(t *testing.T) {
+	h := newHarness(t)
+	h.encrypted(t, "api.stripe.com")
+
+	got := out[client.RuleResult](t, h.call(t, "add_rule", statusRuleArgs("Stripe is down", "api.stripe.com", 503)))
+
+	if len(got.Warnings) != 1 || !strings.Contains(got.Warnings[0], "api.stripe.com") {
+		t.Fatalf("warnings = %v, want one naming the host", got.Warnings)
+	}
+	if got.ID != "stripe-is-down" {
+		t.Errorf("id = %q, want the rule itself still there", got.ID)
+	}
+}
+
+func TestGetReportCarriesTheWarningsForRulesThatCannotFire(t *testing.T) {
+	h := newHarness(t)
+	h.encrypted(t, "api.stripe.com")
+	h.call(t, "add_rule", statusRuleArgs("Stripe is down", "api.stripe.com", 503))
+
+	got := out[client.ReportResult](t, h.call(t, "get_report", nil))
+
+	if len(got.Warnings) != 1 || !strings.Contains(got.Warnings[0], "stripe-is-down") {
+		t.Errorf("warnings = %v, want one naming the rule", got.Warnings)
+	}
+}

@@ -1,12 +1,16 @@
 package main
 
 import (
+	"bytes"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	client "github.com/josipmusa/faultline/clients/go"
+	"github.com/josipmusa/faultline/internal/events"
 )
 
 func TestRuleAddFromFlagsAndList(t *testing.T) {
@@ -204,5 +208,94 @@ func TestRuleListWithNoRulesSaysSo(t *testing.T) {
 	}
 	if out := i.run(t, "rule", "list", "--json"); strings.TrimSpace(out) != "[]" {
 		t.Errorf("rule list --json printed %q, want an empty array", out)
+	}
+}
+
+// runSplit executes a command with stdout and stderr kept apart, which is the
+// point of a warning: it must not land in a piped --json payload.
+func (i instance) runSplit(t *testing.T, args ...string) (string, string) {
+	t.Helper()
+
+	var out, errOut bytes.Buffer
+	root := newRootCmd()
+	root.SetOut(&out)
+	root.SetErr(&errOut)
+	root.SetArgs(append(args, "--admin", i.url))
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("execute %v: %v", args, err)
+	}
+	return out.String(), errOut.String()
+}
+
+// encrypted records a call Faultline could see nothing of, which is what makes
+// a response-tier fault on that host inert.
+func (i instance) encrypted(t *testing.T, host string) {
+	t.Helper()
+	i.events.Record(events.Event{
+		ID:        events.NextID(),
+		Timestamp: time.Now(),
+		Host:      host,
+		Method:    http.MethodConnect,
+		Tier:      events.TierEncrypted,
+	})
+}
+
+func TestRuleAddPrintsAWarningToStderr(t *testing.T) {
+	i := newInstance(t)
+	i.encrypted(t, "api.stripe.com")
+
+	out, errOut := i.runSplit(t, "rule", "add", "--name", "Stripe is down",
+		"--host", "api.stripe.com", "--fault", "status", "--set", "code=503")
+
+	if !strings.Contains(errOut, "warning: ") || !strings.Contains(errOut, "api.stripe.com has only been seen encrypted") {
+		t.Errorf("stderr = %q, want a warning naming the host", errOut)
+	}
+	if strings.Contains(out, "warning") {
+		t.Errorf("stdout = %q, want the table only", out)
+	}
+}
+
+func TestRuleAddJSONCarriesTheWarning(t *testing.T) {
+	i := newInstance(t)
+	i.encrypted(t, "api.stripe.com")
+
+	out, errOut := i.runSplit(t, "rule", "add", "--name", "Stripe is down",
+		"--host", "api.stripe.com", "--fault", "status", "--set", "code=503", "--json")
+
+	if !strings.Contains(errOut, "warning: ") {
+		t.Errorf("stderr = %q, want the warning there too", errOut)
+	}
+	got := decodeJSON[[]client.RuleResult](t, out)
+	if len(got) != 1 {
+		t.Fatalf("JSON = %q, want one rule", out)
+	}
+	if len(got[0].Warnings) != 1 || !strings.Contains(got[0].Warnings[0], "api.stripe.com") {
+		t.Errorf("warnings = %v, want one naming the host", got[0].Warnings)
+	}
+}
+
+func TestRuleEnableAndDisablePrintTheirWarning(t *testing.T) {
+	i := newInstance(t)
+	i.encrypted(t, "api.stripe.com")
+	i.run(t, "rule", "add", "--name", "Stripe is down",
+		"--host", "api.stripe.com", "--fault", "status", "--set", "code=503")
+
+	for _, action := range []string{"disable", "enable"} {
+		_, errOut := i.runSplit(t, "rule", action, "stripe-is-down")
+		if !strings.Contains(errOut, "warning: ") {
+			t.Errorf("%s stderr = %q, want the warning", action, errOut)
+		}
+	}
+}
+
+func TestRuleAddSaysNothingWhenThereIsNothingToWarnAbout(t *testing.T) {
+	i := newInstance(t)
+
+	_, errOut := i.runSplit(t, "rule", "add", "--name", "Slow",
+		"--host", "httpbin.org", "--fault", "delay", "--set", "ms=1")
+
+	if errOut != "" {
+		t.Errorf("stderr = %q, want nothing", errOut)
 	}
 }

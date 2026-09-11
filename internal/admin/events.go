@@ -80,7 +80,7 @@ func (s *Server) clearEvents(w http.ResponseWriter, _ *http.Request) {
 // sessionReport answers with how the application behaved under the faults it
 // has been given so far.
 func (s *Server) sessionReport(w http.ResponseWriter, _ *http.Request) {
-	s.writeJSON(w, http.StatusOK, s.events.Report())
+	s.writeJSON(w, http.StatusOK, reportResponse{Report: s.events.Report(), Warnings: s.reportWarnings()})
 }
 
 func (s *Server) listUpstreams(w http.ResponseWriter, _ *http.Request) {

@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	client "github.com/josipmusa/faultline/clients/go"
 	"github.com/josipmusa/faultline/internal/config"
 	"github.com/josipmusa/faultline/internal/events"
 	"github.com/josipmusa/faultline/internal/rules"
@@ -81,9 +82,9 @@ func TestNewSessionRefusesAReportInADirectoryThatIsNotThere(t *testing.T) {
 
 func TestReportTableShowsTheCountsAndTheWait(t *testing.T) {
 	var out bytes.Buffer
-	err := writeReportTable(&out, events.Report{
+	err := writeReportTable(&out, client.ReportResult{Report: events.Report{
 		Total: 3, Faulted: 2, Retries: 2, MaxRetryWaitMS: 1026, Abandoned: 1,
-	})
+	}})
 	if err != nil {
 		t.Fatalf("writeReportTable: %v", err)
 	}
@@ -93,6 +94,20 @@ func TestReportTableShowsTheCountsAndTheWait(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("report = %q, want it to contain %q", got, want)
 		}
+	}
+}
+
+func TestReportTableExplainsARuleThatCouldNotFire(t *testing.T) {
+	var out bytes.Buffer
+	err := writeReportTable(&out, client.ReportResult{
+		Report:   events.Report{Total: 3},
+		Warnings: []string{"rule stripe-503: api.stripe.com has only been seen encrypted"},
+	})
+	if err != nil {
+		t.Fatalf("writeReportTable: %v", err)
+	}
+	if got := out.String(); !strings.Contains(got, "warning: rule stripe-503") {
+		t.Errorf("report = %q, want it to explain why nothing was faulted", got)
 	}
 }
 

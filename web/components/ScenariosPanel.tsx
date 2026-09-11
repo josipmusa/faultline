@@ -173,6 +173,12 @@ function SessionReport({ report }: { report: Report | null }) {
               </div>
             ))}
       </dl>
+
+      {report?.warnings?.map((warning) => (
+        <Notice key={warning} tone="warning" className="mt-2">
+          {warning}
+        </Notice>
+      ))}
     </section>
   );
 }

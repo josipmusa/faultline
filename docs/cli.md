@@ -127,6 +127,22 @@ jq '.rules[0]' scenarios.json | faultline rule add --from -
 It replaces the flags above rather than mixing with them, and an absent
 `enabled` means the same as it does over the API: the rule arrives on.
 
+A rule can be accepted and still be unable to do anything. A fault that rewrites
+a response cannot apply to a host Faultline has only ever seen encrypted, so
+`rule add`, `rule enable` and `rule disable` say so on standard error:
+
+```
+$ faultline rule add --host api.stripe.com --fault status --set code=503
+warning: api.stripe.com has only been seen encrypted, where a status fault
+cannot apply; trust the Faultline CA so its traffic can be intercepted, see
+docs/trust.md
+ID                ENABLED  MATCH             FAULT            BEHAVIOR  NAME
+status-on-stripe  yes      api.stripe.com    status code=503  -         status on api.stripe.com
+```
+
+The warning goes to standard error in both modes, so it never lands in a piped
+payload, and `--json` carries it in a `warnings` field as well.
+
 `rule enable` and `rule disable` take an id. Either one starts the rule's
 behavior state over, so a `first_n: 2` rule fails its first two requests again.
 `rule rm` takes one or more ids.
@@ -202,6 +218,11 @@ $ cat report.json
   "abandoned": 0
 }
 ```
+
+A report can also carry `warnings`, one per rule in force that cannot do
+anything as things stand. They are printed above the table too, because a
+`faulted` of zero beside a warning means the fault never applied rather than
+that the application coped with it.
 
 The flag takes the file, not a format, because JSON is the only machine-readable
 shape there is and a flag with one legal value is noise. It is the same document

@@ -83,7 +83,7 @@ func newRuleAddCmd(flags *apiFlags) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return writeRules(cmd.OutOrStdout(), flags.json, []client.Rule{added})
+			return writeRuleResults(cmd, flags.json, added)
 		},
 	}
 	spec.register(cmd)
@@ -130,9 +130,25 @@ func newRuleEnabledCmd(flags *apiFlags, use, short string, enabled bool) *cobra.
 			if err != nil {
 				return err
 			}
-			return writeRules(cmd.OutOrStdout(), flags.json, []client.Rule{rule})
+			return writeRuleResults(cmd, flags.json, rule)
 		},
 	}
+}
+
+// writeRuleResults prints one rule the way rule add and the enable and disable
+// commands answer: the rule on stdout, and anything standing in its way on
+// stderr, where it is visible to a person without landing in a piped --json
+// payload. The JSON carries the warnings too, so a script can read them.
+func writeRuleResults(cmd *cobra.Command, asJSON bool, result client.RuleResult) error {
+	for _, warning := range result.Warnings {
+		if err := printf(cmd.ErrOrStderr(), "warning: %s\n", warning); err != nil {
+			return err
+		}
+	}
+	if asJSON {
+		return printJSON(cmd.OutOrStdout(), []client.RuleResult{result})
+	}
+	return writeRules(cmd.OutOrStdout(), false, []client.Rule{result.Rule})
 }
 
 var ruleColumns = []string{"ID", "ENABLED", "MATCH", "FAULT", "BEHAVIOR", "NAME"}

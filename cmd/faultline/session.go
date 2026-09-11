@@ -136,9 +136,16 @@ var reportColumns = []string{"REQUESTS", "FAULTED", "RETRIES", "MAX RETRY WAIT",
 
 // writeReportTable prints the report for a person. It goes to stderr, because
 // stdout belongs to the child.
-func writeReportTable(w io.Writer, r client.Report) error {
+func writeReportTable(w io.Writer, r client.ReportResult) error {
 	if err := printf(w, "\nreport: this run\n"); err != nil {
 		return err
+	}
+	// A warning here is the difference between "the application coped" and
+	// "the fault never applied", so it belongs beside the counts it explains.
+	for _, warning := range r.Warnings {
+		if err := printf(w, "warning: %s\n", warning); err != nil {
+			return err
+		}
 	}
 	row := []string{
 		strconv.Itoa(r.Total),
@@ -152,7 +159,7 @@ func writeReportTable(w io.Writer, r client.Report) error {
 
 // writeReportFile writes the report as the API's own JSON, reporting a failure
 // to close it: a report nobody can read is not a report that happened.
-func writeReportFile(path string, r client.Report) (err error) {
+func writeReportFile(path string, r client.ReportResult) (err error) {
 	file, err := os.Create(path) //nolint:gosec // the path is the operator's own argument
 	if err != nil {
 		return fmt.Errorf("--report: %w", err)

@@ -124,3 +124,48 @@ func TestListingRulesIsUnchanged(t *testing.T) {
 		t.Errorf("the rule list carries warnings: %v", got[0])
 	}
 }
+
+func TestTheReportNamesARuleThatCannotFire(t *testing.T) {
+	s := newTestServer(t)
+	seen(t, s, "api.stripe.com", events.TierEncrypted)
+	id := decodeBody[ruleResponse](t, do(t, s, http.MethodPost, "/api/rules", statusRuleFor)).ID
+
+	got := decodeBody[reportResponse](t, do(t, s, http.MethodGet, "/api/sessions/current/report", ""))
+
+	if len(got.Warnings) != 1 {
+		t.Fatalf("warnings = %v, want one", got.Warnings)
+	}
+	if !strings.Contains(got.Warnings[0], id) || !strings.Contains(got.Warnings[0], "api.stripe.com") {
+		t.Errorf("warning %q names neither the rule nor the host", got.Warnings[0])
+	}
+	if got.Total != 1 {
+		t.Errorf("total = %d, want the report itself still there", got.Total)
+	}
+}
+
+func TestTheReportSaysNothingAboutADisabledRule(t *testing.T) {
+	// A rule the user turned off is not a fault that failed to apply, it is a
+	// fault nobody asked for.
+	s := newTestServer(t)
+	seen(t, s, "api.stripe.com", events.TierEncrypted)
+	id := decodeBody[ruleResponse](t, do(t, s, http.MethodPost, "/api/rules", statusRuleFor)).ID
+	do(t, s, http.MethodPost, "/api/rules/"+id+"/disable", "")
+
+	got := decodeBody[reportResponse](t, do(t, s, http.MethodGet, "/api/sessions/current/report", ""))
+
+	if len(got.Warnings) != 0 {
+		t.Errorf("warnings = %v, want none", got.Warnings)
+	}
+}
+
+func TestTheReportIsUnchangedWhenEveryRuleCanFire(t *testing.T) {
+	s := newTestServer(t)
+	seen(t, s, "api.stripe.com", events.TierIntercepted)
+	do(t, s, http.MethodPost, "/api/rules", statusRuleFor)
+
+	got := decodeBody[map[string]any](t, do(t, s, http.MethodGet, "/api/sessions/current/report", ""))
+
+	if _, ok := got["warnings"]; ok {
+		t.Errorf("report = %v, want no warnings field at all", got)
+	}
+}

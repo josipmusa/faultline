@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"testing"
 
 	client "github.com/josipmusa/faultline/clients/go"
+	"github.com/josipmusa/faultline/internal/events"
 )
 
 func delayRule(name, host string, ms int) client.Rule {
@@ -97,5 +99,47 @@ func TestAnUnknownRuleIsA404(t *testing.T) {
 	var apiErr *client.APIError
 	if !errors.As(err, &apiErr) || apiErr.Status != http.StatusNotFound {
 		t.Fatalf("DeleteRule(ghost) error = %v, want a 404 APIError", err)
+	}
+}
+
+func statusRule(name, host string, code int) client.Rule {
+	return client.Rule{
+		Name:    name,
+		Enabled: true,
+		Match:   client.Match{Host: host},
+		Fault:   client.Fault{Type: "status", Params: client.Params{"code": code}},
+	}
+}
+
+// A response-tier fault on a host only ever seen encrypted is stored and does
+// nothing, and the API says so. The client has to carry that through or the
+// CLI and the agent both report an outage that never happened.
+func TestRuleWarningsSurviveTheClient(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	h.events.Record(events.Event{ID: events.NextID(), Host: "api.stripe.com", Method: http.MethodGet, Tier: events.TierEncrypted})
+
+	added, err := h.client.AddRule(ctx, statusRule("Stripe is down", "api.stripe.com", 503))
+	if err != nil {
+		t.Fatalf("AddRule: %v", err)
+	}
+	if len(added.Warnings) != 1 || !strings.Contains(added.Warnings[0], "api.stripe.com") {
+		t.Fatalf("AddRule warnings = %v, want one naming the host", added.Warnings)
+	}
+
+	read, err := h.client.Rule(ctx, added.ID)
+	if err != nil {
+		t.Fatalf("Rule: %v", err)
+	}
+	if len(read.Warnings) != 1 {
+		t.Errorf("Rule warnings = %v, want one", read.Warnings)
+	}
+
+	off, err := h.client.SetRuleEnabled(ctx, added.ID, false)
+	if err != nil {
+		t.Fatalf("SetRuleEnabled: %v", err)
+	}
+	if len(off.Warnings) != 1 {
+		t.Errorf("SetRuleEnabled warnings = %v, want one", off.Warnings)
 	}
 }

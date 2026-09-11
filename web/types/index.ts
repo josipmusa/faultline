@@ -175,6 +175,11 @@ export interface Report {
    * closed. Almost always zero while a run is still going: an attempt whose
    * window is still open counts as neither. */
   abandoned: number;
+  /** One line per enabled rule that cannot do anything as things stand, such
+   * as a response-tier fault on a host only ever seen encrypted. A warning
+   * beside a faulted count of zero means the fault never applied, not that the
+   * application coped with it. */
+  warnings?: string[];
 }
 
 /** Where rule changes go, as `GET /api/config` reports it. `persisted` is the

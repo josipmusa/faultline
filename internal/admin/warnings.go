@@ -21,6 +21,31 @@ func (s *Server) respond(r rules.Rule) ruleResponse {
 	return ruleResponse{Rule: r, Warnings: s.warningsFor(r)}
 }
 
+// reportResponse is the session report plus anything standing in the way of the
+// rules it was measured under. An empty faulted count next to a warning means
+// the fault never applied, not that the application coped with it.
+type reportResponse struct {
+	events.Report
+	Warnings []string `json:"warnings,omitempty"`
+}
+
+// reportWarnings names every enabled rule that cannot do anything as things
+// stand. It is recomputed at read time because the answer changes with the
+// traffic: a host nothing had been seen of when the rule was written may by now
+// have been seen, and only encrypted.
+func (s *Server) reportWarnings() []string {
+	var warnings []string
+	for _, r := range s.rules.List() {
+		if !r.Enabled {
+			continue
+		}
+		for _, warning := range s.warningsFor(r) {
+			warnings = append(warnings, "rule "+r.ID+": "+warning)
+		}
+	}
+	return warnings
+}
+
 // warningsFor names what stands in a rule's way without making it invalid. A
 // response-tier fault on a host Faultline has only ever seen encrypted does
 // nothing today, and will start working the moment the client trusts the CA, so

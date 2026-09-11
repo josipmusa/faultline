@@ -117,10 +117,11 @@ Two things are worth knowing before an agent is surprised by them:
   `list_upstreams` reports a host as `encrypted`, Faultline can only tunnel it,
   and a fault that rewrites a response does nothing until the client trusts the
   Faultline CA. See [trust.md](trust.md). The rule is still accepted, because it
-  will start working the moment interception does. The `add_rule` tool
-  description marks which faults are response tier, so check the host's tier
-  with `list_upstreams` before concluding from a quiet run that the application
-  handled the fault: it may be that the fault never applied.
+  will start working the moment interception does. `add_rule` answers with a
+  `warnings` field saying so, and `get_report` repeats it for every rule in
+  force that cannot fire, so a quiet run explains itself: a `faulted` of zero
+  beside a warning means the fault never applied, not that the application
+  handled it.
 
 ## Shape of a good answer
 

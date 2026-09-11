@@ -106,8 +106,11 @@ func addEventTools(s *sdk.Server, c *client.Client) {
 			"calls there were, how many Faultline broke, how many were retried, the longest a retry " +
 			"waited, and how many attempts worth retrying were abandoned.\n\n" +
 			"max_retry_wait_ms is the backoff the application actually used, which is the number to " +
-			"quote when asked how long a user would have waited.",
-	}, func(ctx context.Context, _ *sdk.CallToolRequest, _ noInput) (*sdk.CallToolResult, client.Report, error) {
+			"quote when asked how long a user would have waited.\n\n" +
+			"A warning names a rule that cannot do anything as things stand, such as a response-tier " +
+			"fault on a host only ever seen encrypted. Read one beside a faulted count of zero as the " +
+			"fault never having applied, not as the application coping with it.",
+	}, func(ctx context.Context, _ *sdk.CallToolRequest, _ noInput) (*sdk.CallToolResult, client.ReportResult, error) {
 		report, err := c.Report(ctx)
 		return nil, report, err
 	})
