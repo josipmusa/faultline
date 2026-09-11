@@ -64,3 +64,16 @@ export function reportTiles(report: Report): ReportTile[] {
     },
   ];
 }
+
+/** Why the new scenario form cannot save yet, or null when it can. A scenario
+ * is a name for a set of rules, so it needs both halves: one with no rules
+ * would turn nothing on, and the API would rightly refuse it. */
+export function scenarioSaveBlocked(name: string, ruleIDs: string[]): string | null {
+  if (name.trim() === '') {
+    return 'Give the scenario a name.';
+  }
+  if (ruleIDs.length === 0) {
+    return 'Tick at least one rule.';
+  }
+  return null;
+}

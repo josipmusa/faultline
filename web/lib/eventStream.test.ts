@@ -279,6 +279,34 @@ describe('re-seeding on connect', () => {
     await vi.waitFor(() => expect(stream.events.map((e) => e.id)).toEqual(['8', '7']));
   });
 
+  it('is seeded once the first backlog has answered, and stays so across a reconnect', async () => {
+    let release: (events: Event[]) => void = () => {};
+    const backlog = () => new Promise<Event[]>((resolve) => (release = resolve));
+    const { stream, socket } = newStream({ backlog });
+
+    // Not yet: the socket is open but nothing has been read, so the view
+    // cannot tell "no traffic" from "have not looked".
+    expect(stream.seeded).toBe(false);
+    socket().onopen?.();
+    expect(stream.seeded).toBe(false);
+
+    release([]);
+    await vi.waitFor(() => expect(stream.seeded).toBe(true));
+
+    // A drop later is a reconnect, not a fresh start.
+    socket().onclose?.();
+    expect(stream.seeded).toBe(true);
+  });
+
+  it('is not seeded by a backlog that could not be read', async () => {
+    const { stream, socket } = newStream({ backlog: () => Promise.reject(new Error('offline')) });
+
+    socket().onopen?.();
+    await vi.waitFor(() => expect(FakeSocket.opened).toHaveLength(1));
+    await Promise.resolve();
+    expect(stream.seeded).toBe(false);
+  });
+
   it('leaves the list alone when the backlog cannot be read', async () => {
     const { stream, socket } = newStream({ backlog: () => Promise.reject(new Error('offline')) });
 

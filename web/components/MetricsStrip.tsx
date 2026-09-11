@@ -65,7 +65,7 @@ function Panel({ label, value, points, dataKey, stroke, dots, filtering }: Panel
   const domain = points.length > 0 ? [points[0].start, points[points.length - 1].start] : [0, 1];
 
   return (
-    <div className="bg-zinc-950/50 px-6 py-2">
+    <div className="bg-zinc-950/50 px-4 py-2">
       <div className="mb-1 flex items-baseline justify-between">
         <span className="text-xs text-zinc-400">
           {label}

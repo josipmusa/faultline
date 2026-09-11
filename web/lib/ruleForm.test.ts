@@ -11,6 +11,9 @@ import {
   paramsFromValues,
   paramsToValues,
   ruleToForm,
+  boundsHint,
+  placeholderFor,
+  groupByTier,
 } from './ruleForm';
 
 const delay: CatalogueEntry = {
@@ -226,5 +229,53 @@ describe('describing a rule in a row', () => {
   it('counts the headers a match requires rather than listing them', () => {
     expect(describeMatch({ host: 'a', header: { 'X-Test': '1', 'X-Other': '2' } })).toBe('a +2 headers');
     expect(describeMatch({ host: 'a', header: { 'X-Test': '1' } })).toBe('a +1 header');
+  });
+});
+
+describe('boundsHint', () => {
+  it('says both bounds when the catalogue gives both', () => {
+    expect(boundsHint({ name: 'ms', kind: 'integer', description: '', min: 0, max: 600000 })).toBe(
+      'Between 0 and 600000.',
+    );
+  });
+
+  it('says the one bound it has', () => {
+    expect(boundsHint({ name: 'n', kind: 'integer', description: '', min: 1 })).toBe('At least 1.');
+    expect(boundsHint({ name: 'percent', kind: 'integer', description: '', max: 100 })).toBe('At most 100.');
+  });
+
+  it('says nothing for a parameter with no bounds or that is not a number', () => {
+    expect(boundsHint({ name: 'body', kind: 'string', description: '', min: 0 })).toBe('');
+    expect(boundsHint({ name: 'n', kind: 'integer', description: '' })).toBe('');
+  });
+});
+
+describe('placeholderFor', () => {
+  it('shows the lower bound for a number, since the catalogue has no default', () => {
+    expect(placeholderFor({ name: 'ms', kind: 'integer', description: '', min: 0, max: 600000 })).toBe('0');
+  });
+
+  it('shows nothing for an unbounded number or for text', () => {
+    expect(placeholderFor({ name: 'n', kind: 'integer', description: '' })).toBe('');
+    expect(placeholderFor({ name: 'body', kind: 'string', description: '' })).toBe('');
+  });
+});
+
+describe('groupByTier', () => {
+  it('splits the faults into connection and response, keeping the catalogue order', () => {
+    const faults: CatalogueEntry[] = [
+      { name: 'delay', tier: 'connection', fields: [] },
+      { name: 'status', tier: 'response', fields: [] },
+      { name: 'refuse', tier: 'connection', fields: [] },
+    ];
+    expect(groupByTier(faults)).toEqual([
+      { tier: 'connection', label: 'Connection faults, any traffic', entries: [faults[0], faults[2]] },
+      { tier: 'response', label: 'Response faults, plain and intercepted traffic only', entries: [faults[1]] },
+    ]);
+  });
+
+  it('leaves out a tier with nothing in it', () => {
+    const faults: CatalogueEntry[] = [{ name: 'delay', tier: 'connection', fields: [] }];
+    expect(groupByTier(faults).map((group) => group.tier)).toEqual(['connection']);
   });
 });

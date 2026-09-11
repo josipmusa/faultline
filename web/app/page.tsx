@@ -16,14 +16,16 @@ import { useConfig } from '@/lib/useConfig';
 import { useEventStream } from '@/lib/useEventStream';
 import { useMetrics } from '@/lib/useMetrics';
 import { useScenarios } from '@/lib/useScenarios';
+import { useSidebarExpanded } from '@/lib/useSidebar';
 import { useUpstreams } from '@/lib/useUpstreams';
 
 export default function Home() {
   const [activeView, setActiveView] = useState('live');
+  const [sidebarExpanded, toggleSidebar] = useSidebarExpanded();
   const [filters, setFilters] = useState(emptyFilters);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editing, setEditing] = useState<Editing>(null);
-  const { events, rules, connected, atCap, error, clear } = useEventStream();
+  const { events, rules, connected, seeded, atCap, error, clear } = useEventStream();
   const upstreams = useUpstreams(activeView === 'upstreams');
   const session = useScenarios(activeView === 'scenarios');
   const config = useConfig();
@@ -53,7 +55,7 @@ export default function Home() {
 
   return (
     <div className="flex h-screen bg-zinc-900 text-zinc-100">
-      <Sidebar activeView={activeView} onViewChange={setActiveView} />
+      <Sidebar activeView={activeView} onViewChange={setActiveView} expanded={sidebarExpanded} onToggle={toggleSidebar} />
 
       <div className="flex flex-1 flex-col overflow-hidden">
         <Header
@@ -63,10 +65,6 @@ export default function Home() {
           config={config}
           onReset={() => void clear()}
         />
-
-        {error && (
-          <p className="border-b border-red-500/20 bg-red-500/10 px-6 py-2 text-sm text-red-400">{error}</p>
-        )}
 
         {activeView === 'rules' ? (
           <RulesPanel rules={rules} editing={editing} onEditingChange={setEditing} />
@@ -112,6 +110,9 @@ export default function Home() {
                 selectedId={selected?.id}
                 onSelect={(event) => setSelectedId(event.id === selectedId ? null : event.id)}
                 filtering={shown.length !== events.length}
+                onClearFilters={() => setFilters(emptyFilters)}
+                seeded={seeded}
+                error={error}
               />
 
               {selected && (

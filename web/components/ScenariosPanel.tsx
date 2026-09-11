@@ -1,15 +1,23 @@
 'use client';
 
 import { useState } from 'react';
-import { Layers, Loader2, Play, Plus, Square, X } from 'lucide-react';
+import { Layers, Play, Plus, Square, X } from 'lucide-react';
 
 import { createScenario, setScenarioActive } from '@/lib/api';
-import { enabledRuleIDs, reportTiles, resolveScenarioRules } from '@/lib/scenarios';
+import { panelState } from '@/lib/panelState';
+import { enabledRuleIDs, reportTiles, resolveScenarioRules, scenarioSaveBlocked } from '@/lib/scenarios';
 import { cn } from '@/lib/utils';
 import type { Report, Rule, Scenario } from '@/types';
 
+import { Badge } from './ui/Badge';
+import { Button } from './ui/Button';
+import { EmptyState } from './ui/EmptyState';
+import { Notice } from './ui/Notice';
+import { Toolbar } from './ui/Toolbar';
+
 interface ScenariosPanelProps {
-  scenarios: Scenario[];
+  /** Null until the first read answers. */
+  scenarios: Scenario[] | null;
   /** The rules as the stream keeps them, which is where a row reads what its
    * ids are called and whether each one is on right now. */
   rules: Rule[];
@@ -44,38 +52,40 @@ export function ScenariosPanel({ scenarios, rules, report, error, onChanged }: S
   const toggle = (scenario: Scenario) =>
     act(scenario.name, () => setScenarioActive(scenario.name, !scenario.active));
 
+  const state = panelState(scenarios, error);
+  const rows = scenarios ?? [];
+
   return (
     <div className="flex flex-1 flex-col overflow-auto">
-      {error && (
-        <p className="border-b border-red-500/20 bg-red-500/10 px-6 py-2 text-sm text-red-400">
-          The scenarios and the report could not be read: {error}
-        </p>
-      )}
-
       <SessionReport report={report} />
 
-      <div className="flex items-center justify-between border-b border-zinc-800 px-4 py-2">
-        <p className="text-xs text-zinc-500">
-          {scenarios.length === 0
-            ? 'No scenarios'
-            : `${scenarios.length} scenario${scenarios.length === 1 ? '' : 's'}, one on at a time`}
-        </p>
-        <button
-          type="button"
+      <Toolbar
+        summary={
+          state === 'loading' || state === 'error'
+            ? 'Scenarios'
+            : rows.length === 0
+              ? 'No scenarios yet'
+              : `${rows.length} scenario${rows.length === 1 ? '' : 's'}, one on at a time`
+        }
+      >
+        <Button
+          variant="primary"
+          icon={Plus}
           onClick={() => {
             setNotice(null);
             setCreating(true);
           }}
           disabled={creating}
-          className={cn(
-            'inline-flex cursor-pointer items-center gap-1 rounded border border-amber-500/40 bg-amber-500/15 px-2 py-1 text-xs font-medium text-amber-300 transition-colors hover:bg-amber-500/25',
-            creating && 'cursor-not-allowed opacity-50',
-          )}
         >
-          <Plus className="h-3 w-3" />
           New scenario
-        </button>
-      </div>
+        </Button>
+      </Toolbar>
+
+      {error && (
+        <Notice tone="error" className="mx-4 mt-3">
+          The scenarios and the report could not be read: {error}
+        </Notice>
+      )}
 
       {creating && (
         <NewScenario
@@ -91,19 +101,21 @@ export function ScenariosPanel({ scenarios, rules, report, error, onChanged }: S
       )}
 
       {notice && (
-        <p className="mx-4 mt-3 rounded-md border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-400">
+        <Notice tone="error" className="mx-4 mt-3">
           {notice}
-        </p>
+        </Notice>
       )}
 
-      {scenarios.length === 0 && !error ? (
-        <p className="flex flex-1 items-center justify-center px-6 text-center text-sm text-zinc-500">
-          No scenarios yet. Arrange the rules for a situation, then save them as one so you can
-          rehearse it again with one click or one command.
-        </p>
-      ) : (
+      {state === 'loading' && <EmptyState>Loading…</EmptyState>}
+      {state === 'empty' && (
+        <EmptyState>
+          No scenarios yet. Arrange the rules for a situation, then save them as one so you can rehearse it
+          again with one click or one command.
+        </EmptyState>
+      )}
+      {state === 'rows' && (
         <ul>
-          {scenarios.map((scenario) => (
+          {rows.map((scenario) => (
             <Row
               key={scenario.name}
               scenario={scenario}
@@ -125,7 +137,7 @@ const newScenarioKey = '';
 function SessionReport({ report }: { report: Report | null }) {
   return (
     <section className="border-b border-zinc-800 px-4 py-3">
-      <div className="mb-2 flex items-baseline gap-3">
+      <div className="mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <h2 className="text-sm font-medium text-zinc-300">This session</h2>
         <p className="text-xs text-zinc-500">
           Everything Faultline has seen since it started, or since the last reset. Reset session, in
@@ -184,16 +196,12 @@ function Row({ scenario, rules, busy, onToggle }: RowProps) {
     >
       {scenario.active && <span className="-ml-4 h-10 w-1 rounded-r bg-amber-400" />}
 
-      <Layers className={cn('h-4 w-4 shrink-0', scenario.active ? 'text-amber-400' : 'text-zinc-600')} />
+      <Layers className={cn('h-4 w-4 shrink-0', scenario.active ? 'text-amber-400' : 'text-zinc-600')} aria-hidden />
 
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <span className="truncate font-medium text-zinc-200">{scenario.name}</span>
-          {scenario.active && (
-            <span className="rounded border border-amber-500/30 bg-amber-500/15 px-1.5 py-0.5 text-xs font-medium text-amber-300">
-              Active
-            </span>
-          )}
+          {scenario.active && <Badge tone="amber">Active</Badge>}
         </div>
         <p className="mt-0.5 truncate font-mono text-xs text-zinc-500">
           {named.length === 0
@@ -202,37 +210,20 @@ function Row({ scenario, rules, busy, onToggle }: RowProps) {
         </p>
       </div>
 
-      <button
-        type="button"
+      <Button
+        variant={scenario.active ? 'secondary' : 'primary'}
+        icon={scenario.active ? Square : Play}
         onClick={onToggle}
-        disabled={busy}
+        busy={busy}
+        className="w-24"
         title={
           scenario.active
             ? `Turn ${scenario.name} off, switching its rules off`
             : `Turn ${scenario.name} on, switching its rules on and starting their behavior over`
         }
-        className={cn(
-          'inline-flex w-24 shrink-0 cursor-pointer items-center justify-center gap-1 rounded border px-2 py-1 text-xs font-medium transition-colors',
-          scenario.active
-            ? 'border-zinc-700 bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
-            : 'border-amber-500/40 bg-amber-500/15 text-amber-300 hover:bg-amber-500/25',
-          busy && 'cursor-not-allowed opacity-50',
-        )}
       >
-        {busy ? (
-          <Loader2 className="h-3 w-3 animate-spin" />
-        ) : scenario.active ? (
-          <>
-            <Square className="h-3 w-3" />
-            Turn off
-          </>
-        ) : (
-          <>
-            <Play className="h-3 w-3" />
-            Turn on
-          </>
-        )}
-      </button>
+        {scenario.active ? 'Turn off' : 'Turn on'}
+      </Button>
     </li>
   );
 }
@@ -253,6 +244,8 @@ function NewScenario({ rules, busy, onCancel, onCreate }: NewScenarioProps) {
 
   const toggle = (id: string) =>
     setSelected((ids) => (ids.includes(id) ? ids.filter((other) => other !== id) : [...ids, id]));
+
+  const blocked = scenarioSaveBlocked(name, selected);
 
   return (
     <form
@@ -278,45 +271,39 @@ function NewScenario({ rules, busy, onCancel, onCreate }: NewScenarioProps) {
           onChange={(e) => setName(e.target.value)}
           placeholder="payments-down"
           autoFocus
-          className="w-64 rounded border border-zinc-700 bg-zinc-900 px-2 py-1 font-mono text-sm text-zinc-200 placeholder:text-zinc-600 focus:border-amber-500/60 focus:outline-none"
+          className="w-64 rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 font-mono text-sm text-zinc-200 placeholder:text-zinc-600 focus:border-amber-500/60"
         />
+        {blocked && name.trim() !== '' && <span className="text-xs text-zinc-500">{blocked}</span>}
         <div className="flex-1" />
-        <button
+        <Button
           type="submit"
-          disabled={busy || name.trim() === ''}
-          className={cn(
-            'inline-flex cursor-pointer items-center gap-1 rounded border border-amber-500/40 bg-amber-500/15 px-2 py-1 text-xs font-medium text-amber-300 transition-colors hover:bg-amber-500/25',
-            (busy || name.trim() === '') && 'cursor-not-allowed opacity-50',
-          )}
+          variant="primary"
+          icon={Plus}
+          busy={busy}
+          disabled={blocked !== null}
+          title={blocked ?? 'Write this scenario to the config file'}
         >
-          {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
           Save scenario
-        </button>
-        <button
-          type="button"
-          onClick={onCancel}
-          aria-label="Cancel"
-          title="Cancel"
-          className="cursor-pointer rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-300"
-        >
-          <X className="h-4 w-4" />
-        </button>
+        </Button>
+        <Button variant="ghost" icon={X} aria-label="Cancel" title="Cancel" onClick={onCancel} />
       </div>
 
       <p className="mt-2 text-xs text-zinc-500">
-        The rules this scenario turns on. It starts out ticked for whatever is on now, and creating
-        it changes nothing until you turn it on.
+        The rules this scenario turns on, at least one. It starts out ticked for whatever is on now, and
+        creating it changes nothing until you turn it on.
       </p>
 
       {rules.length === 0 ? (
-        <p className="mt-2 text-xs text-zinc-500">There are no rules to name yet.</p>
+        <p className="mt-2 text-xs text-zinc-500">
+          There are no rules to name yet. A scenario needs at least one: add rules first, then come back.
+        </p>
       ) : (
         <ul className="mt-2 flex flex-wrap gap-2">
           {rules.map((rule) => (
             <li key={rule.id}>
               <label
                 className={cn(
-                  'flex cursor-pointer items-center gap-2 rounded border px-2 py-1 text-xs transition-colors',
+                  'flex cursor-pointer items-center gap-2 rounded-md border px-2 py-1 text-xs transition-colors',
                   selected.includes(rule.id)
                     ? 'border-amber-500/40 bg-amber-500/10 text-zinc-200'
                     : 'border-zinc-700 bg-zinc-900 text-zinc-400 hover:border-zinc-600',

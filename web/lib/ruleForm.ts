@@ -1,4 +1,4 @@
-import type { Behavior, Catalogue, CatalogueEntry, Fault, Match, Rule } from '@/types';
+import type { Behavior, Catalogue, CatalogueEntry, CatalogueField, Fault, Match, Rule } from '@/types';
 
 /** A rule as the form holds it while it is being edited.
  *
@@ -279,4 +279,53 @@ export function describeMatch(match: Match): string {
     parts.push(`+${headers} header${headers === 1 ? '' : 's'}`);
   }
   return parts.length === 0 ? 'all traffic' : parts.join(' ');
+}
+
+/** The bounds the server will hold a number to, in words, for the hint under
+ * its input. Empty for text and for a number the catalogue leaves open. */
+export function boundsHint(field: CatalogueField): string {
+  if (field.kind !== 'integer') {
+    return '';
+  }
+  const { min, max } = field;
+  if (min !== undefined && max !== undefined) {
+    return `Between ${min} and ${max}.`;
+  }
+  if (min !== undefined) {
+    return `At least ${min}.`;
+  }
+  if (max !== undefined) {
+    return `At most ${max}.`;
+  }
+  return '';
+}
+
+/** What an empty input shows. The catalogue has no defaults, so a bounded
+ * number shows its floor, which is at least a value the server accepts. */
+export function placeholderFor(field: CatalogueField): string {
+  if (field.kind === 'integer' && field.min !== undefined) {
+    return String(field.min);
+  }
+  return '';
+}
+
+export interface TierGroup {
+  tier: 'connection' | 'response';
+  /** The group's heading in the select, which is where the difference
+   * between the tiers is explained before a fault is chosen. */
+  label: string;
+  entries: CatalogueEntry[];
+}
+
+const tierLabels: Record<TierGroup['tier'], string> = {
+  connection: 'Connection faults, any traffic',
+  response: 'Response faults, plain and intercepted traffic only',
+};
+
+/** The faults by tier, in the catalogue's order within each, for the type
+ * select's option groups. A tier with nothing in it is left out. */
+export function groupByTier(faults: CatalogueEntry[]): TierGroup[] {
+  return (['connection', 'response'] as const)
+    .map((tier) => ({ tier, label: tierLabels[tier], entries: faults.filter((entry) => entry.tier === tier) }))
+    .filter((group) => group.entries.length > 0);
 }

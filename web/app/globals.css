@@ -14,6 +14,13 @@
   --color-brand: var(--brand);
 }
 
+@theme {
+  /* The one size below xs, for every badge and pill. Named so it cannot be
+   * written three slightly different ways again. */
+  --text-2xs: 0.6875rem;
+  --text-2xs--line-height: 1rem;
+}
+
 body {
   background: var(--background);
   color: var(--foreground);
@@ -48,8 +55,25 @@ body {
   animation: row-enter 200ms ease-out;
 }
 
+/* A toast rises into its corner so the eye is drawn to it once, then holds. */
+@keyframes toast-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.toast-enter {
+  animation: toast-enter 200ms ease-out;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .row-enter {
+  .row-enter,
+  .toast-enter {
     animation: none;
   }
 }
@@ -70,4 +94,12 @@ body {
 
 ::-webkit-scrollbar-thumb:hover {
   background: #52525b;
+}
+
+/* One focus ring for everything, so a keyboard user sees the same thing land
+ * on a button, a row's opener, a select and a text input. Inputs keep their
+ * amber border tint as a second cue. */
+:focus-visible {
+  outline: 2px solid #e4e4e7;
+  outline-offset: 2px;
 }

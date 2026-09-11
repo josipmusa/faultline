@@ -12,7 +12,9 @@ import { getUpstreams } from './api';
 const pollMS = 2000;
 
 export interface UpstreamsState {
-  upstreams: Upstream[];
+  /** Null until the first read answers, so the panel can tell "not looked
+   * yet" from "nothing seen". */
+  upstreams: Upstream[] | null;
   error: string | null;
   refresh: () => void;
 }
@@ -26,7 +28,7 @@ export interface UpstreamsState {
  * A read that fails leaves the rows standing and reports the reason, so a
  * blink of the API does not empty the panel. */
 export function useUpstreams(active: boolean): UpstreamsState {
-  const [upstreams, setUpstreams] = useState<Upstream[]>([]);
+  const [upstreams, setUpstreams] = useState<Upstream[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [asked, setAsked] = useState(0);
 

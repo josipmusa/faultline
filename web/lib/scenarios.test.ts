@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { Report, Rule, Scenario } from '@/types';
 
-import { enabledRuleIDs, reportTiles, resolveScenarioRules } from './scenarios';
+import { enabledRuleIDs, reportTiles, resolveScenarioRules, scenarioSaveBlocked } from './scenarios';
 
 function rule(over: Partial<Rule> = {}): Rule {
   return {
@@ -87,5 +87,20 @@ describe('reportTiles', () => {
   it('is all zeroes for a session that has seen nothing', () => {
     const empty: Report = { total: 0, faulted: 0, retries: 0, max_retry_wait_ms: 0, abandoned: 0 };
     expect(reportTiles(empty).map((tile) => tile.value)).toEqual(['0', '0', '0', '0ms', '0']);
+  });
+});
+
+describe('scenarioSaveBlocked', () => {
+  it('needs a name', () => {
+    expect(scenarioSaveBlocked('', ['a'])).toBe('Give the scenario a name.');
+    expect(scenarioSaveBlocked('   ', ['a'])).toBe('Give the scenario a name.');
+  });
+
+  it('needs at least one rule, since a scenario is a name for a set of rules', () => {
+    expect(scenarioSaveBlocked('payments-down', [])).toBe('Tick at least one rule.');
+  });
+
+  it('is clear to save with both', () => {
+    expect(scenarioSaveBlocked('payments-down', ['a'])).toBeNull();
   });
 });

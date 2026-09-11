@@ -1,10 +1,11 @@
 'use client';
 
 import { useState } from 'react';
-import { Ban, Loader2, ShieldAlert, Timer, TriangleAlert, Zap } from 'lucide-react';
+import { Ban, ShieldAlert, Timer, TriangleAlert, Zap } from 'lucide-react';
 
 import type { Rule, Upstream } from '@/types';
 import { addBypass, createRule, deleteRule, removeBypass } from '@/lib/api';
+import { panelState } from '@/lib/panelState';
 import { cn } from '@/lib/utils';
 import {
   bypassState,
@@ -15,10 +16,16 @@ import {
   type QuickFault,
 } from '@/lib/upstreams';
 
-import { TierBadge } from './EventInspector';
+import { TierBadge } from './badges';
+import { Badge } from './ui/Badge';
+import { Button } from './ui/Button';
+import { EmptyState } from './ui/EmptyState';
+import { Notice } from './ui/Notice';
+import { Toolbar } from './ui/Toolbar';
 
 interface UpstreamsPanelProps {
-  upstreams: Upstream[];
+  /** Null until the first read answers. */
+  upstreams: Upstream[] | null;
   /** The rules as the stream keeps them, which is where a quick action reads
    * whether it is already in force. */
   rules: Rule[];
@@ -76,18 +83,33 @@ export function UpstreamsPanel({ upstreams, rules, error, onChanged }: Upstreams
       await addBypass(u.host);
     });
 
+  const state = panelState(upstreams, error);
+  const rows = upstreams ?? [];
+
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
+      <Toolbar
+        summary={
+          state === 'loading' || state === 'error'
+            ? 'Upstreams'
+            : rows.length === 0
+              ? 'No upstreams seen yet'
+              : `${rows.length} upstream${rows.length === 1 ? '' : 's'} seen, one row per host`
+        }
+      />
+
       {error && (
-        <p className="border-b border-red-500/20 bg-red-500/10 px-6 py-2 text-sm text-red-400">{error}</p>
+        <Notice tone="error" className="mx-4 mt-3">
+          The upstream list could not be read: {error}
+        </Notice>
       )}
 
-      <div className="flex-1 overflow-auto">
-        <table className="w-full text-sm">
-          <thead className="sticky top-0 border-b border-zinc-800 bg-zinc-900 text-xs text-zinc-400">
+      <div className="flex flex-1 flex-col overflow-auto">
+        <table className="w-full table-fixed text-sm">
+          <thead className="sticky top-0 z-10 border-b border-zinc-800 bg-zinc-900 text-xs text-zinc-400">
             <tr>
               <th scope="col" className="px-4 py-2 text-left font-medium">Host</th>
-              <th scope="col" className="w-28 px-4 py-2 text-left font-medium">Tier</th>
+              <th scope="col" className="w-36 px-4 py-2 text-left font-medium">Tier</th>
               <th scope="col" className="w-24 px-4 py-2 text-right font-medium">Requests</th>
               <th scope="col" className="w-24 px-4 py-2 text-right font-medium">Faulted</th>
               <th scope="col" className="w-24 px-4 py-2 text-right font-medium">Errors</th>
@@ -96,7 +118,7 @@ export function UpstreamsPanel({ upstreams, rules, error, onChanged }: Upstreams
             </tr>
           </thead>
           <tbody>
-            {upstreams.map((u) => (
+            {rows.map((u) => (
               <Row
                 key={u.host}
                 upstream={u}
@@ -110,10 +132,15 @@ export function UpstreamsPanel({ upstreams, rules, error, onChanged }: Upstreams
           </tbody>
         </table>
 
-        {upstreams.length === 0 && !error && (
-          <p className="flex h-64 items-center justify-center text-sm text-zinc-500">
-            No upstreams seen yet. Waiting for traffic.
-          </p>
+        {state === 'loading' && <EmptyState>Loading…</EmptyState>}
+        {state === 'empty' && (
+          <EmptyState>
+            No upstreams seen yet. Start your application with{' '}
+            <code className="rounded bg-zinc-800 px-1 py-0.5 font-mono text-xs text-zinc-300">
+              faultline run -- &lt;your start command&gt;
+            </code>{' '}
+            and every host it calls is listed here.
+          </EmptyState>
         )}
       </div>
     </div>
@@ -142,21 +169,25 @@ function Row({ upstream: u, rules, busy, notice, onFault, onBypass }: RowProps) 
   return (
     <>
       <tr className={cn(!details && 'border-b border-zinc-800/50', u.bypassed && 'text-zinc-500')}>
-        <td className="max-w-xs truncate px-4 py-2 font-mono text-xs text-zinc-300">{u.host}</td>
+        <td className="truncate px-4 py-2 font-mono text-xs text-zinc-300" title={u.host}>
+          {u.host}
+        </td>
         {/* Both can be true at once: a host bypassed part way through has a
             tier from what was recorded before and requests passed through
             since, and the row is the same host either way. */}
-        <td className="flex flex-wrap items-center gap-1 px-4 py-2">
-          {u.bypassed && (
-            <span
-              title="Passed through untouched, so nothing about those requests was recorded"
-              className="inline-flex items-center gap-1 rounded border border-zinc-700 bg-zinc-800/60 px-1.5 py-0.5 text-[0.65rem] font-medium text-zinc-400"
-            >
-              <Ban className="h-3 w-3" />
-              bypassed
-            </span>
-          )}
-          {u.tier && <TierBadge tier={u.tier} />}
+        <td className="px-4 py-2">
+          <div className="flex flex-wrap items-center gap-1">
+            {u.bypassed && (
+              <Badge
+                tone="neutral"
+                icon={Ban}
+                title="Passed through untouched, so nothing about those requests was recorded"
+              >
+                bypassed
+              </Badge>
+            )}
+            {u.tier && <TierBadge tier={u.tier} />}
+          </div>
         </td>
         <td className="px-4 py-2 text-right font-mono text-xs text-zinc-300">{u.requests}</td>
         <td className="px-4 py-2 text-right font-mono text-xs text-amber-300/90">{u.faulted || '-'}</td>
@@ -211,16 +242,23 @@ function Row({ upstream: u, rules, busy, notice, onFault, onBypass }: RowProps) 
         <tr className="border-b border-zinc-800/50">
           <td colSpan={7} className="px-4 pb-2">
             <div className="space-y-1.5 border-l-2 border-zinc-700 pl-3">
-              {u.hint && <Strip tone="warning" icon={ShieldAlert} host={u.host} text={u.hint} />}
-              {routed && (
-                <Strip
-                  tone="notice"
-                  icon={Ban}
-                  host={u.host}
-                  text={`on the bypass list through ${u.bypass_entry}, and these requests were recorded anyway: an explicit route does not consult the list. Through the forward proxy this host would be passed through untouched.`}
-                />
+              {u.hint && (
+                <Notice tone="warning" icon={ShieldAlert} host={u.host}>
+                  {said(u.hint, u.host)}
+                </Notice>
               )}
-              {notice && <Strip tone="notice" icon={TriangleAlert} host={u.host} text={notice} />}
+              {routed && (
+                <Notice tone="info" icon={Ban} host={u.host}>
+                  on the bypass list through {u.bypass_entry}, and these requests were recorded anyway: an
+                  explicit route does not consult the list. Through the forward proxy this host would be passed
+                  through untouched.
+                </Notice>
+              )}
+              {notice && (
+                <Notice tone="info" icon={TriangleAlert} host={u.host}>
+                  {said(notice, u.host)}
+                </Notice>
+              )}
             </div>
           </td>
         </tr>
@@ -245,59 +283,24 @@ interface ActionProps {
 /** One quick action. It is a toggle rather than a button that only adds: a
  * second click has to undo the first, or the panel would stack up rules with
  * no way back until the rule editor exists. */
-function Action({ icon: Icon, label, title, on, busy, disabled, why, onClick }: ActionProps) {
+function Action({ icon, label, title, on, busy, disabled, why, onClick }: ActionProps) {
   return (
-    <button
-      type="button"
+    <Button
+      variant={on ? 'primary' : 'secondary'}
+      icon={icon}
       onClick={onClick}
-      disabled={busy || disabled}
+      busy={busy}
+      disabled={disabled}
       title={disabled && why ? why : title}
       aria-pressed={on}
-      className={cn(
-        'inline-flex cursor-pointer items-center gap-1 rounded border px-2 py-1 text-xs font-medium transition-colors',
-        on
-          ? 'border-amber-500/40 bg-amber-500/15 text-amber-300 hover:bg-amber-500/25'
-          : 'border-zinc-700 bg-zinc-800/60 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200',
-        (busy || disabled) && 'cursor-not-allowed opacity-50',
-      )}
     >
-      {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Icon className="h-3 w-3" />}
       {label}
-    </button>
+    </Button>
   );
 }
 
-interface StripProps {
-  tone: 'warning' | 'notice';
-  icon: typeof ShieldAlert;
-  /** The host this is about, named in the strip so it cannot be read as
-   * belonging to the row below. */
-  host: string;
-  text: string;
-}
-
-function Strip({ tone, icon: Icon, host, text }: StripProps) {
-  return (
-    <p
-      className={cn(
-        'flex items-start gap-2 rounded-md border px-3 py-2 text-xs',
-        tone === 'warning'
-          ? 'border-amber-500/20 bg-amber-500/10 text-amber-300'
-          : 'border-zinc-700 bg-zinc-800/60 text-zinc-300',
-      )}
-    >
-      <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-      <span>
-        <span className="font-mono font-medium">{host}</span>
-        <span className="px-1.5 opacity-50">·</span>
-        {said(text, host)}
-      </span>
-    </p>
-  );
-}
-
-/** The message without the host it already names, since the strip names it
- * itself. A warning from the API leads with the host; a strip written here
+/** The message without the host it already names, since the notice names it
+ * itself. A warning from the API leads with the host; a notice written here
  * does not. */
 function said(text: string, host: string): string {
   return text.startsWith(`${host} `) ? text.slice(host.length + 1) : text;

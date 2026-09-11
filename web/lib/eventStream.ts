@@ -32,6 +32,11 @@ const reconnectMaxMs = 30_000;
 export class EventStream {
   events: Event[] = [];
   connected = false;
+  /** Whether a backlog has been read at least once. Until then an empty list
+   * means "have not looked yet", not "no traffic", and the view says so. A
+   * later drop of the socket does not unset it: that is a reconnect, not a
+   * fresh start. */
+  seeded = false;
 
   private readonly opts: EventStreamOptions;
   private readonly openSocket: (url: string) => Socket;
@@ -110,6 +115,7 @@ export class EventStream {
       const known = new Set(backlog.map((e) => e.id));
       const missed = (this.racing ?? []).filter((e) => !known.has(e.id));
       this.events = [...missed, ...backlog].slice(0, this.opts.cap);
+      this.seeded = true;
       this.emit();
     } catch {
       // Reported by whoever supplied the backlog reader; the list stands.

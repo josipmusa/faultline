@@ -5,6 +5,8 @@ import { X } from 'lucide-react';
 import { emptyFilters, statusClasses, type Filters } from '@/lib/filters';
 import { cn } from '@/lib/utils';
 
+import { Button } from './ui/Button';
+
 interface StreamFiltersProps {
   filters: Filters;
   onChange: (filters: Filters) => void;
@@ -20,7 +22,7 @@ export function StreamFilters({ filters, onChange, hosts, methods, showing, tota
   const filtering = showing !== total;
 
   return (
-    <div className="flex flex-wrap items-center gap-2 border-b border-zinc-800 bg-zinc-950/50 px-6 py-2">
+    <div className="flex min-h-11 flex-wrap items-center gap-2 border-b border-zinc-800 bg-zinc-950/50 px-4 py-2">
       <Select
         label="Host"
         value={filters.host}
@@ -43,29 +45,18 @@ export function StreamFilters({ filters, onChange, hosts, methods, showing, tota
         onChange={(statusClass) => onChange({ ...filters, statusClass: statusClass as Filters['statusClass'] })}
       />
 
-      <button
-        type="button"
+      <Button
+        variant={filters.faultedOnly ? 'primary' : 'secondary'}
         aria-pressed={filters.faultedOnly}
         onClick={() => onChange({ ...filters, faultedOnly: !filters.faultedOnly })}
-        className={cn(
-          'cursor-pointer rounded-md border px-3 py-1.5 text-xs font-medium transition-colors',
-          filters.faultedOnly
-            ? 'border-amber-500/30 bg-amber-500/15 text-amber-300'
-            : 'border-zinc-700 bg-zinc-900 text-zinc-400 hover:bg-zinc-800',
-        )}
       >
         Faulted only
-      </button>
+      </Button>
 
       {filtering && (
-        <button
-          type="button"
-          onClick={() => onChange(emptyFilters)}
-          className="flex cursor-pointer items-center gap-1 rounded-md px-2 py-1.5 text-xs text-zinc-500 transition-colors hover:text-zinc-300"
-        >
-          <X className="h-3 w-3" />
+        <Button variant="ghost" icon={X} onClick={() => onChange(emptyFilters)}>
           Clear filters
-        </button>
+        </Button>
       )}
 
       <span className="ml-auto text-xs text-zinc-500">
@@ -100,7 +91,7 @@ function Select({ label, value, options, anyLabel, onChange }: SelectProps) {
         value={value}
         onChange={(e) => onChange(e.target.value)}
         className={cn(
-          'cursor-pointer rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-xs',
+          'cursor-pointer rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs',
           value === '' ? 'text-zinc-400' : 'text-zinc-100',
         )}
       >

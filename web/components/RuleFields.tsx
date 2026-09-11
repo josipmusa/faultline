@@ -2,9 +2,11 @@
 
 import { Plus, X } from 'lucide-react';
 
+import { boundsHint, placeholderFor, type Pair, type Params, type ParamValue } from '@/lib/ruleForm';
 import { cn } from '@/lib/utils';
 import type { CatalogueEntry, CatalogueField } from '@/types';
-import type { Pair, Params, ParamValue } from '@/lib/ruleForm';
+
+import { Button } from './ui/Button';
 
 /** The controls for one fault's or one behavior's parameters, rendered from
  * what the binary said it takes.
@@ -41,6 +43,7 @@ export function ParamFields({ entry, params, scope, badField, badMessage, onChan
           <Labelled
             key={field.name}
             label={field.name}
+            path={path}
             hint={hintFor(field, entry)}
             required={field.required}
             error={badField === path ? badMessage : undefined}
@@ -58,11 +61,13 @@ export function ParamFields({ entry, params, scope, badField, badMessage, onChan
   );
 }
 
-/** What a parameter's description says, plus what it is written with. The pair
- * a parameter belongs to is said once, on the field that declares it, in the
- * words that say whether both are allowed. */
+/** What a parameter's description says, plus what it is written with and the
+ * bounds it is held to. The pair a parameter belongs to is said once, on the
+ * field that declares it, in the words that say whether both are allowed. */
 function hintFor(field: CatalogueField, entry: CatalogueEntry): string {
-  const parts = [field.description];
+  // The catalogue's descriptions are written as phrases; what follows them
+  // here is written as sentences, so the phrase gets its full stop.
+  const parts = [sentence(field.description)];
   if (field.partner) {
     parts.push(
       field.exclusive
@@ -76,7 +81,16 @@ function hintFor(field: CatalogueField, entry: CatalogueEntry): string {
   if (entry.name === 'pattern') {
     parts.push('FFP faults twice, passes once, and repeats.');
   }
+  const bounds = boundsHint(field);
+  if (bounds) {
+    parts.push(bounds);
+  }
   return parts.join(' ');
+}
+
+function sentence(text: string): string {
+  const trimmed = text.trim();
+  return trimmed === '' || /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
 }
 
 interface ControlProps {
@@ -94,6 +108,7 @@ function Control({ field, value, invalid, onChange }: ControlProps) {
           rows={(value as Pair[] | undefined) ?? []}
           invalid={invalid}
           nameLabel={`${field.name} name`}
+          addLabel={`Add ${singular(field.name)}`}
           onChange={onChange}
         />
       );
@@ -103,10 +118,13 @@ function Control({ field, value, invalid, onChange }: ControlProps) {
           rows={(value as string[] | undefined) ?? []}
           invalid={invalid}
           label={field.name}
+          addLabel={`Add ${singular(field.name)}`}
           onChange={onChange}
         />
       );
     case 'integer':
+      // A number is short, so its input is too: a value like 2000 stretched
+      // across the panel reads as a field that wants a sentence.
       return (
         <input
           type="number"
@@ -114,8 +132,9 @@ function Control({ field, value, invalid, onChange }: ControlProps) {
           value={(value as string) ?? ''}
           min={field.min}
           max={field.max}
+          placeholder={placeholderFor(field)}
           onChange={(e) => onChange(e.target.value)}
-          className={inputClass(invalid)}
+          className={cn(inputClass(invalid), 'w-32')}
         />
       );
     default:
@@ -130,17 +149,24 @@ function Control({ field, value, invalid, onChange }: ControlProps) {
   }
 }
 
+/** "set" and "remove" name lists of headers; the add button names one. */
+function singular(name: string): string {
+  return name === 'set' || name === 'remove' ? 'header' : 'entry';
+}
+
 /** Rows of names mapped to values: the headers a `headers` fault sets, and the
  * headers a match requires. */
 export function PairRows({
   rows,
   invalid,
   nameLabel,
+  addLabel,
   onChange,
 }: {
   rows: Pair[];
   invalid?: boolean;
   nameLabel: string;
+  addLabel: string;
   onChange: (rows: Pair[]) => void;
 }) {
   const shown = rows.length > 0 ? rows : [{ name: '', value: '' }];
@@ -165,10 +191,17 @@ export function PairRows({
             onChange={(e) => onChange(replace(shown, i, { ...row, value: e.target.value }))}
             className={cn(inputClass(invalid), 'flex-1')}
           />
-          <RowButton kind="remove" onClick={() => onChange(drop(shown, i))} disabled={shown.length === 1} />
+          <Button
+            icon={X}
+            aria-label="Remove this row"
+            onClick={() => onChange(drop(shown, i))}
+            disabled={shown.length === 1}
+          />
         </div>
       ))}
-      <RowButton kind="add" onClick={() => onChange([...shown, { name: '', value: '' }])} />
+      <Button variant="ghost" icon={Plus} onClick={() => onChange([...shown, { name: '', value: '' }])}>
+        {addLabel}
+      </Button>
     </div>
   );
 }
@@ -178,11 +211,13 @@ function TextRows({
   rows,
   invalid,
   label,
+  addLabel,
   onChange,
 }: {
   rows: string[];
   invalid?: boolean;
   label: string;
+  addLabel: string;
   onChange: (rows: string[]) => void;
 }) {
   const shown = rows.length > 0 ? rows : [''];
@@ -199,75 +234,63 @@ function TextRows({
             onChange={(e) => onChange(replace(shown, i, e.target.value))}
             className={cn(inputClass(invalid), 'flex-1')}
           />
-          <RowButton kind="remove" onClick={() => onChange(drop(shown, i))} disabled={shown.length === 1} />
+          <Button
+            icon={X}
+            aria-label="Remove this row"
+            onClick={() => onChange(drop(shown, i))}
+            disabled={shown.length === 1}
+          />
         </div>
       ))}
-      <RowButton kind="add" onClick={() => onChange([...shown, ''])} />
+      <Button variant="ghost" icon={Plus} onClick={() => onChange([...shown, ''])}>
+        {addLabel}
+      </Button>
     </div>
   );
 }
 
-function RowButton({
-  kind,
-  onClick,
-  disabled,
-}: {
-  kind: 'add' | 'remove';
-  onClick: () => void;
-  disabled?: boolean;
-}) {
-  const Icon = kind === 'add' ? Plus : X;
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      aria-label={kind === 'add' ? 'Add a row' : 'Remove this row'}
-      className={cn(
-        'cursor-pointer rounded border border-zinc-700 bg-zinc-800/60 p-1 text-zinc-400 transition-colors hover:bg-zinc-700 hover:text-zinc-200',
-        disabled && 'cursor-not-allowed opacity-40 hover:bg-zinc-800/60 hover:text-zinc-400',
-      )}
-    >
-      <Icon className="h-3 w-3" />
-    </button>
-  );
-}
-
 /** One labelled control, with the catalogue's own words under it and the
- * server's complaint under those when there is one. */
+ * server's complaint under those when there is one. `path` is the field as
+ * the API names it, so a rejected field can be found and focused. */
 export function Labelled({
   label,
+  path,
   hint,
   required,
   error,
   children,
 }: {
   label: string;
+  path: string;
   hint?: string;
   required?: boolean;
   error?: string;
   children: React.ReactNode;
 }) {
   return (
-    <label className="block">
+    <label className="block" data-field={path}>
       <span className="mb-1 flex items-center gap-1 font-mono text-xs text-zinc-300">
         {label}
         {required && (
-          <span className="text-amber-400" title="Required">
+          <span className="text-amber-400" title="Required" aria-label="required">
             *
           </span>
         )}
       </span>
       {children}
       {hint && <span className="mt-1 block text-xs text-zinc-500">{hint}</span>}
-      {error && <span className="mt-1 block text-xs text-red-400">{error}</span>}
+      {error && (
+        <span role="alert" className="mt-1 block text-xs text-red-400">
+          {error}
+        </span>
+      )}
     </label>
   );
 }
 
 export function inputClass(invalid?: boolean): string {
   return cn(
-    'w-full rounded-md border bg-zinc-900 px-2 py-1.5 text-sm text-zinc-100 outline-none transition-colors placeholder:text-zinc-600 focus:border-amber-500/60',
+    'w-full rounded-md border bg-zinc-900 px-2 py-1.5 text-sm text-zinc-100 transition-colors placeholder:text-zinc-600 focus:border-amber-500/60',
     invalid ? 'border-red-500/60' : 'border-zinc-700',
   );
 }

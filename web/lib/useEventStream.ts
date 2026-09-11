@@ -15,6 +15,8 @@ export interface LiveState {
   events: Event[];
   rules: Rule[];
   connected: boolean;
+  /** A backlog has been read at least once, so an empty list is real. */
+  seeded: boolean;
   /** The view is holding as many events as it keeps, so there may be older
    * traffic it has already dropped. What the chart reads to know how far back
    * it can honestly draw. */
@@ -83,6 +85,11 @@ export function useEventStream(): LiveState {
     () => stream.connected,
     () => false,
   );
+  const seeded = useSyncExternalStore(
+    (listener) => stream.subscribe(listener),
+    () => stream.seeded,
+    () => false,
+  );
 
   const clear = useCallback(async () => {
     try {
@@ -94,7 +101,7 @@ export function useEventStream(): LiveState {
     }
   }, [stream]);
 
-  return { events, rules, connected, atCap: events.length >= eventCap, error, clear };
+  return { events, rules, connected, seeded, atCap: events.length >= eventCap, error, clear };
 }
 
 function message(err: unknown): string {

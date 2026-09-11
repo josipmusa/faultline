@@ -1,7 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { Loader2, TriangleAlert, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 
 import { ApiError, createRule, getRule, updateRule } from '@/lib/api';
 import {
@@ -9,6 +8,7 @@ import {
   blankParams,
   entryFor,
   formToRule,
+  groupByTier,
   ruleToForm,
   type Params,
   type ParamValue,
@@ -18,6 +18,10 @@ import { cn } from '@/lib/utils';
 import type { Catalogue, Rule } from '@/types';
 
 import { inputClass, Labelled, PairRows, ParamFields } from './RuleFields';
+import { Button } from './ui/Button';
+import { Notice } from './ui/Notice';
+import { SidePanel } from './ui/SidePanel';
+import { Switch } from './ui/Switch';
 
 interface RuleFormProps {
   catalogue: Catalogue;
@@ -29,6 +33,8 @@ interface RuleFormProps {
   onSaved: (id: string) => void;
 }
 
+const formId = 'rule-form';
+
 export function RuleForm({ catalogue, rule, onClose, onSaved }: RuleFormProps) {
   const [form, setForm] = useState<FormState>(() =>
     rule ? ruleToForm(rule, catalogue) : blankForm(catalogue),
@@ -36,6 +42,7 @@ export function RuleForm({ catalogue, rule, onClose, onSaved }: RuleFormProps) {
   const [saving, setSaving] = useState(false);
   const [failure, setFailure] = useState<ApiError | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
+  const body = useRef<HTMLFormElement>(null);
 
   // The list has no warnings on it, only the single-rule endpoints do, so an
   // existing rule is read again to learn whether its fault can apply at all.
@@ -58,20 +65,36 @@ export function RuleForm({ catalogue, rule, onClose, onSaved }: RuleFormProps) {
     };
   }, [rule]);
 
+  // A rejected field may be scrolled out of view in a long form, so the
+  // complaint under it would go unseen. Bring it on screen and put the cursor
+  // in it, which is where the fix has to be typed anyway.
+  useEffect(() => {
+    if (!failure?.field) {
+      return;
+    }
+    const holder = body.current?.querySelector<HTMLElement>(`[data-field="${failure.field}"]`);
+    if (!holder) {
+      return;
+    }
+    holder.scrollIntoView({ block: 'center' });
+    holder.querySelector<HTMLElement>('input, select')?.focus();
+  }, [failure]);
+
   const faultEntry = entryFor(catalogue.faults, form.faultType);
   const behaviorEntry = entryFor(catalogue.behaviors, form.behaviorType);
   const unknownFault = form.faultType !== '' && !faultEntry;
+  const groups = groupByTier(catalogue.faults);
 
   const save = async () => {
     setSaving(true);
     setFailure(null);
     try {
       const payload = formToRule(form, catalogue);
-      const saved = rule
+      const written = rule
         ? await updateRule(rule.id, { ...payload, id: rule.id })
         : await createRule(payload);
-      setWarnings(saved.warnings ?? []);
-      onSaved(saved.id);
+      setWarnings(written.warnings ?? []);
+      onSaved(written.id);
     } catch (err: unknown) {
       setFailure(err instanceof ApiError ? err : new ApiError(String(err), 0));
     } finally {
@@ -84,24 +107,26 @@ export function RuleForm({ catalogue, rule, onClose, onSaved }: RuleFormProps) {
     setForm((f) => ({ ...f, [which]: { ...f[which], [name]: value } as Params }));
 
   return (
-    <aside className="flex w-[32rem] shrink-0 flex-col overflow-hidden border-l border-zinc-800 bg-zinc-950">
-      <header className="flex items-start justify-between gap-3 border-b border-zinc-800 px-5 py-4">
-        <div className="min-w-0">
-          <p className="truncate text-sm text-zinc-100">{rule ? 'Edit rule' : 'New rule'}</p>
-          {rule && <p className="mt-1 truncate font-mono text-xs text-zinc-500">{rule.id}</p>}
-        </div>
-        <button
-          type="button"
-          aria-label="Close"
-          onClick={onClose}
-          className="cursor-pointer rounded-md p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      </header>
-
+    <SidePanel
+      onClose={onClose}
+      title={rule ? 'Edit rule' : 'New rule'}
+      subtitle={rule && <span className="font-mono">{rule.id}</span>}
+      footer={
+        <>
+          <Button onClick={onClose}>Cancel</Button>
+          {/* A submit bound to the form by id: the footer sits outside the
+              form so it stays put while the fields scroll, and Enter in a
+              field and this button have to be the same action. */}
+          <Button type="submit" form={formId} variant="primary" busy={saving}>
+            {rule ? 'Save' : 'Create'}
+          </Button>
+        </>
+      }
+    >
       <form
-        className="flex-1 space-y-5 overflow-auto px-5 py-4"
+        id={formId}
+        ref={body}
+        className="flex-1 space-y-5 overflow-auto px-4 py-4"
         onSubmit={(e) => {
           e.preventDefault();
           void save();
@@ -109,30 +134,48 @@ export function RuleForm({ catalogue, rule, onClose, onSaved }: RuleFormProps) {
       >
         {/* An error the form cannot point at, because the API named a field
             that is not on screen or named none at all. */}
-        {failure && !onScreen(failure.field, form) && (
-          <Notice tone="error" text={failure.message} />
-        )}
+        {failure && !onScreen(failure.field, form) && <Notice tone="error">{failure.message}</Notice>}
         {warnings.map((warning) => (
-          <Notice key={warning} tone="warning" text={warning} />
+          <Notice key={warning} tone="warning">
+            {warning}
+          </Notice>
         ))}
         {unknownFault && (
-          <Notice
-            tone="warning"
-            text={`This rule uses the fault "${form.faultType}", which this build does not have. Saving it as it stands would drop its parameters; pick another fault or leave the rule alone.`}
-          />
+          <Notice tone="warning">
+            This rule uses the fault &quot;{form.faultType}&quot;, which this build does not have. Saving it as it
+            stands would drop its parameters; pick another fault or leave the rule alone.
+          </Notice>
         )}
 
         <Section title="Rule">
-          <Labelled label="name" required error={fieldError(failure, 'name')}>
-            <input
-              type="text"
-              value={form.name}
-              onChange={(e) => set({ name: e.target.value })}
-              className={inputClass(failure?.field === 'name')}
-            />
-          </Labelled>
+          <div className="flex items-end gap-3">
+            <div className="min-w-0 flex-1">
+              <Labelled label="name" path="name" required error={fieldError(failure, 'name')}>
+                <input
+                  type="text"
+                  value={form.name}
+                  placeholder="Stripe is slow"
+                  // The first field takes the cursor when the panel opens, so
+                  // a new rule can be typed without a click first.
+                  autoFocus
+                  onChange={(e) => set({ name: e.target.value })}
+                  className={inputClass(failure?.field === 'name')}
+                />
+              </Labelled>
+            </div>
+            <label className="flex shrink-0 cursor-pointer flex-col items-start gap-1 pb-px">
+              <span className="font-mono text-xs text-zinc-300">enabled</span>
+              <Switch
+                on={form.enabled}
+                onToggle={() => set({ enabled: !form.enabled })}
+                aria-label="Enabled"
+                title={form.enabled ? 'On as soon as it is saved' : 'Saved but off until switched on'}
+              />
+            </label>
+          </div>
           <Labelled
             label="id"
+            path="id"
             hint={rule ? 'The id never changes; everything else names the rule by it.' : 'Left empty, Faultline derives one from the name.'}
             error={fieldError(failure, 'id')}
           >
@@ -140,46 +183,61 @@ export function RuleForm({ catalogue, rule, onClose, onSaved }: RuleFormProps) {
               type="text"
               value={form.id}
               disabled={Boolean(rule)}
+              placeholder={rule ? undefined : 'stripe-slow'}
               onChange={(e) => set({ id: e.target.value })}
-              className={cn(inputClass(failure?.field === 'id'), rule && 'opacity-50')}
+              className={cn(inputClass(failure?.field === 'id'), 'font-mono', rule && 'opacity-50')}
             />
           </Labelled>
         </Section>
 
         <Section title="Match" hint="Everything left empty matches everything.">
-          <Labelled label="host" hint="A hostname like api.stripe.com, not a URL." error={fieldError(failure, 'match.host')}>
+          <Labelled
+            label="host"
+            path="match.host"
+            hint="A hostname like api.stripe.com, not a URL."
+            error={fieldError(failure, 'match.host')}
+          >
             <input
               type="text"
               value={form.match.host}
+              placeholder="api.stripe.com"
               onChange={(e) => set({ match: { ...form.match, host: e.target.value } })}
-              className={inputClass(failure?.field === 'match.host')}
+              className={cn(inputClass(failure?.field === 'match.host'), 'font-mono')}
             />
           </Labelled>
-          <Labelled label="method" error={fieldError(failure, 'match.method')}>
+          <Labelled label="method" path="match.method" error={fieldError(failure, 'match.method')}>
             <input
               type="text"
               value={form.match.method}
               placeholder="GET"
               onChange={(e) => set({ match: { ...form.match, method: e.target.value } })}
-              className={inputClass(failure?.field === 'match.method')}
+              className={cn(inputClass(failure?.field === 'match.method'), 'w-32 font-mono')}
             />
           </Labelled>
           <Labelled
             label="path"
+            path="match.path"
             hint="A path, with * standing in for the rest: /v1/charges/*."
             error={fieldError(failure, 'match.path')}
           >
             <input
               type="text"
               value={form.match.path}
+              placeholder="/v1/charges/*"
               onChange={(e) => set({ match: { ...form.match, path: e.target.value } })}
-              className={inputClass(failure?.field === 'match.path')}
+              className={cn(inputClass(failure?.field === 'match.path'), 'font-mono')}
             />
           </Labelled>
-          <Labelled label="header" hint="Header names and the values a request must carry." error={fieldError(failure, 'match.header')}>
+          <Labelled
+            label="header"
+            path="match.header"
+            hint="Header names and the values a request must carry."
+            error={fieldError(failure, 'match.header')}
+          >
             <PairRows
               rows={form.match.header}
               nameLabel="match header"
+              addLabel="Add header"
               invalid={failure?.field === 'match.header'}
               onChange={(header) => set({ match: { ...form.match, header } })}
             />
@@ -187,20 +245,24 @@ export function RuleForm({ catalogue, rule, onClose, onSaved }: RuleFormProps) {
         </Section>
 
         <Section title="Fault" hint="What happens to the traffic this rule matches.">
-          <Labelled label="type" required error={fieldError(failure, 'fault.type')}>
+          <Labelled label="type" path="fault.type" required error={fieldError(failure, 'fault.type')}>
             <select
               value={form.faultType}
               onChange={(e) => {
                 const entry = entryFor(catalogue.faults, e.target.value);
                 set({ faultType: e.target.value, faultParams: blankParams(entry) });
               }}
-              className={inputClass(failure?.field === 'fault.type')}
+              className={cn(inputClass(failure?.field === 'fault.type'), 'cursor-pointer')}
             >
               {unknownFault && <option value={form.faultType}>{form.faultType} (not in this build)</option>}
-              {catalogue.faults.map((entry) => (
-                <option key={entry.name} value={entry.name}>
-                  {entry.name} · {entry.tier}
-                </option>
+              {groups.map((group) => (
+                <optgroup key={group.tier} label={group.label}>
+                  {group.entries.map((entry) => (
+                    <option key={entry.name} value={entry.name}>
+                      {entry.name}
+                    </option>
+                  ))}
+                </optgroup>
               ))}
             </select>
           </Labelled>
@@ -221,14 +283,14 @@ export function RuleForm({ catalogue, rule, onClose, onSaved }: RuleFormProps) {
         </Section>
 
         <Section title="Behavior" hint="When the fault applies. Without one it applies to everything the rule matches.">
-          <Labelled label="type" error={fieldError(failure, 'behavior.type')}>
+          <Labelled label="type" path="behavior.type" error={fieldError(failure, 'behavior.type')}>
             <select
               value={form.behaviorType}
               onChange={(e) => {
                 const entry = entryFor(catalogue.behaviors, e.target.value);
                 set({ behaviorType: e.target.value, behaviorParams: blankParams(entry) });
               }}
-              className={inputClass(failure?.field === 'behavior.type')}
+              className={cn(inputClass(failure?.field === 'behavior.type'), 'cursor-pointer')}
             >
               <option value="">always</option>
               {catalogue.behaviors.map((entry) => (
@@ -247,40 +309,8 @@ export function RuleForm({ catalogue, rule, onClose, onSaved }: RuleFormProps) {
             onChange={setParam('behaviorParams')}
           />
         </Section>
-
-        <label className="flex cursor-pointer items-center gap-2 text-sm text-zinc-300">
-          <input
-            type="checkbox"
-            checked={form.enabled}
-            onChange={(e) => set({ enabled: e.target.checked })}
-            className="h-4 w-4 cursor-pointer accent-amber-500"
-          />
-          Enabled
-        </label>
       </form>
-
-      <footer className="flex items-center justify-end gap-2 border-t border-zinc-800 px-5 py-3">
-        <button
-          type="button"
-          onClick={onClose}
-          className="cursor-pointer rounded-md border border-zinc-700 bg-zinc-800/60 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:bg-zinc-700"
-        >
-          Cancel
-        </button>
-        <button
-          type="button"
-          onClick={() => void save()}
-          disabled={saving}
-          className={cn(
-            'inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-amber-500/40 bg-amber-500/15 px-3 py-1.5 text-xs font-medium text-amber-300 transition-colors hover:bg-amber-500/25',
-            saving && 'cursor-not-allowed opacity-50',
-          )}
-        >
-          {saving && <Loader2 className="h-3 w-3 animate-spin" />}
-          {rule ? 'Save' : 'Create'}
-        </button>
-      </footer>
-    </aside>
+    </SidePanel>
   );
 }
 
@@ -293,22 +323,6 @@ function Section({ title, hint, children }: { title: string; hint?: string; chil
       </div>
       {children}
     </section>
-  );
-}
-
-function Notice({ tone, text }: { tone: 'error' | 'warning'; text: string }) {
-  return (
-    <p
-      className={cn(
-        'flex items-start gap-2 rounded-md border px-3 py-2 text-xs',
-        tone === 'error'
-          ? 'border-red-500/20 bg-red-500/10 text-red-400'
-          : 'border-amber-500/20 bg-amber-500/10 text-amber-300',
-      )}
-    >
-      <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-      <span>{text}</span>
-    </p>
   );
 }
 

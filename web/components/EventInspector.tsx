@@ -1,12 +1,15 @@
 'use client';
 
-import { Lock, X, Zap } from 'lucide-react';
+import { Lock } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 import { getCapture } from '@/lib/api';
 import { decodeBody, type DecodedBody } from '@/lib/body';
-import { cn } from '@/lib/utils';
 import type { Capture, CaptureSide, Event, Rule } from '@/types';
+
+import { FaultBadge, TierBadge } from './badges';
+import { Notice } from './ui/Notice';
+import { SidePanel } from './ui/SidePanel';
 
 interface EventInspectorProps {
   event: Event;
@@ -58,44 +61,32 @@ export function EventInspector({ event, rule, onOpenRule, onClose }: EventInspec
   }, [event.id, encrypted]);
 
   return (
-    <aside className="flex w-[32rem] shrink-0 flex-col overflow-hidden border-l border-zinc-800 bg-zinc-950">
-      <header className="flex items-start justify-between gap-3 border-b border-zinc-800 px-5 py-4">
-        <div className="min-w-0">
-          <p className="truncate font-mono text-sm text-zinc-100">
-            {event.method} {event.host}
-            {event.path}
-          </p>
-          <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
-            <span>{event.status === 0 ? 'no response' : event.status}</span>
-            <span>{event.duration_ms}ms</span>
-            <TierBadge tier={event.tier} />
-            {event.faulted && <FaultBadge ruleId={event.rule_id} rule={rule} onOpen={onOpenRule} />}
-          </p>
-        </div>
-        <button
-          type="button"
-          aria-label="Close"
-          onClick={onClose}
-          className="cursor-pointer rounded-md p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      </header>
-
-      <div className="flex-1 overflow-auto px-5 py-4">
-        {event.error && (
-          <p className="mb-4 rounded-md border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-300">
-            {event.error}
-          </p>
-        )}
+    <SidePanel
+      onClose={onClose}
+      title={
+        <span className="font-mono">
+          {event.method} {event.host}
+          {event.path}
+        </span>
+      }
+      subtitle={
+        <>
+          <span>{event.status === 0 ? 'no response' : event.status}</span>
+          <span>{event.duration_ms}ms</span>
+          <TierBadge tier={event.tier} />
+          {event.faulted && <FaultBadge ruleId={event.rule_id} rule={rule} onOpen={onOpenRule} />}
+        </>
+      }
+    >
+      <div className="flex-1 space-y-4 overflow-auto px-4 py-4">
+        {event.error && <Notice tone="error">{event.error}</Notice>}
 
         {load.state === 'loading' && <p className="text-sm text-zinc-500">Loading the capture…</p>}
 
         {load.state === 'unavailable' && (
-          <div className="flex gap-2 rounded-md border border-zinc-800 bg-zinc-900/60 px-3 py-3 text-xs text-zinc-400">
-            {encrypted && <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-violet-400" />}
-            <p>{load.reason}</p>
-          </div>
+          <Notice tone="info" icon={encrypted ? Lock : undefined}>
+            {load.reason}
+          </Notice>
         )}
 
         {load.state === 'loaded' && (
@@ -105,7 +96,7 @@ export function EventInspector({ event, rule, onOpenRule, onClose }: EventInspec
           </>
         )}
       </div>
-    </aside>
+    </SidePanel>
   );
 }
 
@@ -114,8 +105,8 @@ function Side({ title, side }: { title: string; side: CaptureSide }) {
   const body = decodeBody(side.body);
 
   return (
-    <section className="mb-6 last:mb-0">
-      <h2 className="mb-2 text-xs font-semibold tracking-wide text-zinc-400 uppercase">{title}</h2>
+    <section>
+      <h2 className="mb-2 text-xs font-medium tracking-wide text-zinc-400 uppercase">{title}</h2>
 
       {names.length === 0 ? (
         <p className="text-xs text-zinc-600">No headers.</p>
@@ -154,62 +145,5 @@ function Body({ body, truncated }: { body: DecodedBody; truncated: boolean }) {
         </p>
       )}
     </>
-  );
-}
-
-const tierStyles: Record<Event['tier'], string> = {
-  plain: 'border-zinc-600/40 bg-zinc-500/10 text-zinc-400',
-  intercepted: 'border-sky-500/30 bg-sky-500/10 text-sky-300',
-  encrypted: 'border-violet-500/30 bg-violet-500/10 text-violet-300',
-};
-
-export function TierBadge({ tier }: { tier: Event['tier'] }) {
-  return (
-    <span className={cn('inline-flex rounded border px-1.5 py-0.5 text-[0.65rem] font-medium', tierStyles[tier])}>
-      {tier}
-    </span>
-  );
-}
-
-/** The rule that faulted a request, named where the UI knows the name. The
- * bolt is what makes a faulted row readable at a glance: a rule name alone is
- * just more text in a dense table, and rule names get long.
- *
- * With somewhere to go it opens the rule in the editor. Without a rule id
- * there is nothing to open - the request was faulted by a rule that has since
- * been deleted, or by one this list never saw - so the badge stays a label
- * rather than becoming a button that does nothing. */
-export function FaultBadge({
-  ruleId,
-  rule,
-  onOpen,
-}: {
-  ruleId?: string;
-  rule?: Rule;
-  onOpen?: (id: string) => void;
-}) {
-  const name = rule?.name ?? ruleId ?? 'faulted';
-  const className =
-    'inline-flex max-w-full items-center gap-1 rounded border border-amber-500/30 bg-amber-500/15 py-0.5 pr-2 pl-1.5 text-[0.7rem] font-medium text-amber-300';
-
-  if (!ruleId || !onOpen) {
-    return (
-      <span title={ruleId ? `Faulted by rule ${ruleId}` : 'Faulted'} className={className}>
-        <Zap className="h-3 w-3 shrink-0" fill="currentColor" />
-        <span className="truncate">{name}</span>
-      </span>
-    );
-  }
-
-  return (
-    <button
-      type="button"
-      title={`Faulted by rule ${ruleId}. Open it in the editor.`}
-      onClick={() => onOpen(ruleId)}
-      className={cn(className, 'cursor-pointer transition-colors hover:bg-amber-500/25')}
-    >
-      <Zap className="h-3 w-3 shrink-0" fill="currentColor" />
-      <span className="truncate">{name}</span>
-    </button>
   );
 }

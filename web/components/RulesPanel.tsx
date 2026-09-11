@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { Loader2, Plus, Trash2 } from 'lucide-react';
+import { useCallback, useState } from 'react';
+import { Plus, Trash2 } from 'lucide-react';
 
 import { deleteRule, disableRule, enableRule } from '@/lib/api';
 import { describeFault, describeMatch } from '@/lib/ruleForm';
@@ -10,6 +10,12 @@ import { cn } from '@/lib/utils';
 import type { Rule } from '@/types';
 
 import { RuleForm } from './RuleForm';
+import { Button } from './ui/Button';
+import { EmptyState } from './ui/EmptyState';
+import { Notice } from './ui/Notice';
+import { Switch } from './ui/Switch';
+import { Toast } from './ui/Toast';
+import { Toolbar } from './ui/Toolbar';
 
 /** What the editor has open: nothing, a new rule, or one that exists. */
 export type Editing = { kind: 'new' } | { kind: 'rule'; id: string } | null;
@@ -27,6 +33,11 @@ export function RulesPanel({ rules, editing, onEditingChange }: RulesPanelProps)
   const { catalogue, error } = useCatalogue(true);
   const [pending, setPending] = useState<Record<string, string>>({});
   const [notices, setNotices] = useState<Record<string, string>>({});
+  /** The rule the editor just wrote, while its toast shows. The panel holds
+   * this rather than the form: a new rule is re-keyed to its id once written,
+   * which mounts a fresh form, and the toast has to outlive that. */
+  const [saved, setSaved] = useState<{ id: string; at: number } | null>(null);
+  const dismissSaved = useCallback(() => setSaved(null), []);
 
   const act = async (id: string, what: string, run: () => Promise<unknown>) => {
     setPending((p) => ({ ...p, [id]: what }));
@@ -59,42 +70,44 @@ export function RulesPanel({ rules, editing, onEditingChange }: RulesPanelProps)
   return (
     <div className="flex flex-1 overflow-hidden">
       <div className="flex flex-1 flex-col overflow-hidden">
-        {error && (
-          <p className="border-b border-red-500/20 bg-red-500/10 px-6 py-2 text-sm text-red-400">
-            The fault catalogue could not be read, so rules cannot be edited: {error}
-          </p>
-        )}
-
-        <div className="flex items-center justify-between border-b border-zinc-800 px-4 py-2">
-          <p className="text-xs text-zinc-500">
-            {rules.length === 0
+        <Toolbar
+          summary={
+            rules.length === 0
               ? 'No rules yet'
-              : `${rules.length} rule${rules.length === 1 ? '' : 's'}, applied in this order`}
-          </p>
-          <button
-            type="button"
+              : `${rules.length} rule${rules.length === 1 ? '' : 's'}, applied in this order`
+          }
+        >
+          <Button
+            variant="primary"
+            icon={Plus}
             onClick={() => onEditingChange({ kind: 'new' })}
             disabled={!catalogue}
-            className={cn(
-              'inline-flex cursor-pointer items-center gap-1 rounded border border-amber-500/40 bg-amber-500/15 px-2 py-1 text-xs font-medium text-amber-300 transition-colors hover:bg-amber-500/25',
-              !catalogue && 'cursor-not-allowed opacity-50',
-            )}
           >
-            <Plus className="h-3 w-3" />
             New rule
-          </button>
-        </div>
+          </Button>
+        </Toolbar>
 
-        <div className="flex-1 overflow-auto">
-          <table className="w-full text-sm">
-            <thead className="sticky top-0 border-b border-zinc-800 bg-zinc-900 text-xs text-zinc-400">
+        {error && (
+          <Notice tone="error" className="mx-4 mt-3">
+            The fault catalogue could not be read, so rules cannot be edited: {error}
+          </Notice>
+        )}
+
+        {/* Below 56rem, which is the editor open at a laptop width, the
+            Behavior column goes: the editor shows it, and Match needs the
+            room more. */}
+        <div className="@container flex flex-1 flex-col overflow-auto">
+          <table className="w-full table-fixed text-sm">
+            <thead className="sticky top-0 z-10 border-b border-zinc-800 bg-zinc-900 text-xs text-zinc-400">
               <tr>
-                <th scope="col" className="w-20 px-4 py-2 text-left font-medium">On</th>
-                <th scope="col" className="px-4 py-2 text-left font-medium">Rule</th>
+                <th scope="col" className="w-16 px-4 py-2 text-left font-medium">On</th>
+                <th scope="col" className="w-[30%] px-4 py-2 text-left font-medium">Rule</th>
                 <th scope="col" className="px-4 py-2 text-left font-medium">Match</th>
-                <th scope="col" className="px-4 py-2 text-left font-medium">Fault</th>
-                <th scope="col" className="w-40 px-4 py-2 text-left font-medium">Behavior</th>
-                <th scope="col" className="w-12 px-4 py-2" />
+                <th scope="col" className="w-[22%] px-4 py-2 text-left font-medium">Fault</th>
+                <th scope="col" className="w-36 px-4 py-2 text-left font-medium @max-4xl:hidden">Behavior</th>
+                <th scope="col" className="w-14 px-4 py-2">
+                  <span className="sr-only">Delete</span>
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -114,9 +127,9 @@ export function RulesPanel({ rules, editing, onEditingChange }: RulesPanelProps)
           </table>
 
           {rules.length === 0 && !error && (
-            <p className="flex h-64 items-center justify-center text-sm text-zinc-500">
-              No rules yet. Add one to start degrading traffic on purpose.
-            </p>
+            <EmptyState>
+              No rules yet. Add one with New rule, or add delay or 503 to an upstream from the Upstreams panel.
+            </EmptyState>
           )}
         </div>
       </div>
@@ -129,8 +142,20 @@ export function RulesPanel({ rules, editing, onEditingChange }: RulesPanelProps)
           catalogue={catalogue}
           rule={open ?? null}
           onClose={() => onEditingChange(null)}
-          onSaved={(id) => onEditingChange({ kind: 'rule', id })}
+          onSaved={(id) => {
+            setSaved({ id, at: Date.now() });
+            onEditingChange({ kind: 'rule', id });
+          }}
         />
+      )}
+
+      {/* The editor looks the same after a save as before it, so the save
+          says so from the corner of the window rather than from a footer
+          that may be scrolled away from. */}
+      {saved && (
+        // Keyed by the time of the save, so saving again while the last toast
+        // is still up starts it over rather than leaving it to run out.
+        <Toast key={saved.at} message={`Rule ${saved.id} saved`} onDone={dismissSaved} />
       )}
     </div>
   );
@@ -151,71 +176,73 @@ function Row({ rule, selected, busy, notice, onOpen, onToggle, onDelete }: RowPr
     <>
       <tr
         onClick={onOpen}
+        aria-selected={selected}
         className={cn(
           'cursor-pointer transition-colors hover:bg-zinc-800/40',
           !notice && 'border-b border-zinc-800/50',
-          selected && 'bg-zinc-800/60',
+          // The same selection mark as a row in the stream.
+          selected && 'bg-zinc-800 shadow-[inset_2px_0_0_0_theme(--color-zinc-200)]',
           !rule.enabled && 'text-zinc-500',
         )}
       >
         {/* The toggle sits inside a clickable row, so it stops the click that
             would otherwise open the editor behind it. */}
         <td className="px-4 py-2" onClick={(e) => e.stopPropagation()}>
+          <Switch
+            on={rule.enabled}
+            onToggle={onToggle}
+            busy={busy === 'enabled'}
+            disabled={busy !== undefined}
+            aria-label={`${rule.name} on`}
+            title={rule.enabled ? `Switch ${rule.id} off, keeping it` : `Switch ${rule.id} on`}
+          />
+        </td>
+        <td className="px-4 py-2">
+          {/* The opener. The row takes a click too, but a row is not something
+              a keyboard can reach; this is. */}
           <button
             type="button"
-            onClick={onToggle}
-            disabled={busy !== undefined}
-            aria-pressed={rule.enabled}
-            title={rule.enabled ? `Switch ${rule.id} off, keeping it` : `Switch ${rule.id} on`}
+            aria-expanded={selected}
+            title={`${rule.name} (${rule.id})`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpen();
+            }}
             className={cn(
-              'inline-flex h-5 w-9 cursor-pointer items-center rounded-full border px-0.5 transition-colors',
-              rule.enabled ? 'justify-end border-amber-500/40 bg-amber-500/25' : 'justify-start border-zinc-700 bg-zinc-800',
-              busy !== undefined && 'cursor-not-allowed opacity-50',
+              'block w-full cursor-pointer truncate rounded-sm text-left',
+              rule.enabled ? 'text-zinc-300' : 'text-zinc-500',
             )}
           >
-            {busy === 'enabled' ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin text-zinc-400" />
-            ) : (
-              <span className={cn('h-3.5 w-3.5 rounded-full', rule.enabled ? 'bg-amber-400' : 'bg-zinc-500')} />
-            )}
+            {rule.name}
+            <span className="ml-2 font-mono text-xs text-zinc-600">{rule.id}</span>
           </button>
         </td>
-        <td className="max-w-xs truncate px-4 py-2 text-zinc-300">
-          {rule.name}
-          <span className="ml-2 font-mono text-xs text-zinc-600">{rule.id}</span>
-        </td>
-        <td className="max-w-xs truncate px-4 py-2 font-mono text-xs text-zinc-400">
+        <td className="truncate px-4 py-2 font-mono text-xs text-zinc-400" title={describeMatch(rule.match)}>
           {describeMatch(rule.match)}
         </td>
-        <td className="max-w-xs truncate px-4 py-2 font-mono text-xs text-amber-300/90">
+        <td className="truncate px-4 py-2 font-mono text-xs text-amber-300/90" title={describeFault(rule.fault)}>
           {describeFault(rule.fault)}
         </td>
-        <td className="truncate px-4 py-2 font-mono text-xs text-zinc-400">
+        <td className="truncate px-4 py-2 font-mono text-xs text-zinc-400 @max-4xl:hidden">
           {rule.behavior ? describeFault(rule.behavior) : 'always'}
         </td>
         <td className="px-4 py-2" onClick={(e) => e.stopPropagation()}>
-          <button
-            type="button"
-            onClick={onDelete}
-            disabled={busy !== undefined}
+          <Button
+            variant="danger"
+            icon={Trash2}
             aria-label={`Delete ${rule.id}`}
             title={`Delete ${rule.id}`}
-            className={cn(
-              'cursor-pointer rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-red-400',
-              busy !== undefined && 'cursor-not-allowed opacity-50',
-            )}
-          >
-            {busy === 'delete' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-          </button>
+            busy={busy === 'delete'}
+            disabled={busy !== undefined}
+            onClick={onDelete}
+          />
         </td>
       </tr>
 
       {notice && (
         <tr className="border-b border-zinc-800/50">
           <td colSpan={6} className="px-4 pb-2">
-            <p className="rounded-md border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-400">
-              {notice}
-            </p>
+            <Notice tone="error">{notice}</Notice>
           </td>
         </tr>
       )}

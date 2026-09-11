@@ -13,7 +13,9 @@ import { getReport, getScenarios } from './api';
 const pollMS = 1000;
 
 export interface SessionState {
-  scenarios: Scenario[];
+  /** Null until the first read answers, so the panel can tell "not looked
+   * yet" from "no scenarios". */
+  scenarios: Scenario[] | null;
   /** Null until the first read answers, so the panel can tell "nothing yet"
    * from "a session that has seen nothing". */
   report: Report | null;
@@ -31,7 +33,7 @@ export interface SessionState {
  * A read that fails leaves what is on screen standing and says why, so a blink
  * of the API does not empty the panel. */
 export function useScenarios(active: boolean): SessionState {
-  const [scenarios, setScenarios] = useState<Scenario[]>([]);
+  const [scenarios, setScenarios] = useState<Scenario[] | null>(null);
   const [report, setReport] = useState<Report | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [asked, setAsked] = useState(0);
