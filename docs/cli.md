@@ -229,10 +229,15 @@ shape there is and a flag with one legal value is noise. It is the same document
 `GET /api/sessions/current/report` returns, so a test that wants the numbers
 while the run is still going can read them there instead.
 
-Two things the numbers mean. **A retry is a second call to the same method and
+Three things the numbers mean. **A retry is a second call to the same method and
 path on the same upstream within five seconds of one that failed**, whoever made
 it: a poll loop looks like a retrying client to this heuristic, and so does a
-second run of the same request by hand. **`abandoned` counts a failed call only
+second run of the same request by hand. **`max_retry_wait_ms` is the longest gap
+between an attempt and the repeat of it**, which is the application's backoff
+only if the application was backing off; against a poll loop it is the poll
+interval. It is one pause and not the total either, so a call that took three
+attempts kept its caller waiting longer than this number says.
+**`abandoned` counts a failed call only
 once its five second window has closed**, so calls that failed in the last
 seconds before the child exited are not counted there yet; the report is taken
 the moment the child is gone rather than five seconds later.

@@ -55,7 +55,7 @@ export function reportTiles(report: Report): ReportTile[] {
     {
       label: 'Max retry wait',
       value: `${report.max_retry_wait_ms}ms`,
-      hint: 'The longest a retry waited after the attempt it repeats, so the backoff the application used',
+      hint: 'The longest single pause between two tries, which is a backoff only if the application was backing off, and never the total a caller waited',
     },
     {
       label: 'Abandoned',

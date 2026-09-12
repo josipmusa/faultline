@@ -105,8 +105,11 @@ func addEventTools(s *sdk.Server, c *client.Client) {
 		Description: "Summarise what the application did under the faults it has been given: how many " +
 			"calls there were, how many Faultline broke, how many were retried, the longest a retry " +
 			"waited, and how many attempts worth retrying were abandoned.\n\n" +
-			"max_retry_wait_ms is the backoff the application actually used, which is the number to " +
-			"quote when asked how long a user would have waited.\n\n" +
+			"max_retry_wait_ms measures the longest gap between an attempt and the repeat of it. It is " +
+			"a backoff only if the application was retrying: against a client that polls on a fixed " +
+			"interval it is the poll interval. Even when it is a backoff it is one wait and not the " +
+			"total, so a caller that went through several attempts waited longer than this. Quote it " +
+			"as the longest pause between two tries, not as how long a user waited.\n\n" +
 			"A warning names a rule that cannot do anything as things stand, such as a response-tier " +
 			"fault on a host only ever seen encrypted. Read one beside a faulted count of zero as the " +
 			"fault never having applied, not as the application coping with it.",

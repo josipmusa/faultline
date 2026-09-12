@@ -168,8 +168,11 @@ export interface Report {
   faulted: number;
   /** Requests that look like a repeat of an earlier attempt. */
   retries: number;
-  /** The longest a retry waited after the attempt it repeats, so the backoff
-   * the application actually used. Zero when nothing retried. */
+  /** The longest a retry waited after the attempt it repeats. That is a
+   * backoff only if the application was backing off; against a client that
+   * polls it is the poll interval. It is one wait and not the total, so a
+   * caller that made several attempts waited longer. Zero when nothing
+   * retried. */
   max_retry_wait_ms: number;
   /** Attempts worth retrying that nothing repeated before their window
    * closed. Almost always zero while a run is still going: an attempt whose

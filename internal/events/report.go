@@ -11,9 +11,13 @@ type Report struct {
 	Retries int `json:"retries"`
 
 	// MaxRetryWaitMS is the longest any retry waited after the attempt it
-	// repeats, which is the backoff the application actually used. It is zero
-	// when nothing retried, and it skips a retry whose original has since been
-	// dropped from the buffer, since that wait is no longer known.
+	// repeats. That is the application's backoff only if the application was
+	// backing off: against a client that polls on a fixed interval it is the
+	// poll interval. It is one wait rather than their sum, so it is a floor
+	// under what a caller making several attempts sat through, not a measure
+	// of it. It is zero when nothing retried, and it skips a retry whose
+	// original has since been dropped from the buffer, since that wait is no
+	// longer known.
 	MaxRetryWaitMS int64 `json:"max_retry_wait_ms"`
 
 	// Abandoned counts attempts worth retrying that nothing repeated before

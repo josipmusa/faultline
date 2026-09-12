@@ -47,7 +47,7 @@ func TestTheLoopIsSeenComingBackAfterAFault(t *testing.T) {
 		t.Fatalf("the rule was accepted with warnings, so it may never apply: %v", added.Warnings)
 	}
 
-	loop(ctx, fl.appClient(), upstream.URL+"/get", 50*time.Millisecond, 3)
+	loop(ctx, fl.appClient(), upstream.URL+"/get", 50*time.Millisecond, 3, retry{})
 
 	report, err := fl.Report(ctx)
 	if err != nil {
@@ -58,6 +58,53 @@ func TestTheLoopIsSeenComingBackAfterAFault(t *testing.T) {
 	}
 	if report.Retries != 2 {
 		t.Errorf("retries = %d, want 2: the call after each failure repeats it", report.Retries)
+	}
+}
+
+// TestOneCallWithRetriesBacksOffUntilItGetsThrough: the same rule against the
+// same loop asked for one call and given retries. What Faultline sees is the
+// client backing off rather than polling, which is what the report's
+// max_retry_wait_ms is meant to describe.
+func TestOneCallWithRetriesBacksOffUntilItGetsThrough(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "upstream")
+	}))
+	defer upstream.Close()
+
+	ctx := context.Background()
+	fl := startFaultline(t)
+
+	added, err := fl.AddRule(ctx, client.Rule{
+		Name:     "the upstream is down",
+		Enabled:  true,
+		Match:    client.Match{Host: hostOf(t, upstream.URL)},
+		Fault:    client.Fault{Type: "status", Params: client.Params{"code": 503}},
+		Behavior: &client.Behavior{Type: "first_n", Params: client.Params{"n": 2}},
+	})
+	if err != nil {
+		t.Fatalf("AddRule: %v", err)
+	}
+	if len(added.Warnings) > 0 {
+		t.Fatalf("the rule was accepted with warnings, so it may never apply: %v", added.Warnings)
+	}
+
+	// One call, so every event after the first is a retry of it and nothing is
+	// a poll. The first wait is short enough to keep the test quick and long
+	// enough to be a wait the report can measure.
+	loop(ctx, fl.appClient(), upstream.URL+"/get", time.Second, 1, retry{times: 3, first: 50 * time.Millisecond})
+
+	report, err := fl.Report(ctx)
+	if err != nil {
+		t.Fatalf("Report: %v", err)
+	}
+	if report.Total != 3 || report.Faulted != 2 {
+		t.Fatalf("report = %+v, want one call that took 3 attempts, 2 of them faulted", report.Report)
+	}
+	if report.Retries != 2 {
+		t.Errorf("retries = %d, want 2: the call was repeated twice before it got through", report.Retries)
+	}
+	if report.MaxRetryWaitMS < 100 {
+		t.Errorf("max retry wait = %dms, want at least the second backoff of 100ms", report.MaxRetryWaitMS)
 	}
 }
 
