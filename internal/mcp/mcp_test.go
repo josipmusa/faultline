@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"strings"
 	"testing"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -179,6 +180,31 @@ func TestStructuredContentIsAlwaysAnObject(t *testing.T) {
 		var obj map[string]any
 		if err := json.Unmarshal(encoded, &obj); err != nil {
 			t.Errorf("%s structuredContent = %s, want a JSON object: %v", tool, encoded, err)
+		}
+	}
+}
+
+// The instructions reach every session the server is attached to, and they
+// carry the loop so an agent with no skill installed still has it. That is
+// what made them preempt the skill for an agent that had both: the summary is
+// always present, the skill is opt-in, so the agent followed the summary and
+// never considered the deeper method. The instructions have to hand off.
+func TestInstructionsHandOffToTheSkill(t *testing.T) {
+	h := newHarness(t)
+
+	init := h.session.InitializeResult()
+	if init == nil {
+		t.Fatal("no initialize result")
+	}
+	got := init.Instructions
+
+	if !strings.Contains(got, "resilience-check") {
+		t.Errorf("instructions name no skill to defer to:\n%s", got)
+	}
+	// Still standalone: an agent with the server and no skill keeps the loop.
+	for _, step := range []string{"list_upstreams", "add_rule", "get_report", "reset_session"} {
+		if !strings.Contains(got, step) {
+			t.Errorf("instructions no longer carry the loop: %q missing", step)
 		}
 	}
 }

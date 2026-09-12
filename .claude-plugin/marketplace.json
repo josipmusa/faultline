@@ -1,0 +1,14 @@
+{
+  "name": "faultline",
+  "owner": {
+    "name": "Josip Musa",
+    "url": "https://github.com/josipmusa/faultline"
+  },
+  "plugins": [
+    {
+      "name": "faultline",
+      "source": "./",
+      "description": "Break an application's dependencies on purpose and read what the application really did about it."
+    }
+  ]
+}

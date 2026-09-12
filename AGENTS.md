@@ -48,7 +48,7 @@ internal/mcp/         MCP tools over the same service layer as the API
 web/                  Next.js UI, static export embedded at build
 clients/go, clients/ts    thin API clients for tests
 examples/             sample apps used in verification
-skills/faultline/     Claude Code skill
+skills/resilience-check/  the shipped agent skill, harness-neutral
 docs/                 user documentation
 schema/               JSON Schema for faultline.yaml
 ```

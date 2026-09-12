@@ -30,6 +30,32 @@ faultline run -- <your app's start command>
 - [docs/agents.md](docs/agents.md) - the MCP interface for coding agents.
 - [docs/frontends.md](docs/frontends.md) — why browser traffic needs an explicit route.
 
+## For coding agents
+
+Faultline ships a skill, `resilience-check`, that teaches a coding agent when to
+reach for fault injection and how to run a check end to end: see what the
+application really calls, break one dependency, exercise it, and read what the
+application did. It carries method rather than a catalogue, so it never goes
+stale as faults are added, and it drives the command line, so it works for an
+agent with no MCP server attached.
+
+In Claude Code, this repository is also a plugin:
+
+```
+/plugin marketplace add josipmusa/faultline
+/plugin install faultline@faultline
+```
+
+In any other harness that reads a skills directory, copy the skill into it:
+
+```
+cp -r skills/resilience-check <your skills directory>/
+```
+
+The skill names no harness and no paths, so the copy works anywhere. An agent
+gets more out of it with the [MCP server](docs/agents.md) attached, and needs
+nothing but the binary without one.
+
 ## Development
 
 ```

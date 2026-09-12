@@ -1,0 +1,13 @@
+{
+  "name": "faultline",
+  "description": "Break an application's dependencies on purpose and read what the application really did about it.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Josip Musa",
+    "url": "https://github.com/josipmusa/faultline"
+  },
+  "homepage": "https://github.com/josipmusa/faultline",
+  "license": "MIT",
+  "keywords": ["fault-injection", "resilience", "testing", "proxy"],
+  "skills": ["./skills/resilience-check"]
+}

@@ -107,6 +107,12 @@ break one of them, exercise the application, then get_report and get_events to s
 Call reset_session between two runs of the same check: it clears what was observed and re-arms
 every rule, so a first_n fault applies again without you rebuilding it.
 
+That loop is a summary, and these instructions are present whether or not they are wanted. If a
+resilience-check skill is available to you, it is the method these tools are for: invoke it before
+running a check rather than working from this paragraph, because it carries what this cannot - how
+to bracket a timeout rather than guess it, what the retry numbers do and do not measure, and why a
+faulted count of zero can mean the fault never applied rather than that the application coped.
+
 Faultline never invents a response for an unreachable upstream. Every fault is applied to real
 traffic, and a synthetic response always carries a Faultline-Fault header naming the rule that
 produced it.`
