@@ -12,9 +12,10 @@ import (
 )
 
 // TestServeResetSessionRearmsTheRunningPipeline proves the wiring a unit test
-// cannot: the gate the fault pipelines decide against is the one the reset
-// endpoint re-arms. A first_n rule that has spent itself breaks the next
-// request again after a reset, and it is the same running instance throughout.
+// cannot: the gate the fault pipelines decide against is the one
+// `faultline session reset` re-arms. A first_n rule that has spent itself
+// breaks the next request again after a reset, and it is the same running
+// instance throughout.
 func TestServeResetSessionRearmsTheRunningPipeline(t *testing.T) {
 	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = io.WriteString(w, "upstream")
@@ -53,7 +54,10 @@ func TestServeResetSessionRearmsTheRunningPipeline(t *testing.T) {
 		t.Fatalf("second request = %d, want 200: first_n 1 is spent", got)
 	}
 
-	postJSON(t, admin+"/api/sessions/current/reset", "")
+	// Driven through the command, so this covers the CLI's face of the reset
+	// as well as the wiring under it; the endpoint itself is covered in
+	// internal/admin.
+	runCmd(t, "session", "reset", "--admin", admin)
 
 	if got := statusThrough(t, client, up.URL+"/orders"); got != http.StatusServiceUnavailable {
 		t.Errorf("request after a reset = %d, want 503: the rule should be re-armed", got)

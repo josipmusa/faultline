@@ -97,14 +97,14 @@ func TestReportTableShowsTheCountsAndTheWait(t *testing.T) {
 	}
 }
 
-func TestReportTableExplainsARuleThatCouldNotFire(t *testing.T) {
+func TestRunReportExplainsARuleThatCouldNotFire(t *testing.T) {
 	var out bytes.Buffer
-	err := writeReportTable(&out, client.ReportResult{
+	err := writeRunReport(&out, client.ReportResult{
 		Report:   events.Report{Total: 3},
 		Warnings: []string{"rule stripe-503: api.stripe.com has only been seen encrypted"},
 	})
 	if err != nil {
-		t.Fatalf("writeReportTable: %v", err)
+		t.Fatalf("writeRunReport: %v", err)
 	}
 	if got := out.String(); !strings.Contains(got, "warning: rule stripe-503") {
 		t.Errorf("report = %q, want it to explain why nothing was faulted", got)

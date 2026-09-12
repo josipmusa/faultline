@@ -237,6 +237,33 @@ once its five second window has closed**, so calls that failed in the last
 seconds before the child exited are not counted there yet; the report is taken
 the moment the child is gone rather than five seconds later.
 
+An instance that is already up has a session too, and `session report` prints
+it without owning a run:
+
+```
+$ faultline session report
+REQUESTS  FAULTED  RETRIES  MAX RETRY WAIT  ABANDONED
+7         4        3        1002ms          0
+```
+
+It is the same document, so `--json` gives what `--report <file>` writes.
+Warnings go to stderr in both modes, which keeps them out of a piped payload
+while a person still sees them; the JSON carries them as well.
+
+`session reset` puts the session back to the start of a measurement. What was
+observed is cleared and every rule's behavior state is re-armed, so a spent
+`first_n` applies again:
+
+```
+$ faultline session reset
+session reset: observed calls cleared, rules re-armed
+```
+
+The rules themselves and the active scenario are left exactly as they are,
+which is the point: a reset is for measuring the same setup twice, not for
+tearing down the setup a person arranged in the UI. Run it between two runs of
+the same check, or the second one measures the first one's leftovers.
+
 ## Events
 
 `events tail` follows the live stream and prints a line per call until you

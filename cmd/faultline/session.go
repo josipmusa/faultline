@@ -118,7 +118,7 @@ func (ss session) finish(ctx context.Context, c *client.Client, errOut io.Writer
 	if err != nil {
 		return errors.Join(append(errs, fmt.Errorf("reading the session report: %w", err))...)
 	}
-	if err := writeReportTable(errOut, report); err != nil {
+	if err := writeRunReport(errOut, report); err != nil {
 		errs = append(errs, err)
 	}
 
@@ -134,19 +134,33 @@ func (ss session) finish(ctx context.Context, c *client.Client, errOut io.Writer
 
 var reportColumns = []string{"REQUESTS", "FAULTED", "RETRIES", "MAX RETRY WAIT", "ABANDONED"}
 
-// writeReportTable prints the report for a person. It goes to stderr, because
-// stdout belongs to the child.
-func writeReportTable(w io.Writer, r client.ReportResult) error {
+// writeRunReport prints the report a finished run ends with. It goes to
+// stderr, because stdout belongs to the child.
+func writeRunReport(w io.Writer, r client.ReportResult) error {
 	if err := printf(w, "\nreport: this run\n"); err != nil {
 		return err
 	}
-	// A warning here is the difference between "the application coped" and
-	// "the fault never applied", so it belongs beside the counts it explains.
+	if err := writeReportWarnings(w, r); err != nil {
+		return err
+	}
+	return writeReportTable(w, r)
+}
+
+// writeReportWarnings prints what stands in the way of the rules in force. A
+// warning here is the difference between "the application coped" and "the
+// fault never applied", so it belongs beside the counts it explains.
+func writeReportWarnings(w io.Writer, r client.ReportResult) error {
 	for _, warning := range r.Warnings {
 		if err := printf(w, "warning: %s\n", warning); err != nil {
 			return err
 		}
 	}
+	return nil
+}
+
+// writeReportTable prints the counts, and only the counts: the two faces that
+// print a report put them in different places and under different headings.
+func writeReportTable(w io.Writer, r client.ReportResult) error {
 	row := []string{
 		strconv.Itoa(r.Total),
 		strconv.Itoa(r.Faulted),

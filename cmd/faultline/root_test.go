@@ -56,7 +56,7 @@ func TestVersionCommandPrintsVersion(t *testing.T) {
 
 func TestRootHelpListsSubcommands(t *testing.T) {
 	got := runCmd(t, "--help")
-	for _, name := range []string{"init", "serve", "run", "rule", "scenario", "ca", "mcp", "version"} {
+	for _, name := range []string{"init", "serve", "run", "rule", "scenario", "session", "ca", "mcp", "version"} {
 		if !strings.Contains(got, name) {
 			t.Errorf("help output is missing subcommand %q:\n%s", name, got)
 		}

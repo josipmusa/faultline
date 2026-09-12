@@ -85,7 +85,9 @@ kilobytes, whichever is smaller - with `stdout_truncated` and
 `reset_session` clears the recorded calls and re-arms every rule, so a spent
 `first_n` applies again. It leaves the rules and the active scenario alone, so
 whatever you or the user set up survives. Call it between two runs of the same
-check, or the second run measures the first one's leftovers.
+check, or the second run measures the first one's leftovers. `faultline session
+reset` is the same thing from a shell, and `faultline session report` reads the
+report an agent gets from `get_report`.
 
 ## What an agent needs to know about faults
 
