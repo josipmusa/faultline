@@ -305,7 +305,7 @@ func TestStartListensAndShutdownStops(t *testing.T) {
 	up := newUpstream(t)
 	srv := NewServer(faults.New(nil, rules.New(), nil, events.TierPlain, nil), nil, nil, nil, quietLogger())
 
-	if err := srv.Start(0); err != nil {
+	if err := srv.Start("127.0.0.1", 0); err != nil {
 		t.Fatalf("starting: %v", err)
 	}
 	addr := srv.Addr()
@@ -334,5 +334,31 @@ func TestStartListensAndShutdownStops(t *testing.T) {
 	}
 	if _, err := net.DialTimeout("tcp", addr, time.Second); err == nil {
 		t.Error("proxy still accepting connections after shutdown")
+	}
+}
+
+// The container image widens the proxy past localhost so sibling containers
+// can point HTTP_PROXY at it, so the bind address is the caller's to choose.
+func TestStartBindsTheGivenHost(t *testing.T) {
+	srv := NewServer(faults.New(nil, rules.New(), nil, events.TierPlain, nil), nil, nil, nil, quietLogger())
+	if err := srv.Start("0.0.0.0", 0); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(ctx); err != nil {
+			t.Errorf("Shutdown: %v", err)
+		}
+	})
+
+	// A wildcard bind comes back as the dual-stack wildcard rather than the
+	// literal 0.0.0.0, which is still every interface and is the point.
+	host, _, err := net.SplitHostPort(srv.Addr())
+	if err != nil {
+		t.Fatalf("Addr %q: %v", srv.Addr(), err)
+	}
+	if ip := net.ParseIP(host); ip == nil || !ip.IsUnspecified() {
+		t.Errorf("bound host = %q, want an unspecified address", host)
 	}
 }

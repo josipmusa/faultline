@@ -31,9 +31,15 @@ import (
 // shutdownTimeout is how long in-flight requests get to finish after Ctrl-C.
 const shutdownTimeout = 10 * time.Second
 
+// DefaultBind keeps every listener on localhost. Faultline sees an
+// application's credentials and can rewrite its traffic, so reaching it from
+// off the machine is something to ask for, never something to inherit.
+const DefaultBind = "127.0.0.1"
+
 func newServeCmd() *cobra.Command {
 	var routeSpecs, portSpecs, bypassSpecs []string
 	var configPath string
+	var bind string
 	var adminPort, proxyPort int
 	var intercept bool
 
@@ -74,7 +80,7 @@ func newServeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return serve(cmd.Context(), cmd.OutOrStdout(), cfg, adminPort, proxyPort, routes, ca, bypass)
+			return serve(cmd.Context(), cmd.OutOrStdout(), cfg, bind, adminPort, proxyPort, routes, ca, bypass)
 		},
 	}
 
@@ -83,6 +89,11 @@ func newServeCmd() *cobra.Command {
 		"explicit route as name=url, repeatable (--route stripe=https://api.stripe.com)")
 	cmd.Flags().StringArrayVar(&portSpecs, "route-port", nil,
 		"local port for a route as name=port, repeatable (--route-port stripe=9100)")
+	cmd.Flags().StringVar(&bind, "bind", DefaultBind,
+		"address every listener binds: the admin server, the forward proxy, and each route. "+
+			"Localhost by default, so nothing is reachable from off the machine; 0.0.0.0 "+
+			"exposes all three, which is what a container needs and what a shared network "+
+			"should be thought about first (--bind 0.0.0.0)")
 	cmd.Flags().IntVar(&adminPort, "admin-port", admin.DefaultPort,
 		"port for the admin API, the UI, and the MCP endpoint; 0 lets the operating system "+
 			"choose one, which is how a test suite gets an instance of its own")
@@ -148,7 +159,7 @@ type stack struct {
 // list, which may be nil, skip the proxy's pipeline altogether. trustVars are
 // the trust variables a wrapped child was given, empty for serve, which runs
 // no child.
-func start(cfg *config.Config, adminPort, proxyPort int, routes []reverse.Route, ca *tlsmitm.CA, bypass *forward.Bypass, trustVars []string) (*stack, error) {
+func start(cfg *config.Config, bind string, adminPort, proxyPort int, routes []reverse.Route, ca *tlsmitm.CA, bypass *forward.Bypass, trustVars []string) (*stack, error) {
 	s := &stack{
 		routes:   routes,
 		recorder: events.NewRecorder(events.DefaultSize),
@@ -187,7 +198,7 @@ func start(cfg *config.Config, adminPort, proxyPort int, routes []reverse.Route,
 			return fail(err)
 		}
 		s.server = server
-		if err := server.Start(); err != nil {
+		if err := server.Start(bind); err != nil {
 			return fail(err)
 		}
 	}
@@ -224,12 +235,12 @@ func start(cfg *config.Config, adminPort, proxyPort int, routes []reverse.Route,
 		s.api.Persist(s.config)
 	}
 
-	if err := s.proxy.Start(proxyPort); err != nil {
+	if err := s.proxy.Start(bind, proxyPort); err != nil {
 		return fail(err)
 	}
 	// The API can only say how to attach a child once the proxy has a port.
 	s.api.ProxiesAt(s.proxyURL(), ca != nil)
-	if err := s.api.Start(adminPort); err != nil {
+	if err := s.api.Start(bind, adminPort); err != nil {
 		return fail(err)
 	}
 
@@ -305,14 +316,14 @@ func (s *stack) stop(ctx context.Context) error {
 }
 
 // serve runs the stack until the process is interrupted.
-func serve(ctx context.Context, out io.Writer, cfg *config.Config, adminPort, proxyPort int, routes []reverse.Route, ca *tlsmitm.CA, bypass *forward.Bypass) error {
+func serve(ctx context.Context, out io.Writer, cfg *config.Config, bind string, adminPort, proxyPort int, routes []reverse.Route, ca *tlsmitm.CA, bypass *forward.Bypass) error {
 	// Install the signal handler before anything is listening, so an interrupt
 	// during startup shuts the parts that are already up down in order instead
 	// of killing the process where it stands.
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	s, err := start(cfg, adminPort, proxyPort, routes, ca, bypass, nil)
+	s, err := start(cfg, bind, adminPort, proxyPort, routes, ca, bypass, nil)
 	if err != nil {
 		return err
 	}

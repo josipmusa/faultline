@@ -29,6 +29,7 @@ faultline run -- <your app's start command>
 - [docs/config.md](docs/config.md) — the faultline.yaml file.
 - [docs/agents.md](docs/agents.md) - the MCP interface for coding agents.
 - [docs/frontends.md](docs/frontends.md) — why browser traffic needs an explicit route.
+- [docs/docker.md](docs/docker.md) — running the container image.
 
 ## For coding agents
 

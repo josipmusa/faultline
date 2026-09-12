@@ -532,8 +532,9 @@ One thing to watch, not a failure of this gate. A `status` fault answers without
 
 Goal: the container companion attach mode for Docker Compose, matching how real services are run in production.
 
-- [ ] **8.1 Docker image.** Multi-stage build producing a small image with the binary, listening on all interfaces, with the CA directory as a volume. Published to GHCR by CI on tags.
+- [x] **8.1 Docker image.** Multi-stage build producing a small image with the binary, listening on all interfaces, with the CA directory as a volume. Published to GHCR by CI on tags.
   - Verify (Manual): `docker run -p 9000:9000 -p 9001:9001 faultline` then `curl -x localhost:9001 http://httpbin.org/get` and see the event.
+  - Listening on all interfaces needed a flag that did not exist: every listener was hardcoded to `127.0.0.1`. Added one `--bind` for all three (admin, forward proxy, routes), default localhost, and the image's command is `serve --bind 0.0.0.0`. Stage 9.4 should confirm that flag rather than the separate `--admin-bind` it names. Note that `0.0.0.0` comes back from the listener as the dual-stack wildcard, so the banner says `http://[::]:9000`. Verified 2026-09-13: 22MB image, event recorded at tier `plain`, and with the CA volume mounted an HTTPS call recorded at tier `intercepted`.
 - [ ] **8.2 Compose companion example.** `examples/compose/` with Faultline plus the Spring Boot example, where the app service gets the proxy env vars and the CA mounted, and the JVM trust store built at startup by a tiny entrypoint helper shipped in the image (`faultline trust java`).
   - Verify (Manual): `docker compose up`, curl the app, see intercepted events in the UI at `localhost:9000`.
 - [ ] **8.3 Transparent mode.** Faultline gains `--transparent`: with `NET_ADMIN`, it installs iptables rules in its own network namespace redirecting outbound 80 and 443 to itself and uses the original destination for routing. App services attach with `network_mode: "service:faultline"` and need no env vars for connection-tier faults. Response-tier faults still need the CA trusted in the app image.

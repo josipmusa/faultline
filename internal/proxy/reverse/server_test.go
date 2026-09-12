@@ -93,7 +93,7 @@ func startRoutes(t *testing.T, store *rules.Store, rec *events.Recorder, upstrea
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
-	if err := srv.Start(); err != nil {
+	if err := srv.Start("127.0.0.1"); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 	t.Cleanup(func() {
@@ -327,7 +327,7 @@ func TestShutdownStopsListening(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
-	if err := srv.Start(); err != nil {
+	if err := srv.Start("127.0.0.1"); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 	addr := srv.Addr("stripe")
@@ -371,7 +371,7 @@ func TestStartFailsWhenAPortIsTaken(t *testing.T) {
 		t.Fatalf("NewServer: %v", err)
 	}
 
-	err = srv.Start()
+	err = srv.Start("127.0.0.1")
 	if err == nil {
 		t.Fatal("Start succeeded on a taken port")
 	}
@@ -551,5 +551,40 @@ func TestShutdownLetsAnInFlightRequestFinish(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("Shutdown did not return once the in-flight request finished")
+	}
+}
+
+// Route listeners are widened with everything else in the container image, so
+// the bind address is the caller's to choose here too.
+func TestStartBindsTheGivenHost(t *testing.T) {
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer up.Close()
+
+	srv, err := NewServer([]Route{{Name: "up", Port: 0, Upstream: mustURL(t, up.URL)}},
+		faults.New(nil, rules.New(), nil, events.TierPlain, nil), quietLogger())
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	if err := srv.Start("0.0.0.0"); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(ctx); err != nil {
+			t.Errorf("Shutdown: %v", err)
+		}
+	})
+
+	// A wildcard bind comes back as the dual-stack wildcard rather than the
+	// literal 0.0.0.0, which is still every interface and is the point.
+	host, _, err := net.SplitHostPort(srv.Addr("up"))
+	if err != nil {
+		t.Fatalf("Addr %q: %v", srv.Addr("up"), err)
+	}
+	if ip := net.ParseIP(host); ip == nil || !ip.IsUnspecified() {
+		t.Errorf("bound host = %q, want an unspecified address", host)
 	}
 }

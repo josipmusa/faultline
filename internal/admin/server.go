@@ -123,11 +123,15 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.mux.ServeHTTP(w, r)
 }
 
-// Start binds the admin port on localhost and serves in the background.
-func (s *Server) Start(port int) error {
-	ln, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+// Start binds the admin port on host and serves in the background. The host
+// is the caller's to choose: commands default it to localhost, and the
+// container image widens it, since an admin server nobody outside the
+// container can reach is of no use there.
+func (s *Server) Start(host string, port int) error {
+	addr := net.JoinHostPort(host, strconv.Itoa(port))
+	ln, err := net.Listen("tcp", addr)
 	if err != nil {
-		return fmt.Errorf("admin: listening on port %d: %w", port, err)
+		return fmt.Errorf("admin: listening on %s: %w", addr, err)
 	}
 
 	srv := &http.Server{Handler: s, ReadHeaderTimeout: readHeaderTimeout}

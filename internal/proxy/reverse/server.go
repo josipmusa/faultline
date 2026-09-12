@@ -72,14 +72,15 @@ func NewServer(routes []Route, transport http.RoundTripper, logger *slog.Logger)
 // Start binds every route before serving any of them, so a port clash is
 // reported instead of leaving some routes half-up. Serving continues in the
 // background until Shutdown.
-func (s *Server) Start() error {
+func (s *Server) Start(host string) error {
 	for _, r := range s.routes {
-		ln, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(r.Port)))
+		addr := net.JoinHostPort(host, strconv.Itoa(r.Port))
+		ln, err := net.Listen("tcp", addr)
 		if err != nil {
 			// Undo the routes that did bind: a half-started server is worse
 			// than none, because the user cannot tell which ports are live.
 			_ = s.Shutdown(context.Background())
-			return fmt.Errorf("route %q: listening on port %d: %w", r.Name, r.Port, err)
+			return fmt.Errorf("route %q: listening on %s: %w", r.Name, addr, err)
 		}
 
 		srv := &http.Server{

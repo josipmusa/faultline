@@ -149,14 +149,14 @@ func startFaultline(t *testing.T) faultline {
 	pipeline := faults.New(nil, store, recorder, events.TierPlain, gate)
 
 	proxy := forward.NewServer(pipeline, faults.NewDialer(store, recorder, gate), nil, nil, nil)
-	if err := proxy.Start(0); err != nil {
+	if err := proxy.Start("127.0.0.1", 0); err != nil {
 		t.Fatalf("starting the forward proxy: %v", err)
 	}
 	t.Cleanup(func() { _ = proxy.Shutdown(context.Background()) })
 
 	api := admin.NewServer(store, rules.NewScenarios(store), recorder, nil, nil, nil)
 	api.Rearms(gate)
-	if err := api.Start(0); err != nil {
+	if err := api.Start("127.0.0.1", 0); err != nil {
 		t.Fatalf("starting the admin server: %v", err)
 	}
 	t.Cleanup(func() { _ = api.Shutdown(context.Background()) })

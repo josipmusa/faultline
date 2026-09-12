@@ -114,7 +114,7 @@ func serveAgentStandalone(ctx context.Context, errOut io.Writer, t sdk.Transport
 	}
 	trustVars := runner.TrustVars(ca.CertPath, runner.JavaTrustStoreOrNone(ca.CertPath, errOut))
 
-	s, err := start(cfg, adminPort, proxyPort, routes, ca, bypass, trustVars)
+	s, err := start(cfg, DefaultBind, adminPort, proxyPort, routes, ca, bypass, trustVars)
 	if err != nil {
 		// Two agents starting at once: the slower one lost the port, which
 		// means the instance it wanted now exists, so it joins that one.

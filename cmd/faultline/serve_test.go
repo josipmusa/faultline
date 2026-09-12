@@ -188,7 +188,7 @@ func TestServeRunsTheForwardProxy(t *testing.T) {
 	served := make(chan error, 1)
 	go func() {
 		// Port 0 everywhere: the test must not fight a real faultline.
-		served <- serve(ctx, out, nil, 0, 0, nil, nil, nil)
+		served <- serve(ctx, out, nil, DefaultBind, 0, 0, nil, nil, nil)
 	}()
 
 	adminAddr := waitForAddr(t, out, "admin: http://")
@@ -323,7 +323,7 @@ func TestServeSaysWhetherItIntercepts(t *testing.T) {
 
 			out := &syncWriter{}
 			served := make(chan error, 1)
-			go func() { served <- serve(ctx, out, nil, 0, 0, nil, tt.ca, nil) }()
+			go func() { served <- serve(ctx, out, nil, DefaultBind, 0, 0, nil, tt.ca, nil) }()
 
 			line := waitForLine(t, out, "tls: ")
 			if !strings.Contains(line, tt.want) {
@@ -389,7 +389,7 @@ func TestServeBypassesAHostWithoutRecording(t *testing.T) {
 
 	out := &syncWriter{}
 	served := make(chan error, 1)
-	go func() { served <- serve(ctx, out, nil, 0, 0, nil, nil, bypass) }()
+	go func() { served <- serve(ctx, out, nil, DefaultBind, 0, 0, nil, nil, bypass) }()
 
 	adminAddr := waitForAddr(t, out, "admin: http://")
 	proxyAddr := waitForAddr(t, out, "proxy: http://")
@@ -459,7 +459,7 @@ func TestServeSaysHowToAttachAChild(t *testing.T) {
 
 	out := &syncWriter{}
 	served := make(chan error, 1)
-	go func() { served <- serve(ctx, out, nil, 0, 0, nil, nil, bypass) }()
+	go func() { served <- serve(ctx, out, nil, DefaultBind, 0, 0, nil, nil, bypass) }()
 
 	adminAddr := waitForAddr(t, out, "admin: http://")
 	proxyAddr := waitForAddr(t, out, "proxy: http://")
@@ -519,6 +519,38 @@ func TestServeTakesTheAdminPortItIsGiven(t *testing.T) {
 		t.Fatalf("reading health from the port that was asked for: %v", err)
 	}
 	_ = resp.Body.Close()
+
+	cancel()
+	if err := <-served; err != nil {
+		t.Fatalf("serve: %v", err)
+	}
+}
+
+// TestServeBindsEveryListenerToTheGivenAddress is what the container image
+// rests on: one flag widens the admin server, the proxy, and every route, and
+// the banner says the addresses that were really bound.
+func TestServeBindsEveryListenerToTheGivenAddress(t *testing.T) {
+	up := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {}))
+	defer up.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	out := &syncWriter{}
+	served := make(chan error, 1)
+	routes := []reverse.Route{{Name: "up", Port: 0, Upstream: mustParse(t, up.URL)}}
+	go func() { served <- serve(ctx, out, nil, "0.0.0.0", 0, 0, routes, nil, nil) }()
+
+	for _, prefix := range []string{"admin: http://", "proxy: http://", "route up: http://"} {
+		addr := waitForAddr(t, out, prefix)
+		host, _, err := net.SplitHostPort(addr)
+		if err != nil {
+			t.Fatalf("%s%s: %v", prefix, addr, err)
+		}
+		if ip := net.ParseIP(host); ip == nil || !ip.IsUnspecified() {
+			t.Errorf("%q bound %q, want an unspecified address", prefix, host)
+		}
+	}
 
 	cancel()
 	if err := <-served; err != nil {

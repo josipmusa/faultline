@@ -121,11 +121,14 @@ func bareTransport() http.RoundTripper {
 	return http.DefaultTransport
 }
 
-// Start binds the forward proxy port on localhost and serves in the background.
-func (s *Server) Start(port int) error {
-	ln, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+// Start binds the forward proxy port on host and serves in the background.
+// The host is the caller's to choose, so the proxy can be reached from
+// outside the machine it runs on when that is what was asked for.
+func (s *Server) Start(host string, port int) error {
+	addr := net.JoinHostPort(host, strconv.Itoa(port))
+	ln, err := net.Listen("tcp", addr)
 	if err != nil {
-		return fmt.Errorf("forward proxy: listening on port %d: %w", port, err)
+		return fmt.Errorf("forward proxy: listening on %s: %w", addr, err)
 	}
 
 	srv := &http.Server{

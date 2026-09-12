@@ -131,7 +131,7 @@ func run(ctx context.Context, out, errOut io.Writer, in io.Reader, cfg *config.C
 	javaStore := runner.JavaTrustStoreOrNone(caPath, errOut)
 	trustVars := runner.TrustVars(caPath, javaStore)
 
-	s, err := start(cfg, adminPort, proxyPort, routes, ca, bypass, trustVars)
+	s, err := start(cfg, DefaultBind, adminPort, proxyPort, routes, ca, bypass, trustVars)
 	if err != nil {
 		return 1, err
 	}

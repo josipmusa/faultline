@@ -1,0 +1,25 @@
+# The image build needs the Go module, the CLI, and web/ to build the UI from
+# source. Everything else only makes the context bigger or, worse, leaks local
+# state into the image.
+.git
+.github
+.idea
+.vscode
+.claude
+bin
+dist
+**/node_modules
+web/out
+web/.next
+clients/ts/dist
+examples/**/target
+examples/**/dist
+examples/**/build
+docs
+skills
+*.md
+!go.mod
+faultline.yaml
+faultline.local.yaml
+*.pem
+*.key
