@@ -519,7 +519,7 @@ Goal: a coding agent can complete an inject, test, report cycle with no human in
 
 ## Stage 8 — Containers
 
-Goal: the container companion attach mode for Docker Compose, matching how Aevon runs services.
+Goal: the container companion attach mode for Docker Compose, matching how real services are run in production.
 
 - [ ] **8.1 Docker image.** Multi-stage build producing a small image with the binary, listening on all interfaces, with the CA directory as a volume. Published to GHCR by CI on tags.
   - Verify (Manual): `docker run -p 9000:9000 -p 9001:9001 faultline` then `curl -x localhost:9001 http://httpbin.org/get` and see the event.
@@ -530,7 +530,7 @@ Goal: the container companion attach mode for Docker Compose, matching how Aevon
 - [ ] **8.4 Compose helper.** `faultline compose inject --service <name>` reads `docker-compose.yml` and writes `docker-compose.faultline.yml` override adding the companion and the settings for the named services, printing the `docker compose -f ... -f ...` command to run.
   - Verify (Manual): run it against `examples/compose` with the companion removed; the generated override reproduces the working setup.
 
-**Stage 8 gate (Manual).** Take a real Aevon Compose file on a VM, run the helper against one Spring Boot service, bring it up, and rehearse a dependency outage from the UI. Expect intercepted events and a correct report, with no edits to the application image beyond trusting the CA.
+**Stage 8 gate (Manual).** Take a real production Compose file on a VM, run the helper against one Spring Boot service, bring it up, and rehearse a dependency outage from the UI. Expect intercepted events and a correct report, with no edits to the application image beyond trusting the CA.
 
 ---
 
