@@ -62,7 +62,25 @@ describe('the client against a live faultline', () => {
   });
 
   it('waits for the call the application makes next', async () => {
-    const waiting = client.waitForEvent({ host: upstream.host }, 10_000);
+    // A wait takes a watermark of its own first, and only an event recorded
+    // after that read counts as next. A test that makes the call itself has to
+    // hold it until the read has landed, or it races the watermark and loses.
+    let watermarked: () => void;
+    const watermark = new Promise<void>((resolve) => {
+      watermarked = resolve;
+    });
+    const waiter = new FaultlineClient(faultline.admin, {
+      fetch: async (input, init) => {
+        const response = await fetch(input, init);
+        if (String(input).includes('limit=1')) {
+          watermarked();
+        }
+        return response;
+      },
+    });
+
+    const waiting = waiter.waitForEvent({ host: upstream.host }, 10_000);
+    await watermark;
     await call(faultline.route, '/orders');
 
     const event = await waiting;

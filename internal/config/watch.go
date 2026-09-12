@@ -51,7 +51,7 @@ type File struct {
 	seen    stamp // the file as Faultline last read or wrote it
 	pending stamp // a change seen once and waiting to settle
 	broken  error // what is wrong with the file as it stands, nil when it reads
-	missing bool  // whether the last look found no file, so it is said once
+	missing bool  // whether the last look found nothing to read, so it is said once
 
 	stop context.CancelFunc
 	done chan struct{}
@@ -161,12 +161,17 @@ func (f *File) settled() bool {
 // second. The caller holds the lock.
 func (f *File) sync() (news bool, err error) {
 	now, statErr := statOf(f.path)
-	if statErr != nil {
-		if !f.missing {
-			f.missing = true
-			f.log.Warn("config: the file cannot be read, the rules already in memory stay in force",
-				"path", f.path, "err", statErr)
-		}
+	switch {
+	case statErr != nil:
+		f.unreadable("the file cannot be read", "err", statErr)
+		return false, nil
+	case now.size == 0:
+		// Saving truncates the file before writing it again, so a save caught
+		// on its way through is zero bytes. Empty YAML is valid and means no
+		// rules, so applying it would throw every rule away for a file nobody
+		// wrote. The size is not remembered either, so the save that follows
+		// still reads as a change.
+		f.unreadable("the file is empty")
 		return false, nil
 	}
 	if f.missing {
@@ -194,6 +199,17 @@ func (f *File) sync() (news bool, err error) {
 	}
 	f.log.Info("config: reloaded", "path", f.path, "rules", len(cfg.Rules))
 	return true, nil
+}
+
+// unreadable says once, and not twice a second, that there is nothing to read
+// and the rules already in memory stay in force. The caller holds the lock.
+func (f *File) unreadable(why string, attrs ...any) {
+	if f.missing {
+		return
+	}
+	f.missing = true
+	f.log.Warn("config: "+why+", the rules already in memory stay in force",
+		append([]any{"path", f.path}, attrs...)...)
 }
 
 // ErrNotSaved says a change was made but did not reach the file, so what is in

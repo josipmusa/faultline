@@ -379,3 +379,44 @@ func TestChangeStillRefusesABreakTheWatchHasAlreadySeen(t *testing.T) {
 		t.Errorf("the same break was reported %d times", n)
 	}
 }
+
+// A save truncates the file before it writes it again, so there is a moment
+// when it is zero bytes. Empty YAML is valid and means no rules, so reading it
+// then would throw every rule away for a file nobody wrote.
+func TestWatchIgnoresTheEmptyFileASaveLeavesBehind(t *testing.T) {
+	file, rec, out := opened(t, oneRule)
+
+	truncate(t, file.Path())
+
+	file.reload() // notices the change
+	file.reload() // and would apply it, the size having stopped moving
+
+	if got := delayOf(t, rec.store, "slow-stripe"); got != 100 {
+		t.Errorf("a half-finished save threw the rules away, the store now holds %v", got)
+	}
+	if n := rec.applies(); n != 0 {
+		t.Errorf("an empty file was applied %d times", n)
+	}
+	if !strings.Contains(out.String(), "level=WARN") {
+		t.Errorf("the empty file was passed over without a word:\n%s", out.String())
+	}
+}
+
+// The file the truncated save goes on to write is applied as usual.
+func TestWatchAppliesTheSaveThatFollowsTheEmptyFile(t *testing.T) {
+	file, rec, _ := watching(t, oneRule)
+
+	truncate(t, file.Path())
+	rewrite(t, file.Path(), strings.Replace(oneRule, "ms: 100", "ms: 2000", 1))
+
+	waitFor(t, "the new delay", func() bool { return delayOf(t, rec.store, "slow-stripe") == 2000 })
+}
+
+// truncate empties the file the way a save does on its way through.
+func truncate(t *testing.T, path string) {
+	t.Helper()
+	time.Sleep(2 * time.Millisecond) // a modification time has to differ to be noticed
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatalf("truncating the config: %v", err)
+	}
+}
