@@ -31,7 +31,9 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: web/package-lock.json
+          cache-dependency-path: |
+            web/package-lock.json
+            clients/ts/package-lock.json
 
       - name: Install tools
         run: make tools
@@ -40,6 +42,11 @@ jobs:
       # `make build` embeds web/out only when it exists.
       - name: Build UI
         run: make ui
+
+      # The TypeScript client's tests drive a real Faultline, so its toolchain
+      # has to be there before `make test` reaches them.
+      - name: Install client toolchain
+        run: make clients
 
       - name: Lint
         run: make lint

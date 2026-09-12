@@ -4,6 +4,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
 UI_DIR  := web
 UI_OUT  := $(UI_DIR)/out
+TS_DIR  := clients/ts
 
 # The ui build tag embeds web/out into the binary. A checkout with no Node
 # toolchain still builds: without the tag the binary says the UI is missing
@@ -14,7 +15,7 @@ UI_TAG  := $(if $(wildcard $(UI_OUT)/index.html),-tags ui,)
 GOBIN   := $(shell go env GOPATH)/bin
 GOLANGCI_VERSION := v2.13.2
 
-.PHONY: build ui test test-go test-ui lint lint-go lint-ui tools run schema clean
+.PHONY: build ui clients test test-go test-ui test-clients lint lint-go lint-ui lint-clients tools run schema clean
 
 build:
 	go build $(UI_TAG) -ldflags "-X main.version=$(VERSION)" -o $(BIN) $(PKG)
@@ -24,7 +25,12 @@ build:
 ui:
 	cd $(UI_DIR) && npm ci && npm run build
 
-test: test-go test-ui
+# Installs the TypeScript client's toolchain. Its tests drive a real Faultline,
+# so they need a binary; `make test-clients` builds one.
+clients:
+	cd $(TS_DIR) && npm ci
+
+test: test-go test-ui test-clients
 
 test-go:
 	go test -race ./...
@@ -32,7 +38,7 @@ test-go:
 # worth a second pass; nothing else behaves differently under it.
 	$(if $(UI_TAG),go test -race $(UI_TAG) ./internal/admin/,@true)
 
-lint: lint-go lint-ui
+lint: lint-go lint-ui lint-clients
 
 lint-go:
 	go vet ./...
@@ -41,14 +47,26 @@ lint-go:
 # The UI halves skip rather than fail when the toolchain is absent, so `make
 # test` and `make lint` stay usable in a checkout that has never run `make ui`.
 test-ui:
-	@$(call in-ui,npm test,UI tests)
+	@$(call in-dir,$(UI_DIR),npm test,UI tests,make ui)
 
 lint-ui:
 	@$(call in-ui,npm run lint,UI lint)
 
+# The client's tests start the binary they were given, so the build comes
+# first: what they exercise is the Faultline this checkout produces.
+test-clients: build
+	@$(call in-dir,$(TS_DIR),npm test,client tests,make clients)
+
+lint-clients:
+	@$(call in-dir,$(TS_DIR),npm run lint,client lint,make clients)
+
+define in-dir
+if [ -d $(1)/node_modules ]; then cd $(1) && $(2); \
+else echo "skipping $(3): $(1)/node_modules is missing, run $(4)"; fi
+endef
+
 define in-ui
-if [ -d $(UI_DIR)/node_modules ]; then cd $(UI_DIR) && $(1); \
-else echo "skipping $(2): $(UI_DIR)/node_modules is missing, run make ui"; fi
+$(call in-dir,$(UI_DIR),$(1),$(2),make ui)
 endef
 
 # Installs the prebuilt binary rather than building from source, so the linter

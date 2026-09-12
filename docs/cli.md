@@ -322,7 +322,40 @@ which [docs/trust.md](trust.md) explains.
 The commands are a thin layer over the Go client in
 [clients/go](../clients/go), which is the same client the CLI uses. A test that
 wants to add a rule, exercise its own code and assert on what Faultline
-observed can use it directly rather than shelling out.
+observed can use it directly rather than shelling out. TypeScript suites have
+the same client in [clients/ts](../clients/ts), with the same four calls at the
+centre of it: add a rule, activate a scenario, wait for an event, read the
+report.
+
+```go
+faultline, _ := client.New("http://localhost:9000")
+rule, _ := faultline.AddRule(ctx, client.Rule{
+    Name:     "payments are down",
+    Enabled:  true,
+    Match:    client.Match{Host: "api.stripe.com"},
+    Fault:    client.Fault{Type: "status", Params: client.Params{"code": 503}},
+    Behavior: &client.Behavior{Type: "first_n", Params: client.Params{"n": 2}},
+})
+// A warning means the rule is stored but cannot apply yet. Read it before
+// believing a faulted count of zero.
+checkout(t)
+report, _ := faultline.Report(ctx)
+```
+
+A suite that starts its own Faultline should not take the default ports, which
+belong to whatever the developer is already running. `--admin-port 0` and
+`--proxy-port 0` ask the operating system for ports nothing is on, and the
+banner says which ones it got:
+
+```
+$ faultline serve --admin-port 0 --proxy-port 0
+admin: http://127.0.0.1:52233
+proxy: http://127.0.0.1:52232
+```
+
+Between two tests sharing one instance, `session reset` - `ResetSession` on
+either client - clears what was observed and re-arms every rule, so a spent
+`first_n` applies again without rebuilding it.
 
 ## For coding agents
 

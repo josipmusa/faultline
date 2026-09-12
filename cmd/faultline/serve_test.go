@@ -3,15 +3,18 @@ package main
 import (
 	"context"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	client "github.com/josipmusa/faultline/clients/go"
+	"github.com/josipmusa/faultline/internal/admin"
 	"github.com/josipmusa/faultline/internal/proxy/forward"
 	"github.com/josipmusa/faultline/internal/proxy/reverse"
 	"github.com/josipmusa/faultline/internal/tlsmitm"
@@ -479,6 +482,43 @@ func TestServeSaysHowToAttachAChild(t *testing.T) {
 	if cfg.Intercepting {
 		t.Error("config says HTTPS is intercepted while serve was given no CA")
 	}
+
+	cancel()
+	if err := <-served; err != nil {
+		t.Fatalf("serve: %v", err)
+	}
+}
+
+func TestServeHelpDocumentsTheAdminPortFlag(t *testing.T) {
+	got := runCmd(t, "serve", "--help")
+	if !strings.Contains(got, "--admin-port") {
+		t.Errorf("serve help is missing --admin-port:\n%s", got)
+	}
+}
+
+// A test suite driving Faultline needs an instance of its own, and the default
+// ports belong to whatever the developer is already running. Port 0 is how a
+// test asks for one nothing else can be on.
+func TestServeTakesTheAdminPortItIsGiven(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	out := &syncWriter{}
+	served := make(chan error, 1)
+	go func() {
+		served <- runCmdCtx(ctx, out, "serve", "--admin-port", "0", "--proxy-port", "0", "--intercept=false")
+	}()
+
+	addr := waitForAddr(t, out, "admin: http://")
+	if _, port, _ := net.SplitHostPort(addr); port == "0" || port == strconv.Itoa(admin.DefaultPort) {
+		t.Errorf("admin listening on %q, want a port the operating system chose", addr)
+	}
+
+	resp, err := http.Get("http://" + addr + "/api/health")
+	if err != nil {
+		t.Fatalf("reading health from the port that was asked for: %v", err)
+	}
+	_ = resp.Body.Close()
 
 	cancel()
 	if err := <-served; err != nil {

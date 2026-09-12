@@ -34,7 +34,7 @@ const shutdownTimeout = 10 * time.Second
 func newServeCmd() *cobra.Command {
 	var routeSpecs, portSpecs, bypassSpecs []string
 	var configPath string
-	var proxyPort int
+	var adminPort, proxyPort int
 	var intercept bool
 
 	cmd := &cobra.Command{
@@ -74,7 +74,7 @@ func newServeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return serve(cmd.Context(), cmd.OutOrStdout(), cfg, admin.DefaultPort, proxyPort, routes, ca, bypass)
+			return serve(cmd.Context(), cmd.OutOrStdout(), cfg, adminPort, proxyPort, routes, ca, bypass)
 		},
 	}
 
@@ -83,6 +83,9 @@ func newServeCmd() *cobra.Command {
 		"explicit route as name=url, repeatable (--route stripe=https://api.stripe.com)")
 	cmd.Flags().StringArrayVar(&portSpecs, "route-port", nil,
 		"local port for a route as name=port, repeatable (--route-port stripe=9100)")
+	cmd.Flags().IntVar(&adminPort, "admin-port", admin.DefaultPort,
+		"port for the admin API, the UI, and the MCP endpoint; 0 lets the operating system "+
+			"choose one, which is how a test suite gets an instance of its own")
 	cmd.Flags().IntVar(&proxyPort, "proxy-port", forward.DefaultPort,
 		"port for the forward proxy, the one HTTP_PROXY points at")
 	cmd.Flags().BoolVar(&intercept, "intercept", true,
