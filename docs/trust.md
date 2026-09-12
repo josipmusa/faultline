@@ -48,6 +48,28 @@ JDK's own `cacerts`, imports the Faultline CA into the copy with the JDK's
 still trusted. The store is rebuilt only when the CA or `cacerts` is newer than
 it, and it lives beside the CA in the config directory.
 
+## A process Faultline did not start
+
+A service in its own container gets the proxy address and the CA from outside,
+and nothing sets those variables for it. Most runtimes need only the two: the
+proxy variables in the environment and the certificate in the one their runtime
+reads, from the table above.
+
+A JVM needs the trust store built first, which is what `faultline trust java`
+is for. Pointed at a mounted CA it does what `faultline run` does for a child -
+copy `cacerts`, add the CA, render `JAVA_TOOL_OPTIONS` - and then runs the
+command after `--`, so it can be the image's entrypoint:
+
+```dockerfile
+ENTRYPOINT ["faultline", "trust", "java", "--", "java", "-jar", "/app/app.jar"]
+```
+
+With no command it prints the assignment for a shell to export instead. The
+certificate is the only half of the CA it needs, so the CA directory can be
+mounted read-only; the trust store is written to the temporary directory, or
+wherever `--out` says. [examples/compose](../examples/compose) is the whole
+arrangement.
+
 ## Runtimes that need more
 
 **Go on macOS.** Go reads roots from the Keychain on macOS and from no file at

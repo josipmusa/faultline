@@ -14,6 +14,10 @@ ordinary: none of them knows Faultline exists.
 All four call `https://httpbin.org` by default, and each README says how to
 point it elsewhere and how to run it through Faultline.
 
+[compose](compose) is not a fifth application. It is the Spring Boot one again,
+in its own container with Faultline as a companion next to it, which is how a
+service is attached when it runs the way production runs it.
+
 `vite-frontend` is the odd one out: the browser is not a child of
 `faultline run`, so its traffic is caught by pointing the Vite dev proxy at a
 Faultline route instead. Its README explains the arrangement.

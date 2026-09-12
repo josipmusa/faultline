@@ -53,6 +53,13 @@ func DefaultDir() (string, error) {
 	return filepath.Join(base, "faultline"), nil
 }
 
+// CertPath is where the CA certificate lives in dir. It is the half a client
+// needs in order to trust Faultline, and the only half anything but Faultline
+// itself should ever be given, so it is answerable without loading the key.
+func CertPath(dir string) string {
+	return filepath.Join(dir, certFile)
+}
+
 // Create generates a new self-signed CA in dir, creating the directory if
 // needed. The key is written owner-readable only. It returns ErrExists when
 // a CA is already there, and a descriptive error when only one of the two

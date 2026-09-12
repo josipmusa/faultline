@@ -195,3 +195,33 @@ func keytoolList(t *testing.T, store string) string {
 	}
 	return string(out)
 }
+
+func TestJavaEnvCombinesTheInheritedValueTheProxyAndTheTrustStore(t *testing.T) {
+	got := JavaEnv("-Xmx512m", "http://faultline:9001", []string{"localhost", ".internal"}, "/tmp/store.p12")
+
+	for _, want := range []string{
+		"-Xmx512m",
+		"-Dhttp.proxyHost=faultline",
+		"-Dhttps.proxyPort=9001",
+		"-Dhttp.nonProxyHosts=localhost|*.internal",
+		`-Djavax.net.ssl.trustStore="/tmp/store.p12"`,
+		"-Djavax.net.ssl.trustStorePassword=changeit",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("JavaEnv = %q, want it to contain %q", got, want)
+		}
+	}
+}
+
+// A container that is only being given the CA, with no proxy variables set,
+// still needs the trust store half: the proxy may be attached some other way.
+func TestJavaEnvWithoutAProxyStillCarriesTheTrustStore(t *testing.T) {
+	got := JavaEnv("", "", nil, "/tmp/store.p12")
+
+	if strings.Contains(got, "proxyHost") {
+		t.Errorf("JavaEnv = %q, want no proxy options", got)
+	}
+	if !strings.Contains(got, `-Djavax.net.ssl.trustStore="/tmp/store.p12"`) {
+		t.Errorf("JavaEnv = %q, want the trust store", got)
+	}
+}

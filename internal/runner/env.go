@@ -90,9 +90,8 @@ func Env(base []string, proxyURL string, noProxy []string, caPath, javaTrustStor
 			env = append(env, name+"="+caPath)
 		}
 	}
-	if options := javaOptions(proxyURL, noProxy, javaTrustStore); len(options) > 0 {
-		env = append(env, javaToolOptions+"="+
-			strings.TrimSpace(inheritedJava+" "+strings.Join(options, " ")))
+	if value := JavaEnv(inheritedJava, proxyURL, noProxy, javaTrustStore); value != "" {
+		env = append(env, javaToolOptions+"="+value)
 	}
 
 	return env

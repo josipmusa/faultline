@@ -1,0 +1,71 @@
+# Faultline as a companion container: the application runs unchanged in its own
+# image, and everything it calls goes through the Faultline next to it.
+#
+#   docker compose up --build
+#   curl localhost:8080/rest-client
+#   open http://localhost:9000
+name: faultline-compose-example
+
+services:
+  # HTTPS is intercepted only when the CA exists, and the application has to be
+  # given the same certificate to trust what Faultline then presents. Creating
+  # it is a one-shot service rather than part of the proxy's own start-up: the
+  # other two wait for it to finish, so neither can come up against a volume
+  # that has no CA in it yet.
+  faultline-ca:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    image: faultline:compose-example
+    command: ["ca", "init"]
+    volumes:
+      - faultline-ca:/var/lib/faultline
+
+  faultline:
+    image: faultline:compose-example
+    # The tag is built by faultline-ca above and exists nowhere else.
+    pull_policy: never
+    depends_on:
+      faultline-ca:
+        condition: service_completed_successfully
+    # Localhost inside a container is the container, so the published ports
+    # would be dead ends without this.
+    command: ["serve", "--bind", "0.0.0.0"]
+    volumes:
+      - faultline-ca:/var/lib/faultline
+    ports:
+      # The UI, the API and the MCP endpoint. The forward proxy on 9001 is not
+      # published: it is reached over the compose network, by name.
+      - "9000:9000"
+
+  app:
+    build:
+      # The context is the repository, so the image can build both the example
+      # and the faultline binary its entrypoint needs.
+      context: ../..
+      dockerfile: examples/compose/app.Dockerfile
+    depends_on:
+      faultline-ca:
+        condition: service_completed_successfully
+      faultline:
+        condition: service_started
+    environment:
+      # A JVM reads none of these. They are here because they are what any
+      # other runtime in this position would read, and because the entrypoint
+      # turns them into the system properties a JVM does read.
+      HTTP_PROXY: http://faultline:9001
+      HTTPS_PROXY: http://faultline:9001
+      NO_PROXY: localhost,127.0.0.1
+      # Where the image puts the CA, and so where the entrypoint looks for it
+      # without being told.
+      XDG_CONFIG_HOME: /var/lib
+    volumes:
+      # Read-only: the certificate is the only half of the CA an application
+      # should ever see, and the trust store is built in the container's own
+      # temporary directory.
+      - faultline-ca:/var/lib/faultline:ro
+    ports:
+      - "8080:8080"
+
+volumes:
+  faultline-ca:

@@ -125,3 +125,13 @@ func TestLoadRejectsMalformedFiles(t *testing.T) {
 		t.Errorf("Load with a broken certificate: error = %v, want one naming ca.crt", err)
 	}
 }
+
+// A container is given the certificate and never the key, so the path of the
+// certificate alone has to be answerable without loading the CA.
+func TestCertPathNamesTheCertificateWithoutLoadingIt(t *testing.T) {
+	dir := t.TempDir()
+
+	if got, want := CertPath(dir), filepath.Join(dir, "ca.crt"); got != want {
+		t.Errorf("CertPath = %q, want %q", got, want)
+	}
+}

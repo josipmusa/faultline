@@ -25,6 +25,7 @@ func newRootCmd() *cobra.Command {
 		newEventsCmd(),
 		newUpstreamsCmd(),
 		newCACmd(),
+		newTrustCmd(),
 		newMCPCmd(),
 		newVersionCmd(),
 	)

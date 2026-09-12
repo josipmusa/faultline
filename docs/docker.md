@@ -75,6 +75,29 @@ docker run --rm -v "$PWD":/work -p 9000:9000 -p 9001:9001 \
 Rules added through the UI or the API are written back to that file, as they are
 outside a container.
 
+## Next to an application, in Compose
+
+The image is most useful as a companion container: the application keeps its own
+image and start command, and its calls go through the Faultline beside it. It
+needs the proxy address as environment variables, the CA volume mounted
+read-only, and - for a JVM, which reads neither of those on its own - the
+`faultline trust java` entrypoint helper this image also carries:
+
+```dockerfile
+COPY --from=ghcr.io/josipmusa/faultline /usr/local/bin/faultline /usr/local/bin/faultline
+ENTRYPOINT ["faultline", "trust", "java", "--", "java", "-jar", "/app/app.jar"]
+```
+
+It builds a trust store from the mounted CA by copying the JDK's own `cacerts`
+and adding to the copy, renders `JAVA_TOOL_OPTIONS` with that store and with the
+proxy variables as the system properties a JVM does read, and then runs the
+command after `--`. With no command it prints the assignment instead, for a
+shell to export.
+
+[examples/compose](../examples/compose) is the whole arrangement, working:
+Faultline, a one-shot service that creates the CA before either of the others
+starts, and the Spring Boot example unchanged.
+
 ## Ports
 
 | Port | What |
