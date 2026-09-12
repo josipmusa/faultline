@@ -140,17 +140,21 @@ func run(ctx context.Context, out, errOut io.Writer, in io.Reader, cfg *config.C
 		return 1, err
 	}
 
-	if err := s.banner(errOut); err != nil {
-		return fail(err)
-	}
-
 	// The session turns its scenario on and reads its report over the same API
 	// a person or a test would, so there is one way to do each and not two.
 	c, err := client.New(s.adminURL())
 	if err != nil {
 		return fail(err)
 	}
+	// The scenario goes on before the addresses are printed. A route address is
+	// an invitation to send traffic to it, and announcing one while the
+	// rehearsal is still being set up leaves a window in which the caller gets
+	// the real upstream back.
 	if err := sess.activate(ctx, c, errOut); err != nil {
+		return fail(err)
+	}
+
+	if err := s.banner(errOut); err != nil {
 		return fail(err)
 	}
 

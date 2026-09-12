@@ -233,6 +233,15 @@ func TestRunActivatesTheScenarioForTheChildAndTurnsItOffAfter(t *testing.T) {
 		t.Errorf("stderr = %q, want the scenario named in the banner", errOut.String())
 	}
 
+	// A route address is an invitation to send traffic to it, so it is not
+	// printed until the run is in the state it advertises. Announcing it first
+	// leaves a window in which the rehearsal is not yet on and the caller gets
+	// the real upstream back.
+	banner := errOut.String()
+	if scenario, route := strings.Index(banner, "scenario: "), strings.Index(banner, "route api: "); scenario > route {
+		t.Errorf("the route was announced before the scenario was on:\n%s", banner)
+	}
+
 	report := readReport(t, reportPath)
 	if report.Total != 1 || report.Faulted != 1 {
 		t.Errorf("report = %+v, want the one faulted call", report)
