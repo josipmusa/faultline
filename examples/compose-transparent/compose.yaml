@@ -1,0 +1,75 @@
+# Faultline in transparent mode: the application shares Faultline's network
+# namespace, and iptables sends its outbound port 80 and 443 traffic through
+# Faultline without the application being configured, or even being aware.
+#
+#   docker compose up --build
+#   open http://localhost:9000
+#
+# Compare with ../compose, where the same companion is attached with proxy
+# environment variables instead.
+name: faultline-transparent-example
+
+services:
+  # The CA has to exist before the proxy starts, or HTTPS is tunnelled blindly
+  # and every response-tier rule is accepted and never applies. Building it in
+  # a one-shot service means the other two can wait for it.
+  faultline-ca:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      target: transparent
+    image: faultline:transparent-example
+    command: ["ca", "init"]
+    volumes:
+      - faultline-ca:/var/lib/faultline
+
+  faultline:
+    image: faultline:transparent-example
+    pull_policy: never
+    depends_on:
+      faultline-ca:
+        condition: service_completed_successfully
+    # Writing the redirect rules needs NET_ADMIN. They are written in this
+    # container's own network namespace, which is the only one they can reach,
+    # and the app below joins that namespace rather than the rules reaching out
+    # to it.
+    cap_add:
+      - NET_ADMIN
+    command: ["serve", "--bind", "0.0.0.0", "--transparent"]
+    volumes:
+      - faultline-ca:/var/lib/faultline
+    ports:
+      # The UI, the API and the MCP endpoint. The app publishes nothing of its
+      # own: it has no network namespace of its own to publish from.
+      - "9000:9000"
+
+  app:
+    build:
+      context: ../..
+      dockerfile: examples/compose-transparent/app.Dockerfile
+    depends_on:
+      faultline:
+        condition: service_started
+    # The application's network namespace is Faultline's, so the redirect rules
+    # apply to everything it sends. It keeps its own filesystem, its own
+    # processes and its own user.
+    network_mode: "service:faultline"
+    # Faultline runs as uid 65532 and its rules leave that uid alone, because
+    # its own calls to the upstream leave this same namespace. An application
+    # running as 65532 would be mistaken for Faultline and pass through unseen.
+    # This one runs as root, which is the default and is not 65532.
+    command: ["-url", "https://httpbin.org/get", "-every", "2s"]
+    environment:
+      # No HTTP_PROXY, no HTTPS_PROXY, no NO_PROXY. Nothing here attaches the
+      # application to Faultline; the packet filter does that.
+      #
+      # This one variable is not an attachment, it is trust: Go reads the CA
+      # from it, and without it the calls are still faulted, just at the
+      # encrypted tier where only connection faults apply. Comment it out and
+      # watch the tier in the UI change from intercepted to encrypted.
+      SSL_CERT_FILE: /var/lib/faultline/ca.crt
+    volumes:
+      - faultline-ca:/var/lib/faultline:ro
+
+volumes:
+  faultline-ca:

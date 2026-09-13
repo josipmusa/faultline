@@ -26,6 +26,7 @@ import (
 	"github.com/josipmusa/faultline/internal/proxy/reverse"
 	"github.com/josipmusa/faultline/internal/rules"
 	"github.com/josipmusa/faultline/internal/tlsmitm"
+	"github.com/josipmusa/faultline/internal/transparent"
 )
 
 // shutdownTimeout is how long in-flight requests get to finish after Ctrl-C.
@@ -41,7 +42,7 @@ func newServeCmd() *cobra.Command {
 	var configPath string
 	var bind string
 	var adminPort, proxyPort int
-	var intercept bool
+	var intercept, transparentMode bool
 
 	cmd := &cobra.Command{
 		Use:   "serve",
@@ -80,7 +81,14 @@ func newServeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return serve(cmd.Context(), cmd.OutOrStdout(), cfg, bind, adminPort, proxyPort, routes, ca, bypass)
+			if transparentMode {
+				// Refused here rather than after the ports are bound, so a
+				// platform that cannot do it says so before anything starts.
+				if err := transparent.Supported(); err != nil {
+					return fmt.Errorf("--transparent: %w", err)
+				}
+			}
+			return serve(cmd.Context(), cmd.OutOrStdout(), cfg, bind, adminPort, proxyPort, routes, ca, bypass, transparentMode)
 		},
 	}
 
@@ -99,6 +107,10 @@ func newServeCmd() *cobra.Command {
 			"choose one, which is how a test suite gets an instance of its own")
 	cmd.Flags().IntVar(&proxyPort, "proxy-port", forward.DefaultPort,
 		"port for the forward proxy, the one HTTP_PROXY points at")
+	cmd.Flags().BoolVar(&transparentMode, "transparent", false,
+		"redirect the outbound port 80 and 443 traffic of this network namespace into Faultline "+
+			"with iptables, so an application sharing the namespace needs no proxy variables at all. "+
+			"Linux only, and needs NET_ADMIN; the application must not run as the same user as Faultline")
 	cmd.Flags().BoolVar(&intercept, "intercept", true,
 		"terminate HTTPS with the local CA so response faults apply to it (default on when the CA exists)")
 	cmd.Flags().StringSliceVar(&bypassSpecs, "bypass", nil,
@@ -152,6 +164,11 @@ type stack struct {
 	ca       *tlsmitm.CA
 	bypass   *forward.Bypass
 	config   *config.File
+
+	// nat is the packet-filter rules transparent mode installed, nil when the
+	// mode is off, and transparentUID the user they leave alone.
+	nat            *transparent.NAT
+	transparentUID int
 }
 
 // start brings the whole stack up, or none of it. With a CA, CONNECT tunnels
@@ -273,6 +290,12 @@ func (s *stack) banner(out io.Writer) error {
 	if _, err := fmt.Fprintln(out, tlsLine); err != nil {
 		return err
 	}
+	if s.nat != nil {
+		if _, err := fmt.Fprintf(out, "transparent: outbound 80 and 443 redirected to %d and %d; traffic from uid %d is left alone, so the application must not run as it\n",
+			forward.TransparentHTTPPort, forward.TransparentHTTPSPort, s.transparentUID); err != nil {
+			return err
+		}
+	}
 	if patterns := s.bypass.Patterns(); len(patterns) > 0 {
 		if _, err := fmt.Fprintf(out, "bypass: %s\n", strings.Join(patterns, ", ")); err != nil {
 			return err
@@ -299,6 +322,10 @@ func (s *stack) watch(ctx context.Context) {
 
 func (s *stack) stop(ctx context.Context) error {
 	var errs []error
+	// The redirect rules come out first: while they are in force, every
+	// outbound call in the namespace is being sent to ports that are about to
+	// stop answering.
+	s.stopTransparent(ctx)
 	if s.config != nil {
 		s.config.Stop()
 	}
@@ -316,7 +343,7 @@ func (s *stack) stop(ctx context.Context) error {
 }
 
 // serve runs the stack until the process is interrupted.
-func serve(ctx context.Context, out io.Writer, cfg *config.Config, bind string, adminPort, proxyPort int, routes []reverse.Route, ca *tlsmitm.CA, bypass *forward.Bypass) error {
+func serve(ctx context.Context, out io.Writer, cfg *config.Config, bind string, adminPort, proxyPort int, routes []reverse.Route, ca *tlsmitm.CA, bypass *forward.Bypass, transparentMode bool) error {
 	// Install the signal handler before anything is listening, so an interrupt
 	// during startup shuts the parts that are already up down in order instead
 	// of killing the process where it stands.
@@ -326,6 +353,16 @@ func serve(ctx context.Context, out io.Writer, cfg *config.Config, bind string, 
 	s, err := start(cfg, bind, adminPort, proxyPort, routes, ca, bypass, nil)
 	if err != nil {
 		return err
+	}
+
+	// Transparent mode goes on last, once everything it redirects traffic to
+	// is listening, and takes the whole stack down with it if it cannot.
+	if transparentMode {
+		if err := s.startTransparent(ctx, bind); err != nil {
+			stopCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
+			defer cancel()
+			return errors.Join(err, s.stop(stopCtx))
+		}
 	}
 
 	if err := s.banner(out); err != nil {

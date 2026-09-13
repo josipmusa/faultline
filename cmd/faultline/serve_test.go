@@ -188,7 +188,7 @@ func TestServeRunsTheForwardProxy(t *testing.T) {
 	served := make(chan error, 1)
 	go func() {
 		// Port 0 everywhere: the test must not fight a real faultline.
-		served <- serve(ctx, out, nil, DefaultBind, 0, 0, nil, nil, nil)
+		served <- serve(ctx, out, nil, DefaultBind, 0, 0, nil, nil, nil, false)
 	}()
 
 	adminAddr := waitForAddr(t, out, "admin: http://")
@@ -323,7 +323,7 @@ func TestServeSaysWhetherItIntercepts(t *testing.T) {
 
 			out := &syncWriter{}
 			served := make(chan error, 1)
-			go func() { served <- serve(ctx, out, nil, DefaultBind, 0, 0, nil, tt.ca, nil) }()
+			go func() { served <- serve(ctx, out, nil, DefaultBind, 0, 0, nil, tt.ca, nil, false) }()
 
 			line := waitForLine(t, out, "tls: ")
 			if !strings.Contains(line, tt.want) {
@@ -389,7 +389,7 @@ func TestServeBypassesAHostWithoutRecording(t *testing.T) {
 
 	out := &syncWriter{}
 	served := make(chan error, 1)
-	go func() { served <- serve(ctx, out, nil, DefaultBind, 0, 0, nil, nil, bypass) }()
+	go func() { served <- serve(ctx, out, nil, DefaultBind, 0, 0, nil, nil, bypass, false) }()
 
 	adminAddr := waitForAddr(t, out, "admin: http://")
 	proxyAddr := waitForAddr(t, out, "proxy: http://")
@@ -459,7 +459,7 @@ func TestServeSaysHowToAttachAChild(t *testing.T) {
 
 	out := &syncWriter{}
 	served := make(chan error, 1)
-	go func() { served <- serve(ctx, out, nil, DefaultBind, 0, 0, nil, nil, bypass) }()
+	go func() { served <- serve(ctx, out, nil, DefaultBind, 0, 0, nil, nil, bypass, false) }()
 
 	adminAddr := waitForAddr(t, out, "admin: http://")
 	proxyAddr := waitForAddr(t, out, "proxy: http://")
@@ -539,7 +539,7 @@ func TestServeBindsEveryListenerToTheGivenAddress(t *testing.T) {
 	out := &syncWriter{}
 	served := make(chan error, 1)
 	routes := []reverse.Route{{Name: "up", Port: 0, Upstream: mustParse(t, up.URL)}}
-	go func() { served <- serve(ctx, out, nil, "0.0.0.0", 0, 0, routes, nil, nil) }()
+	go func() { served <- serve(ctx, out, nil, "0.0.0.0", 0, 0, routes, nil, nil, false) }()
 
 	for _, prefix := range []string{"admin: http://", "proxy: http://", "route up: http://"} {
 		addr := waitForAddr(t, out, prefix)

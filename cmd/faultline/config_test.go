@@ -264,7 +264,7 @@ func TestServeReloadsARuleWhileItRuns(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	served := make(chan error, 1)
 	go func() {
-		served <- serve(ctx, out, cfg, DefaultBind, 0, 0, []reverse.Route{{Name: "up", Upstream: mustParse(t, up.URL)}}, nil, nil)
+		served <- serve(ctx, out, cfg, DefaultBind, 0, 0, []reverse.Route{{Name: "up", Upstream: mustParse(t, up.URL)}}, nil, nil, false)
 	}()
 	defer func() {
 		cancel()

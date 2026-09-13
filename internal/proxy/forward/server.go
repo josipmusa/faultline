@@ -8,6 +8,11 @@
 // opens a tunnel through the fault dialer, which can only see the host, or,
 // when interception is on, terminates the TLS inside the tunnel and sends the
 // requests through the intercepted-tier transport.
+//
+// The package also serves transparent mode, where nothing was pointed at
+// Faultline at all: a packet filter redirects the traffic, the destination
+// comes from the kernel rather than from a request line, and the connection is
+// then handed to the same three pipelines. See transparent.go.
 package forward
 
 import (
@@ -19,6 +24,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httputil"
+	"net/netip"
 	"strconv"
 	"strings"
 	"sync"
@@ -46,10 +52,21 @@ type Server struct {
 	bypass    *Bypass
 	log       *slog.Logger
 
+	// origDst answers where a redirected connection was originally going.
+	// Nil means the kernel is asked; a test sets it, which is what lets
+	// transparent mode be tested off Linux.
+	origDst func(net.Conn) (netip.AddrPort, error)
+
 	mu   sync.Mutex
 	http *http.Server
 	addr string
 	wg   sync.WaitGroup
+
+	// transparent is the redirect listeners, and tctx the context their
+	// connections descend from, both empty until StartTransparent.
+	transparent []net.Listener
+	tctx        context.Context
+	tcancel     context.CancelFunc
 }
 
 // NewServer wires the forward proxy onto the fault pipeline: the transport
@@ -162,12 +179,15 @@ func (s *Server) Addr() string {
 // Shutdown stops accepting connections and waits for in-flight requests, giving
 // up when ctx expires. It is safe to call more than once.
 func (s *Server) Shutdown(ctx context.Context) error {
+	s.stopTransparent()
+
 	s.mu.Lock()
 	srv := s.http
 	s.http, s.addr = nil, ""
 	s.mu.Unlock()
 
 	if srv == nil {
+		s.wg.Wait()
 		return nil
 	}
 	err := srv.Shutdown(ctx)

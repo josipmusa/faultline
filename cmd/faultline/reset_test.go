@@ -28,7 +28,7 @@ func TestServeResetSessionRearmsTheRunningPipeline(t *testing.T) {
 	out := &syncWriter{}
 	served := make(chan error, 1)
 	go func() {
-		served <- serve(ctx, out, nil, DefaultBind, 0, 0, nil, nil, nil)
+		served <- serve(ctx, out, nil, DefaultBind, 0, 0, nil, nil, nil, false)
 	}()
 
 	adminAddr := waitForAddr(t, out, "admin: http://")

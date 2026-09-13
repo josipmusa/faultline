@@ -98,12 +98,59 @@ shell to export.
 Faultline, a one-shot service that creates the CA before either of the others
 starts, and the Spring Boot example unchanged.
 
+## Without configuring the application: transparent mode
+
+Some applications cannot be told about a proxy - a closed-source image, a
+runtime that ignores the proxy variables, a client library that was never given
+a proxy setting. `--transparent` attaches those without their cooperation:
+Faultline writes an iptables chain in its own network namespace that redirects
+outbound 80 and 443 to listeners of its own, and the application joins that
+namespace.
+
+```yaml
+  faultline:
+    image: ghcr.io/josipmusa/faultline:transparent
+    cap_add: [NET_ADMIN]
+    command: ["serve", "--bind", "0.0.0.0", "--transparent"]
+
+  app:
+    image: your-app
+    network_mode: "service:faultline"
+```
+
+There are no proxy variables anywhere in that, and nothing is added to the
+application's image. Four things to know:
+
+- **It is Linux only, and needs `NET_ADMIN`.** The redirect is iptables, and
+  finding out where a redirected connection was going is a Linux socket option.
+  Faultline refuses `--transparent` elsewhere rather than coming up half
+  attached.
+- **It needs the `transparent` image**, which carries the iptables binary the
+  default image deliberately does not.
+- **The application must not run as uid 65532.** Faultline's own calls to the
+  upstream leave the same namespace, so the rules exempt the uid it runs as.
+  Anything else using that uid would be mistaken for Faultline and pass through
+  unrecorded.
+- **The application publishes no ports of its own.** Its network namespace
+  belongs to the `faultline` service, so anything it serves is published there.
+
+Trust is unchanged, and is still the application's own doing. Transparent mode
+moves the traffic; it does not decrypt it. With no CA on the Faultline side,
+HTTPS is tunnelled blindly and the calls are seen at tier `encrypted`, where
+Faultline knows the host and nothing else and only connection faults apply.
+With a CA that the application does not trust, the calls fail on the
+certificate instead, and the event says so.
+
+[examples/compose-transparent](../examples/compose-transparent) is the whole
+arrangement, working.
+
 ## Ports
 
 | Port | What |
 | --- | --- |
 | 9000 | admin API, UI, WebSocket, MCP |
 | 9001 | forward proxy, the one `HTTP_PROXY` points at |
+| 9002, 9003 | redirected 80 and 443, in transparent mode only; nothing points a client at these |
 | 9100 | the first explicit route, then upwards |
 
 Routes are declared with `--route name=url`, which means overriding the default
@@ -122,4 +169,11 @@ Tags publish `ghcr.io/josipmusa/faultline:<version>`, `:<major>.<minor>`, and
 
 ```
 docker build -t faultline .
+```
+
+The transparent-mode image is a target in the same Dockerfile, published under
+the same tags with a `-transparent` suffix:
+
+```
+docker build --target transparent -t faultline:transparent .
 ```

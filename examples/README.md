@@ -18,6 +18,11 @@ point it elsewhere and how to run it through Faultline.
 in its own container with Faultline as a companion next to it, which is how a
 service is attached when it runs the way production runs it.
 
+[compose-transparent](compose-transparent) is the Go one in the same shape, with
+the other attach mode: it shares Faultline's network namespace and is redirected
+into it by iptables, so it has no proxy variables and no change to its image at
+all.
+
 `vite-frontend` is the odd one out: the browser is not a child of
 `faultline run`, so its traffic is caught by pointing the Vite dev proxy at a
 Faultline route instead. Its README explains the arrangement.
