@@ -322,6 +322,24 @@ answering and is not an error here. The note says when something is in the way
 - a host on the bypass list, or a client that did not trust the Faultline CA,
 which [docs/trust.md](trust.md) explains.
 
+## Compose
+
+```
+$ faultline compose inject --service api
+wrote docker-compose.faultline.yml
+```
+
+Inject reads the Compose file already in the directory and writes an override
+beside it that runs Faultline as a companion and points the named services at
+it. The project's own file is never changed, and neither is any application
+image. Repeat `--service` for more than one; `-f` names a Compose file other
+than the one Compose itself would read, `-o` an override other than
+`docker-compose.faultline.yml`, `--image` a Faultline image other than the
+published one, and `--force` replaces an override that is already there.
+
+[docs/docker.md](docker.md) has what the override contains and what a JVM needs
+on top of it.
+
 ## In tests
 
 The commands are a thin layer over the Go client in

@@ -1,0 +1,64 @@
+# Written by `faultline compose inject`. Faultline runs beside the application
+# as a companion container, and everything the services below call goes through
+# it. Nothing in the project's own Compose file was changed.
+#
+#   docker compose -f {{ .SourcePath }} -f {{ .OutputPath }} up
+#   open http://localhost:{{ .AdminPort }}
+#
+# Edit it, commit it, or regenerate it. It is an override like any other.
+
+services:
+  # HTTPS is intercepted only when the CA exists, and the application has to be
+  # given the same certificate to trust what Faultline then presents. Creating
+  # it is a one-shot service rather than part of the proxy's own start-up: the
+  # others wait for it to finish, so nothing comes up against a volume that has
+  # no CA in it yet.
+  faultline-ca:
+    image: {{ .Image }}
+    command: ["ca", "init"]
+    volumes:
+      - faultline-ca:{{ .CADir }}
+
+  faultline:
+    image: {{ .Image }}
+    depends_on:
+      faultline-ca:
+        condition: service_completed_successfully
+    # Localhost inside a container is the container, so the published port
+    # would be a dead end without this.
+    command: ["serve", "--bind", "0.0.0.0"]
+    volumes:
+      - faultline-ca:{{ .CADir }}
+    ports:
+      # The UI, the API and the MCP endpoint. The forward proxy on {{ .ProxyPort }} is not
+      # published: it is reached over the compose network, by name.
+      - "{{ .AdminPort }}:{{ .AdminPort }}"
+{{ range .Services }}
+  # Attached to Faultline by the proxy variables, and told to trust the CA it
+  # signs with. The image is untouched.
+  {{ .Name }}:
+    depends_on:
+      faultline-ca:
+        condition: service_completed_successfully
+      faultline:
+        condition: service_started
+    environment:
+      HTTP_PROXY: {{ $.ProxyURL }}
+      HTTPS_PROXY: {{ $.ProxyURL }}
+      NO_PROXY: {{ $.NoProxy }}
+      # The CA, named the way each runtime looks for it. A runtime that reads
+      # none of these still has its connections faulted; it sees them at the
+      # encrypted tier, where only connection faults apply. A JVM is that case:
+      # see docs/trust.md.
+      SSL_CERT_FILE: {{ $.CACertPath }}
+      NODE_EXTRA_CA_CERTS: {{ $.CACertPath }}
+      REQUESTS_CA_BUNDLE: {{ $.CACertPath }}
+      CURL_CA_BUNDLE: {{ $.CACertPath }}
+      XDG_CONFIG_HOME: {{ $.ConfigHome }}
+    volumes:
+      # Read-only: the certificate is the only half of the CA an application
+      # should ever see.
+      - faultline-ca:{{ $.CADir }}:ro
+{{ end }}
+volumes:
+  faultline-ca:

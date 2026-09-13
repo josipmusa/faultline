@@ -98,6 +98,31 @@ shell to export.
 Faultline, a one-shot service that creates the CA before either of the others
 starts, and the Spring Boot example unchanged.
 
+### Generating the override
+
+`faultline compose inject` writes that arrangement for a project that has none.
+It reads the Compose file already there and writes an override beside it,
+leaving the original alone:
+
+```
+faultline compose inject --service api --service worker
+docker compose -f compose.yaml -f docker-compose.faultline.yml up
+```
+
+The override carries the two Faultline services and the CA volume, and gives
+each named service the proxy variables, the CA mounted read-only, and the CA
+path under every name a runtime looks for it by - `SSL_CERT_FILE`,
+`NODE_EXTRA_CA_CERTS`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`. A Go, Node,
+Python or curl-based service therefore needs no change to its image at all. A
+JVM reads none of them and still needs the entrypoint helper above; `inject`
+says so when it finishes.
+
+It is an ordinary override: read it, edit it, commit it. `--image` names a
+Faultline image other than the published one, `-f` a Compose file other than
+the one Compose itself would read, `-o` an override other than
+`docker-compose.faultline.yml`, and an override already there is never
+overwritten without `--force`.
+
 ## Without configuring the application: transparent mode
 
 Some applications cannot be told about a proxy - a closed-source image, a

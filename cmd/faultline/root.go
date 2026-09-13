@@ -24,6 +24,7 @@ func newRootCmd() *cobra.Command {
 		newSessionCmd(),
 		newEventsCmd(),
 		newUpstreamsCmd(),
+		newComposeCmd(),
 		newCACmd(),
 		newTrustCmd(),
 		newMCPCmd(),
