@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 
 import { getCapture } from '@/lib/api';
 import { decodeBody, type DecodedBody } from '@/lib/body';
+import { captureNotice } from '@/lib/captureNotice';
 import type { Capture, CaptureSide, Event, Rule } from '@/types';
 
 import { FaultBadge, TierBadge } from './badges';
@@ -91,8 +92,9 @@ export function EventInspector({ event, rule, onOpenRule, onClose }: EventInspec
 
         {load.state === 'loaded' && (
           <>
-            <Side title="Request" side={load.capture.request} />
-            <Side title="Response" side={load.capture.response} />
+            {captureNotice(load.capture) && <Notice tone="info">{captureNotice(load.capture)}</Notice>}
+            <Side title="Request" side={load.capture.request} bodies={load.capture.bodies} />
+            <Side title="Response" side={load.capture.response} bodies={load.capture.bodies} />
           </>
         )}
       </div>
@@ -100,7 +102,7 @@ export function EventInspector({ event, rule, onOpenRule, onClose }: EventInspec
   );
 }
 
-function Side({ title, side }: { title: string; side: CaptureSide }) {
+function Side({ title, side, bodies }: { title: string; side: CaptureSide; bodies: boolean }) {
   const names = Object.keys(side.headers ?? {}).sort();
   const body = decodeBody(side.body);
 
@@ -121,7 +123,11 @@ function Side({ title, side }: { title: string; side: CaptureSide }) {
         </dl>
       )}
 
-      <Body body={body} truncated={side.truncated} />
+      {bodies ? (
+        <Body body={body} truncated={side.truncated} />
+      ) : (
+        <p className="text-xs text-zinc-600">Body not captured.</p>
+      )}
     </section>
   );
 }

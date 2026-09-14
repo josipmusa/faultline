@@ -28,6 +28,7 @@ func newRunCmd() *cobra.Command {
 	var routeSpecs []string
 	var configPath, scenario, reportPath string
 	var adminPort, proxyPort int
+	var noBodies bool
 
 	cmd := &cobra.Command{
 		Use:   "run -- <command> [args...]",
@@ -94,7 +95,7 @@ func newRunCmd() *cobra.Command {
 			}
 
 			code, err := run(cmd.Context(), cmd.OutOrStdout(), cmd.ErrOrStderr(), cmd.InOrStdin(),
-				cfg, adminPort, proxyPort, routes, ca, bypass, sess, args)
+				cfg, adminPort, proxyPort, routes, ca, bypass, sess, args, !noBodies)
 			if err != nil {
 				return err
 			}
@@ -121,6 +122,8 @@ func newRunCmd() *cobra.Command {
 		"port for the forward proxy the child is pointed at, for when another Faultline "+
 			"already holds the default; 0 lets the operating system choose one")
 
+	cmd.Flags().BoolVar(&noBodies, "no-bodies", false, noBodiesFlagHelp)
+
 	// Everything after the command name belongs to the child, flags included.
 	cmd.Flags().SetInterspersed(false)
 
@@ -130,7 +133,7 @@ func newRunCmd() *cobra.Command {
 // run brings the stack up, runs args under it, and takes it down again once
 // the child is gone. The returned code is the child's, so the caller can exit
 // with it. Faultline's own output goes to errOut: stdout is the child's.
-func run(ctx context.Context, out, errOut io.Writer, in io.Reader, cfg *config.Config, adminPort, proxyPort int, routes []reverse.Route, ca *tlsmitm.CA, bypass *forward.Bypass, sess session, args []string) (int, error) {
+func run(ctx context.Context, out, errOut io.Writer, in io.Reader, cfg *config.Config, adminPort, proxyPort int, routes []reverse.Route, ca *tlsmitm.CA, bypass *forward.Bypass, sess session, args []string, captureBodies bool) (int, error) {
 	caPath := ""
 	if ca != nil {
 		caPath = ca.CertPath
@@ -138,7 +141,7 @@ func run(ctx context.Context, out, errOut io.Writer, in io.Reader, cfg *config.C
 	javaStore := runner.JavaTrustStoreOrNone(caPath, errOut)
 	trustVars := runner.TrustVars(caPath, javaStore)
 
-	s, err := start(cfg, DefaultBind, adminPort, proxyPort, routes, ca, bypass, trustVars)
+	s, err := start(cfg, DefaultBind, adminPort, proxyPort, routes, ca, bypass, trustVars, captureBodies)
 	if err != nil {
 		return 1, explainBind(err)
 	}

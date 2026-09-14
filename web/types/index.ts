@@ -39,6 +39,9 @@ export interface CaptureSide {
  * Encrypted traffic has none, which is why the inspector explains the tier. */
 export interface Capture {
   event_id: string;
+  /** Whether bodies were captured at all. False under --no-bodies, where the
+   * headers are still here and an empty body means nothing. */
+  bodies: boolean;
   request: CaptureSide;
   response: CaptureSide;
 }

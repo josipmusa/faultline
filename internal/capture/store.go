@@ -34,8 +34,13 @@ type Side struct {
 
 // Capture is one request and its response, keyed by the id of the event that
 // recorded them.
+//
+// Bodies says whether bodies were captured at all. Under --no-bodies they are
+// not, and an empty body would otherwise read as a request that had none,
+// which is a different fact about the traffic.
 type Capture struct {
 	EventID  string `json:"event_id"`
+	Bodies   bool   `json:"bodies"`
 	Request  Side   `json:"request"`
 	Response Side   `json:"response"`
 }

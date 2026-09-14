@@ -37,12 +37,16 @@ const shutdownTimeout = 10 * time.Second
 // off the machine is something to ask for, never something to inherit.
 const DefaultBind = "127.0.0.1"
 
+const noBodiesFlagHelp = "capture the headers of every exchange but not the bodies. " +
+	"The inspector still shows what was called and what came back, and Faultline stops holding " +
+	"payloads it has no business holding. Headers are still captured, credentials included"
+
 func newServeCmd() *cobra.Command {
 	var routeSpecs, portSpecs, bypassSpecs []string
 	var configPath string
 	var bind string
 	var adminPort, proxyPort int
-	var intercept, transparentMode bool
+	var intercept, transparentMode, noBodies bool
 
 	cmd := &cobra.Command{
 		Use:   "serve",
@@ -88,7 +92,7 @@ func newServeCmd() *cobra.Command {
 					return fmt.Errorf("--transparent: %w", err)
 				}
 			}
-			return serve(cmd.Context(), cmd.OutOrStdout(), cfg, bind, adminPort, proxyPort, routes, ca, bypass, transparentMode)
+			return serve(cmd.Context(), cmd.OutOrStdout(), cfg, bind, adminPort, proxyPort, routes, ca, bypass, transparentMode, !noBodies)
 		},
 	}
 
@@ -111,6 +115,7 @@ func newServeCmd() *cobra.Command {
 		"redirect the outbound port 80 and 443 traffic of this network namespace into Faultline "+
 			"with iptables, so an application sharing the namespace needs no proxy variables at all. "+
 			"Linux only, and needs NET_ADMIN; the application must not run as the same user as Faultline")
+	cmd.Flags().BoolVar(&noBodies, "no-bodies", false, noBodiesFlagHelp)
 	cmd.Flags().BoolVar(&intercept, "intercept", true,
 		"terminate HTTPS with the local CA so response faults apply to it (default on when the CA exists)")
 	cmd.Flags().StringSliceVar(&bypassSpecs, "bypass", nil,
@@ -190,7 +195,7 @@ type stack struct {
 // list, which may be nil, skip the proxy's pipeline altogether. trustVars are
 // the trust variables a wrapped child was given, empty for serve, which runs
 // no child.
-func start(cfg *config.Config, bind string, adminPort, proxyPort int, routes []reverse.Route, ca *tlsmitm.CA, bypass *forward.Bypass, trustVars []string) (*stack, error) {
+func start(cfg *config.Config, bind string, adminPort, proxyPort int, routes []reverse.Route, ca *tlsmitm.CA, bypass *forward.Bypass, trustVars []string, captureBodies bool) (*stack, error) {
 	s := &stack{
 		routes:   routes,
 		recorder: events.NewRecorder(events.DefaultSize),
@@ -214,7 +219,7 @@ func start(cfg *config.Config, bind string, adminPort, proxyPort int, routes []r
 	// exchange the same way whichever door it came through.
 	captures := capture.NewStore(0)
 	pipeline := faults.New(nil, store, s.recorder, events.TierPlain, gate)
-	pipeline.CaptureTo(captures)
+	pipeline.CaptureTo(captures, captureBodies)
 
 	fail := func(err error) (*stack, error) {
 		_ = s.stop(context.Background())
@@ -241,7 +246,7 @@ func start(cfg *config.Config, bind string, adminPort, proxyPort int, routes []r
 			return fail(err)
 		}
 		intercepted := faults.New(nil, store, s.recorder, events.TierIntercepted, gate)
-		intercepted.CaptureTo(captures)
+		intercepted.CaptureTo(captures, captureBodies)
 		interceptor = forward.NewInterceptor(issuer, intercepted, s.recorder, nil)
 	}
 
@@ -365,14 +370,14 @@ func (s *stack) stop(ctx context.Context) error {
 }
 
 // serve runs the stack until the process is interrupted.
-func serve(ctx context.Context, out io.Writer, cfg *config.Config, bind string, adminPort, proxyPort int, routes []reverse.Route, ca *tlsmitm.CA, bypass *forward.Bypass, transparentMode bool) error {
+func serve(ctx context.Context, out io.Writer, cfg *config.Config, bind string, adminPort, proxyPort int, routes []reverse.Route, ca *tlsmitm.CA, bypass *forward.Bypass, transparentMode, captureBodies bool) error {
 	// Install the signal handler before anything is listening, so an interrupt
 	// during startup shuts the parts that are already up down in order instead
 	// of killing the process where it stands.
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	s, err := start(cfg, bind, adminPort, proxyPort, routes, ca, bypass, nil)
+	s, err := start(cfg, bind, adminPort, proxyPort, routes, ca, bypass, nil, captureBodies)
 	if err != nil {
 		return explainBind(err)
 	}

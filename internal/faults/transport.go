@@ -30,6 +30,9 @@ type Transport struct {
 	// captures holds the headers and bodies of recent exchanges, or is nil
 	// when nothing is capturing them. Set with CaptureTo.
 	captures *capture.Store
+	// bodies is whether payloads are captured along with the headers: false
+	// under --no-bodies.
+	bodies bool
 }
 
 // Base is what the pipeline dials with, without the pipeline: the transport a

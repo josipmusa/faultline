@@ -27,7 +27,7 @@ func TestRunGivesTheChildTheProxy(t *testing.T) {
 	}
 
 	code, err := run(context.Background(), &out, &errOut, nil, nil, 0, 0, nil, nil, bypass, session{},
-		[]string{"sh", "-c", "echo $HTTP_PROXY; echo $https_proxy; echo $NO_PROXY"})
+		[]string{"sh", "-c", "echo $HTTP_PROXY; echo $https_proxy; echo $NO_PROXY"}, true)
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -56,7 +56,7 @@ func TestRunGivesTheChildTheProxy(t *testing.T) {
 
 func TestRunPrintsTheAdminURLBeforeTheChildRuns(t *testing.T) {
 	var out, errOut bytes.Buffer
-	code, err := run(context.Background(), &out, &errOut, nil, nil, 0, 0, nil, nil, nil, session{}, []string{"sh", "-c", "exit 0"})
+	code, err := run(context.Background(), &out, &errOut, nil, nil, 0, 0, nil, nil, nil, session{}, []string{"sh", "-c", "exit 0"}, true)
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -73,7 +73,7 @@ func TestRunPrintsTheAdminURLBeforeTheChildRuns(t *testing.T) {
 
 func TestRunMirrorsTheChildsExitCode(t *testing.T) {
 	var out, errOut bytes.Buffer
-	code, err := run(context.Background(), &out, &errOut, nil, nil, 0, 0, nil, nil, nil, session{}, []string{"sh", "-c", "exit 7"})
+	code, err := run(context.Background(), &out, &errOut, nil, nil, 0, 0, nil, nil, nil, session{}, []string{"sh", "-c", "exit 7"}, true)
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -84,7 +84,7 @@ func TestRunMirrorsTheChildsExitCode(t *testing.T) {
 
 func TestRunReportsACommandItCannotStart(t *testing.T) {
 	var out, errOut bytes.Buffer
-	if _, err := run(context.Background(), &out, &errOut, nil, nil, 0, 0, nil, nil, nil, session{}, []string{"faultline-no-such-command"}); err == nil {
+	if _, err := run(context.Background(), &out, &errOut, nil, nil, 0, 0, nil, nil, nil, session{}, []string{"faultline-no-such-command"}, true); err == nil {
 		t.Fatal("run accepted a command that does not exist")
 	}
 	// There was no run, so there is no report: a table of zeros above the
@@ -151,7 +151,7 @@ func TestRunGivesTheChildTheCA(t *testing.T) {
 
 	var out, errOut bytes.Buffer
 	code, err := run(context.Background(), &out, &errOut, nil, nil, 0, 0, nil, ca, nil, session{},
-		[]string{"sh", "-c", "echo $SSL_CERT_FILE; echo $NODE_EXTRA_CA_CERTS"})
+		[]string{"sh", "-c", "echo $SSL_CERT_FILE; echo $NODE_EXTRA_CA_CERTS"}, true)
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -208,7 +208,7 @@ func TestRunGivesTheChildAJavaTrustStore(t *testing.T) {
 
 	var out, errOut bytes.Buffer
 	code, err := run(context.Background(), &out, &errOut, nil, nil, 0, 0, nil, ca, nil, session{},
-		[]string{"sh", "-c", "echo $JAVA_TOOL_OPTIONS"})
+		[]string{"sh", "-c", "echo $JAVA_TOOL_OPTIONS"}, true)
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -241,7 +241,7 @@ func TestRunSaysSoWhenTheTrustStoreCannotBeBuilt(t *testing.T) {
 
 	var out, errOut bytes.Buffer
 	code, err := run(context.Background(), &out, &errOut, nil, nil, 0, 0, nil, ca, nil, session{},
-		[]string{"sh", "-c", "echo $JAVA_TOOL_OPTIONS"})
+		[]string{"sh", "-c", "echo $JAVA_TOOL_OPTIONS"}, true)
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -300,7 +300,7 @@ func TestRunServesAnExplicitRoute(t *testing.T) {
 
 	ran := make(chan error, 1)
 	go func() {
-		_, err := run(context.Background(), &out, errOut, nil, nil, 0, 0, routes, nil, nil, session{}, child)
+		_, err := run(context.Background(), &out, errOut, nil, nil, 0, 0, routes, nil, nil, session{}, child, true)
 		ran <- err
 	}()
 	defer func() {
