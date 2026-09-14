@@ -6,6 +6,26 @@ Your application only accepts that certificate if it trusts the CA. When it does
 not, the call fails during the handshake, before any request exists, so the
 application sees a bare TLS error and Faultline sees a client that hung up.
 
+## Runtime by runtime
+
+| Runtime | Under `faultline run` | In a container or a process Faultline did not start |
+| --- | --- | --- |
+| Go on Linux | nothing to do; reads `SSL_CERT_FILE` | set `SSL_CERT_FILE` to the CA path |
+| Go on macOS | `faultline ca install`; Go reads the Keychain and no file | same |
+| Node | nothing to do; reads `NODE_EXTRA_CA_CERTS` | set `NODE_EXTRA_CA_CERTS` |
+| Python `requests`, `httpx` | nothing to do; read `REQUESTS_CA_BUNDLE` | set `REQUESTS_CA_BUNDLE` |
+| curl, OpenSSL-based tools | nothing to do; read `CURL_CA_BUNDLE` or `SSL_CERT_FILE` | set the same |
+| git | nothing to do; reads `GIT_SSL_CAINFO` | set `GIT_SSL_CAINFO` |
+| Java | nothing to do; `JAVA_TOOL_OPTIONS` points at a trust store Faultline builds | `faultline trust java -- <command>` as the entrypoint, see [below](#a-process-faultline-did-not-start) |
+| .NET, Rust, Ruby, anything else | depends on what its TLS library reads; `faultline ca install` covers the ones that read the system store | add `faultline ca path` to whatever store it reads |
+| Browsers | not the child; use an [explicit route](frontends.md) instead | `faultline ca install`, and Firefox has its own store |
+| Clients that pin certificates | cannot be intercepted; use connection faults | same |
+
+`faultline compose inject` sets the container column's variables for the
+services it is given, so a Go, Node, Python or curl-based service under Compose
+needs no change to its image. The rest of this page is the detail behind each
+row.
+
 That is the case this document is about. You get here from a line like this
 during a run:
 

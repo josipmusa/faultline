@@ -23,7 +23,20 @@ type object = map[string]any
 // anyone writing it out a second time. The checked in copy at
 // schema/faultline.schema.json is this, and a test keeps the two the same.
 func JSONSchema() ([]byte, error) {
-	doc := object{
+	var out bytes.Buffer
+	enc := json.NewEncoder(&out)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(schemaDocument()); err != nil {
+		return nil, fmt.Errorf("config: writing the JSON Schema: %w", err)
+	}
+	return out.Bytes(), nil
+}
+
+// schemaDocument is the schema as one object tree. JSONSchema encodes it for
+// editors and Reference renders it as Markdown for readers, so the two never
+// describe a different set of faults or a different bound.
+func schemaDocument() object {
+	return object{
 		"$schema":              "https://json-schema.org/draft/2020-12/schema",
 		"$id":                  SchemaID,
 		"title":                "Faultline configuration",
@@ -65,14 +78,6 @@ func JSONSchema() ([]byte, error) {
 			"behavior": catalogueSchema("behavior", behaviorVariants()),
 		},
 	}
-
-	var out bytes.Buffer
-	enc := json.NewEncoder(&out)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(doc); err != nil {
-		return nil, fmt.Errorf("config: writing the JSON Schema: %w", err)
-	}
-	return out.Bytes(), nil
 }
 
 func ref(name string) object { return object{"$ref": "#/$defs/" + name} }

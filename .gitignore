@@ -53,6 +53,7 @@ Thumbs.db
 
 # Agent scratch
 .claude/settings.local.json
+CLAUDE.local.md
 
 # Playwright mcp
 .playwright-mcp

@@ -20,7 +20,7 @@ GO_PKGS := $(shell go list ./... | grep -v /web/node_modules/)
 GOBIN   := $(shell go env GOPATH)/bin
 GOLANGCI_VERSION := v2.13.2
 
-.PHONY: build ui clients test test-go test-ui test-clients lint lint-go lint-ui lint-clients tools run schema clean
+.PHONY: build ui clients test test-go test-ui test-clients lint lint-go lint-ui lint-clients tools run schema docs clean
 
 build:
 	go build $(UI_TAG) -ldflags "-X main.version=$(VERSION)" -o $(BIN) $(PKG)
@@ -88,6 +88,12 @@ tools:
 # the checked in copy is stale.
 schema:
 	go test ./internal/config -run TestPublishedSchemaIsUpToDate -update
+
+# docs/reference.md is rendered from the same schema, so the reference a reader
+# gets and the schema an editor checks against never disagree. A test fails
+# when the checked in copy is stale.
+docs: schema
+	go test ./internal/config -run TestPublishedReferenceIsUpToDate -update
 
 run: build
 	./$(BIN) serve

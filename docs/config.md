@@ -179,8 +179,8 @@ the list, so Faultline never proxies itself.
 
 A rule is an `id`, a `name`, what it `match`es, the `fault` it applies, and
 optionally the `behavior` that decides when the fault applies. This is the same
-rule the API takes, written in YAML; `docs` on each fault and its parameters
-live in the schema.
+rule the API takes, written in YAML. [faults.md](faults.md) shows every fault in
+use and [reference.md](reference.md) lists every parameter with its bounds.
 
 - `id` is how everything else names the rule: scenarios, the API, the
   `Faultline-Fault` header. Letters, digits, `-`, `_` and `.`, and it has to be

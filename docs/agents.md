@@ -40,35 +40,51 @@ claude mcp add --transport http faultline http://localhost:9000/mcp
 
 ## The tools
 
-**Seeing what the application calls**
+Thirteen tools, in the order a check uses them: see what the application
+calls, break one thing, run the application, read what it did, start over.
+Every input is optional unless the table says otherwise.
 
-| tool | what it answers |
-| --- | --- |
-| `list_upstreams` | which hosts the application actually calls, with request, fault and error counts, and the tier |
-| `get_events` | the recorded calls, oldest first, filterable by host and by whether a rule broke them |
-| `wait_for_event` | the application's next matching call, or that none came before the timeout |
-| `get_report` | totals for the session: requests, faulted, retries, the longest retry wait, abandoned attempts |
+### Seeing what the application calls
 
 `list_upstreams` is where to start. It reports what the application really
-calls, which is often not what its configuration suggests.
+calls, which is often not what its configuration suggests, and the tier of
+each host, which decides whether a response fault can apply.
 
-**Breaking things**
+| tool | input | output |
+| --- | --- | --- |
+| `list_upstreams` | none | `upstreams`: each host with `tier`, `requests`, `faulted`, `errors`, `last_seen` and a `hint` when something is in the way |
+| `get_events` | `host` to keep one upstream's calls; `faulted` true for the calls a rule broke, false for the untouched ones; `limit` for the most recent N | `events`, oldest first, each with host, method, path, status, duration, bytes, tier, `faulted` and the `rule_id` that acted |
+| `wait_for_event` | `host`, `faulted`, `timeout_ms` (10000 by default, 300000 at most) | `matched`, the `event` when one came, and `waited_ms` |
+| `get_report` | none | `total`, `faulted`, `retries`, `max_retry_wait_ms`, `abandoned`, and `warnings` for every rule in force that cannot fire |
 
-| tool | what it does |
-| --- | --- |
-| `add_rule` | add a rule and put it in force |
-| `list_rules` | the rules Faultline holds, in the order it applies them |
-| `remove_rule` | delete a rule |
-| `set_rule_enabled` | turn a rule on or off, which also re-arms its behavior |
-| `list_scenarios` | the scenarios the configuration file declares, and which is active |
-| `activate_scenario` | put a whole situation in force |
-| `deactivate_scenario` | take it out of force |
+Only calls recorded after `wait_for_event` begins count, so call it before
+exercising the application, not after.
 
-**Running the application**
+### Breaking things
+
+| tool | input | output |
+| --- | --- | --- |
+| `add_rule` | `name` (required), `match`, `fault` (required), `behavior`, `id`, `enabled` | the rule as stored, with its `id`, and `warnings` when it cannot apply yet |
+| `list_rules` | none | `rules`, in the order Faultline applies them |
+| `remove_rule` | `id` (required) | `removed`: the id that is gone |
+| `set_rule_enabled` | `id`, `enabled` (both required) | the rule as stored; either way its behavior state starts over |
+| `list_scenarios` | none | `scenarios`, each with `name`, `rules` and `active` |
+| `activate_scenario` | `name` (required) | the scenario; its rules are enabled and their behavior starts over, and whichever scenario was active goes off |
+| `deactivate_scenario` | `name` (required) | the scenario; its rules are disabled |
+
+`match` takes `host`, `method`, `path` and `header`, and everything left out
+matches everything. `path` is a glob: `/v1/charges/*` for one segment, `/v1/**`
+for any depth.
+
+### Running the application
 
 `start_wrapped` is `faultline run` as a tool: it runs a command with its
 outbound calls going through Faultline and reports the exit code, how long it
 took, and the end of each output stream.
+
+| tool | input | output |
+| --- | --- | --- |
+| `start_wrapped` | `command` (required, a list), `dir`, `timeout_ms` (60000 by default, 300000 at most) | `exit_code`, `timed_out`, `duration_ms`, `stdout_tail`, `stderr_tail`, `stdout_truncated`, `stderr_truncated` |
 
 ```json
 { "command": ["go", "test", "./..."], "dir": "examples/go-client", "timeout_ms": 120000 }
@@ -85,7 +101,11 @@ Only the end of each stream comes back - the last hundred lines or eight
 kilobytes, whichever is smaller - with `stdout_truncated` and
 `stderr_truncated` saying when there was more.
 
-**Starting over**
+### Starting over
+
+| tool | input | output |
+| --- | --- | --- |
+| `reset_session` | none | `reset`: true |
 
 `reset_session` clears the recorded calls and re-arms every rule, so a spent
 `first_n` applies again. It leaves the rules and the active scenario alone, so

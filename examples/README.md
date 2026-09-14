@@ -1,7 +1,7 @@
 # Examples
 
 Four small applications, one per runtime Faultline has to work with. They are
-what the roadmap's verification steps run against, and each is deliberately
+what the documentation's walkthroughs run against, and each is deliberately
 ordinary: none of them knows Faultline exists.
 
 | Example | Runtime | Start command |

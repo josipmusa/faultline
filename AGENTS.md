@@ -1,21 +1,19 @@
-# Faultline — Guide for coding agents
+# Faultline - Guide for coding agents
 
-Read this first. Then read SPEC.md for what the product does and ROADMAP.md for what to build next.
+Read this first. The README says what the product does; `docs/` says how each
+part behaves.
 
 ## What this project is
 
 Faultline is a single-binary HTTP and HTTPS fault-injection proxy for development and testing. It sits between an application and its dependencies, shows every outbound call, and can degrade those calls on purpose. Its front door is `faultline run -- <start command>`. It is written in Go with an embedded Next.js UI, and it exposes the same capabilities through a web UI, a CLI, an HTTP API, and an MCP server.
 
-Predecessor code lives in `../resilience-proxy` (reverse proxy, embedded UI) and `../resilience-proxy-service` (forward proxy). Port ideas and small pieces from them when a task says so. Do not copy their architecture: no database, no source-service concept, no JWT, no rule push over WebSocket.
-
 ## How to work
 
-- Work on exactly one ROADMAP task at a time. Say which one before starting.
-- Do not start the next task until the current one's Verify block passes. If verification is manual, stop, describe the steps to the human, and wait.
-- Tick the checkbox in ROADMAP.md when done and add a one-line note under the task if anything surprising happened.
+- Work on one task at a time. Say which one before starting.
 - If a task is unclear, conflicts with this file, or seems to need more than it says, stop and ask. Do not widen scope silently.
 - Never perform git actions (commit, branch, push, tag) unless the human asks explicitly.
 - Prefer the smallest change that satisfies the task. No speculative abstractions, no configurability that was not asked for.
+- Write the test first when the task is a behavior change. Run it, see it fail, then implement.
 
 ## Fixed decisions
 
@@ -88,7 +86,6 @@ Every message on the `/api/events/stream` WebSocket is a tagged envelope, so cli
 - Validate at the boundary: API handlers, config loader, CLI flags. Fail fast with a message that names the field.
 - Errors are wrapped with context and never swallowed. Log with `log/slog`.
 - Tests live next to code. Use `httptest` for upstreams. Run with `-race`. Target 80 percent coverage on `internal/`.
-- Write the test first when the task is a behavior change. Run it, see it fail, then implement.
 - UI: TypeScript strict, functional components, data fetched through one API module, no rule state pushed over the socket.
 
 ## Commands
@@ -96,18 +93,18 @@ Every message on the `/api/events/stream` WebSocket is a tagged envelope, so cli
 ```
 make build      # ./bin/faultline (embeds web/out if present)
 make ui         # builds web/ static export into web/out
-make test       # go test -race, then the UI's vitest suite
+make test       # go test -race, then the UI and client suites
 make lint       # go vet, golangci-lint, then eslint and tsc
-make run        # faultline serve with examples config
+make docs       # regenerate the schema and docs/reference.md from the catalogue
+make run        # faultline serve
 ```
 
 ## Definition of done for a task
 
-1. The Verify block passed and the output or the human's confirmation is recorded.
+1. The behavior was verified, by a test or by running it, and the result is in the conversation.
 2. Tests added or updated, `make test` and `make lint` clean.
 3. No new dependency without a sentence justifying it in the conversation.
-4. ROADMAP.md checkbox ticked.
-5. Docs touched if user-visible behavior changed.
+4. Docs touched if user-visible behavior changed. `docs/reference.md` and `schema/faultline.schema.json` are generated: run `make docs`.
 
 ## Things that look tempting and are wrong here
 

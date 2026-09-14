@@ -4,7 +4,7 @@ import { defineConfig } from 'vitest/config';
 
 // The stream client and the API module are plain TypeScript, deliberately, so
 // they need no DOM: their tests inject a fetch and a WebSocket. Components are
-// covered by the browser checks the ROADMAP's Verify blocks describe.
+// covered by checks in a real browser rather than by unit tests here.
 export default defineConfig({
   resolve: {
     alias: { '@': fileURLToPath(new URL('.', import.meta.url)) },
