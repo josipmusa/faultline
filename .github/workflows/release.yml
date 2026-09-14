@@ -17,6 +17,11 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      # Sigstore mints a signing certificate against this token, and the
+      # attestation and npm provenance are both bound to the same identity.
+      id-token: write
+      attestations: write
+      artifact-metadata: write
     steps:
       - name: Check out
         uses: actions/checkout@v7
@@ -40,6 +45,13 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
 
+      # GoReleaser shells out to cosign for the signature, so it has to be on
+      # the PATH before the release starts. Pinned to an exact version because
+      # this action publishes no moving major tag; dependabot keeps it current.
+      - name: Set up cosign
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: sigstore/cosign-installer@v4.1.2
+
       # GoReleaser wants the key as a file, and the tap is reached over SSH, so
       # the host key goes in known_hosts here rather than being accepted blindly
       # at push time.
@@ -61,12 +73,23 @@ jobs:
           args: >-
             ${{ startsWith(github.ref, 'refs/tags/')
                 && 'release --clean'
-                || 'release --snapshot --clean --skip=publish' }}
+                || 'release --snapshot --clean --skip=publish,sign' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Set by the step above on tags only. The snapshot run skips
           # publishing, so it never reads the key.
           HOMEBREW_TAP_DEPLOY_KEY_FILE: ${{ env.HOMEBREW_TAP_DEPLOY_KEY_FILE }}
+
+      # The signature says the artifacts came from Sigstore's view of this
+      # workflow; the attestation says which commit and which workflow file
+      # built them, and `gh attestation verify` reads it without any extra tool
+      # installed. checksums.txt names every archive, so attesting it attests
+      # all of them.
+      - name: Attest the archives
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: actions/attest@v4
+        with:
+          subject-checksums: ./dist/checksums.txt
 
       # Always, not only on tags: this reads the same dist/ a real release
       # produces, so a packaging mistake surfaces on the pull request that made
