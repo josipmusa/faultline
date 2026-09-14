@@ -557,8 +557,9 @@ Two things came out of it. **`faultline trust java` works on a JRE**, on `eclips
 
 Goal: a stranger can install and use it.
 
-- [ ] **9.1 Release pipeline.** GoReleaser builds Linux, macOS, Windows binaries for amd64 and arm64 on tags, publishes GitHub releases and the Docker image, and updates a Homebrew tap.
+- [x] **9.1 Release pipeline.** GoReleaser builds Linux, macOS, Windows binaries for amd64 and arm64 on tags, publishes GitHub releases and the Docker image, and updates a Homebrew tap.
   - Verify (Manual): tag `v0.1.0-rc1`, watch the workflow, `brew install josipmusa/tap/faultline` on a Mac, run `faultline version`.
+  - The tap push uses an SSH deploy key rather than a personal access token, the way Watt and Beanvan already publish to that tap: it reaches one repository and never expires. The image keeps its own workflow; GoReleaser owns everything else.
 - [ ] **9.2 GitHub Action.** `josipmusa/setup-faultline` action installing the binary and optionally starting it, with an example workflow running the Go example's integration test.
   - Verify (Manual): the example workflow passes on a pull request in the repository.
 - [ ] **9.3 Documentation.** README with the five-minute walkthrough and a GIF, `docs/` covering attach modes, trust setup per runtime, fault catalogue with examples, config reference generated from the schema, MCP tools reference, and troubleshooting.
