@@ -16,6 +16,23 @@ Faultline is a single binary. Its front door is:
 faultline run -- <your app's start command>
 ```
 
+## Install
+
+On macOS, from the tap:
+
+```
+brew install josipmusa/tap/faultline
+```
+
+Anywhere else, take the archive for your platform from the
+[latest release](https://github.com/josipmusa/faultline/releases/latest) and put
+the binary on your PATH. There is a container image too, described in
+[docs/docker.md](docs/docker.md):
+
+```
+docker run --rm -p 9000:9000 -p 9001:9001 ghcr.io/josipmusa/faultline:latest
+```
+
 ## Documents
 
 - [SPEC.md](SPEC.md) — what the product does.

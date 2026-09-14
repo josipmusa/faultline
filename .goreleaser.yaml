@@ -1,0 +1,82 @@
+version: 2
+
+# The published binaries are the only ones a stranger ever runs, so they are
+# built the way `make build` builds a release: the UI export in place first, and
+# the ui tag on. Without both, the binary compiles and then tells its user the
+# UI is missing.
+before:
+  hooks:
+    - make ui
+
+builds:
+  - id: faultline
+    main: ./cmd/faultline
+    binary: faultline
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -tags=ui
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+
+archives:
+  - formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    files:
+      - README.md
+      - LICENSE
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  use: github
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+
+release:
+  # A tag like v0.1.0-rc1 is a release candidate, and Homebrew hands out the
+  # latest non-prerelease, so this is what keeps `brew install` off an rc.
+  prerelease: auto
+
+# Homebrew expects a pre-built binary to arrive as a cask; the older formula
+# section is deprecated. Casks are macOS-only - Linux installs from the tarball
+# or the container image.
+homebrew_casks:
+  - name: faultline
+    repository:
+      owner: josipmusa
+      name: homebrew-tap
+      branch: main
+      # The workflow's own GITHUB_TOKEN cannot write another repository. The
+      # cask is pushed over SSH with a deploy key instead of a personal access
+      # token: a deploy key reaches the tap and nothing else, and it does not
+      # expire out from under a release. Watt and Beanvan publish to this same
+      # tap the same way.
+      git:
+        url: git@github.com:josipmusa/homebrew-tap.git
+        # envOrDefault rather than .Env: a snapshot build skips publishing and
+        # should not need the key to exist, on a runner or on a laptop.
+        private_key: '{{ envOrDefault "HOMEBREW_TAP_DEPLOY_KEY_FILE" "" }}'
+    homepage: https://github.com/josipmusa/faultline
+    description: HTTP and HTTPS fault-injection proxy for development and testing
+    license: MIT
+    # Gatekeeper quarantines anything downloaded without a notarized signature,
+    # and an unsigned binary it has quarantined dies with "killed" rather than
+    # anything an installer would read as a failure.
+    hooks:
+      post:
+        install: |
+          if system_command("/usr/bin/xattr", args: ["-h"]).exit_status == 0
+            system_command "/usr/bin/xattr",
+                           args: ["-dr", "com.apple.quarantine", "#{staged_path}/faultline"]
+          end
