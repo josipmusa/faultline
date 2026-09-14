@@ -276,6 +276,7 @@ func start(cfg *config.Config, bind string, adminPort, proxyPort int, routes []r
 	}
 	// The API can only say how to attach a child once the proxy has a port.
 	s.api.ProxiesAt(s.proxyURL(), ca != nil)
+	s.api.RoutesAt(s.routeInfo())
 	if err := s.api.Start(bind, adminPort); err != nil {
 		return fail(err)
 	}
@@ -288,6 +289,19 @@ func (s *stack) adminURL() string { return "http://" + s.api.Addr() }
 
 // proxyURL is what HTTP_PROXY points at.
 func (s *stack) proxyURL() string { return "http://" + s.proxy.Addr() }
+
+// routeInfo is each explicit route with the address it is listening on, for
+// the API to report. Nil when there are none.
+func (s *stack) routeInfo() []admin.Route {
+	if s.server == nil {
+		return nil
+	}
+	out := make([]admin.Route, 0, len(s.routes))
+	for _, r := range s.routes {
+		out = append(out, admin.Route{Name: r.Name, Addr: "http://" + s.server.Addr(r.Name), Upstream: r.Upstream.String()})
+	}
+	return out
+}
 
 // banner says where everything is listening and what will happen to HTTPS.
 func (s *stack) banner(out io.Writer) error {

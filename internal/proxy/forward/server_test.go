@@ -61,6 +61,7 @@ func quietLogger() *slog.Logger { return slog.New(slog.DiscardHandler) }
 // proxyFixture is a running forward proxy over a real rule store and recorder.
 type proxyFixture struct {
 	proxy    *httptest.Server
+	server   *Server
 	store    *rules.Store
 	recorder *events.Recorder
 }
@@ -79,11 +80,12 @@ func newFixtureWith(t *testing.T, bypass *Bypass) *proxyFixture {
 
 	transport := faults.New(nil, store, rec, events.TierPlain, nil)
 	dialer := faults.NewDialer(store, rec, nil)
-	srv := httptest.NewServer(NewServer(transport, dialer, nil, bypass, quietLogger()))
+	server := NewServer(transport, dialer, nil, bypass, quietLogger())
+	srv := httptest.NewServer(server)
 	srv.Config.ErrorLog = log.New(io.Discard, "", 0) // a reset connection is the point, not a failure
 	t.Cleanup(srv.Close)
 
-	return &proxyFixture{proxy: srv, store: store, recorder: rec}
+	return &proxyFixture{proxy: srv, server: server, store: store, recorder: rec}
 }
 
 // client returns an HTTP client that sends everything through the proxy.

@@ -72,11 +72,12 @@ func newInterceptFixtureWith(t *testing.T, bypass *Bypass) *interceptFixture {
 	plain := faults.New(nil, store, rec, events.TierPlain, nil)
 	intercepted := faults.New(upstreamTransport, store, rec, events.TierIntercepted, nil)
 	interceptor := NewInterceptor(issuer, intercepted, rec, quietLogger())
-	srv := httptest.NewServer(NewServer(plain, faults.NewDialer(store, rec, nil), interceptor, bypass, quietLogger()))
+	server := NewServer(plain, faults.NewDialer(store, rec, nil), interceptor, bypass, quietLogger())
+	srv := httptest.NewServer(server)
 	t.Cleanup(srv.Close)
 
 	return &interceptFixture{
-		proxyFixture: &proxyFixture{proxy: srv, store: store, recorder: rec},
+		proxyFixture: &proxyFixture{proxy: srv, server: server, store: store, recorder: rec},
 		ca:           ca,
 		upstream:     up,
 	}

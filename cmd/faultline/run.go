@@ -64,7 +64,7 @@ func newRunCmd() *cobra.Command {
 			"Browser traffic is not the child's traffic, so a wrapped dev server's\n" +
 			"page is not covered by any of this. Give the dependency an explicit\n" +
 			"route with --route and point the dev server's own proxy at the local\n" +
-			"port it prints (see docs/frontends.md).\n\n" +
+			"port it prints (see docs/attach.md).\n\n" +
 			"Put the command after --, so its own flags are not read as Faultline's:\n" +
 			"  faultline run -- npm run dev",
 		Args: cobra.MinimumNArgs(1),

@@ -5,6 +5,7 @@
       "oneOf": [
         {
           "additionalProperties": false,
+          "description": "Apply the fault to the first few matching calls, then let the rest through.",
           "properties": {
             "n": {
               "description": "How many matching requests the fault applies to before the rule lets the rest through",
@@ -24,9 +25,10 @@
         },
         {
           "additionalProperties": false,
+          "description": "Apply the fault for a number of seconds from the first matching call, then recover.",
           "properties": {
             "sec": {
-              "description": "How many seconds after the rule is switched on the fault keeps applying",
+              "description": "How many seconds the fault keeps applying, counted from the first call the rule matches",
               "minimum": 1,
               "type": "integer"
             },
@@ -43,6 +45,7 @@
         },
         {
           "additionalProperties": false,
+          "description": "Repeat a cycle of F (fault) and P (pass), one letter per matching call.",
           "properties": {
             "pattern": {
               "description": "The cycle to repeat, one letter per matching request: F applies the fault, P lets it through",
@@ -62,6 +65,7 @@
         },
         {
           "additionalProperties": false,
+          "description": "Apply the fault to a share of matching calls, chosen at random each time.",
           "properties": {
             "percent": {
               "description": "What share of matching requests the fault applies to, as a percentage",
@@ -91,7 +95,7 @@
       "oneOf": [
         {
           "additionalProperties": false,
-          "description": "A response tier fault.",
+          "description": "Flip bits in the real response body, keeping its length, so whatever parses it meets a mangled payload. A response tier fault.",
           "properties": {
             "percent": {
               "description": "How much of the body to mangle, as a percentage of its bytes",
@@ -112,7 +116,7 @@
         },
         {
           "additionalProperties": false,
-          "description": "A connection tier fault.",
+          "description": "Hold the call back before letting it through; the response is the real one, later. A connection tier fault.",
           "properties": {
             "jitter_ms": {
               "description": "Random extra delay on top, up to this many milliseconds",
@@ -137,7 +141,7 @@
         },
         {
           "additionalProperties": false,
-          "description": "A connection tier fault.",
+          "description": "Accept the connection and never answer, so the client waits until its own timeout fires. A connection tier fault.",
           "properties": {
             "max_ms": {
               "description": "Give up and drop the connection after this long. Left out, the request hangs until the client does",
@@ -172,7 +176,7 @@
               ]
             }
           ],
-          "description": "A response tier fault.",
+          "description": "Set or strip response headers on an otherwise untouched response. A response tier fault.",
           "properties": {
             "remove": {
               "description": "Response headers to strip, by name",
@@ -203,7 +207,7 @@
         },
         {
           "additionalProperties": false,
-          "description": "A response tier fault.",
+          "description": "Answer 429 Too Many Requests with a Retry-After header, to check that a client honours the hint. A response tier fault.",
           "properties": {
             "retry_after_sec": {
               "description": "How many seconds the Retry-After header tells the client to wait",
@@ -223,7 +227,7 @@
         },
         {
           "additionalProperties": false,
-          "description": "A connection tier fault.",
+          "description": "Turn the connection away, the way a host with nothing listening does. A connection tier fault.",
           "properties": {
             "type": {
               "const": "refuse"
@@ -237,7 +241,7 @@
         },
         {
           "additionalProperties": false,
-          "description": "A connection tier fault.",
+          "description": "Break the connection off, before anything is sent or part way through the real response. A connection tier fault.",
           "properties": {
             "after_bytes": {
               "description": "Deliver this much of the real response before breaking the connection. Left out, nothing is sent at all",
@@ -256,7 +260,7 @@
         },
         {
           "additionalProperties": false,
-          "description": "A response tier fault.",
+          "description": "Deliver a correct response slowly, trickling the body over the time given. A response tier fault.",
           "properties": {
             "ms": {
               "description": "How long the whole body should take to arrive, in milliseconds",
@@ -276,7 +280,7 @@
         },
         {
           "additionalProperties": false,
-          "description": "A response tier fault.",
+          "description": "Replace the upstream's response with a status code of your choosing; the upstream is still called. A response tier fault.",
           "properties": {
             "body": {
               "description": "The body to answer with. Left out, the response has none",
@@ -301,7 +305,7 @@
         },
         {
           "additionalProperties": false,
-          "description": "A connection tier fault.",
+          "description": "Deliver the real response at a crawl, capped at the bytes per second given. A connection tier fault.",
           "properties": {
             "bytes_per_sec": {
               "description": "How fast the response is allowed to arrive, in bytes per second",
@@ -337,7 +341,7 @@
               ]
             }
           ],
-          "description": "A response tier fault.",
+          "description": "Cut the response body off part way, leaving the real status and headers in place. A response tier fault.",
           "properties": {
             "after_bytes": {
               "description": "Cut the body off after this many bytes",

@@ -23,9 +23,10 @@ process and stops it again when the agent disconnects, so an agent needs no
 setup step of its own. While the session lasts the UI is on the admin port as
 usual, and you can watch what the agent is doing.
 
-The instance it starts reads `faultline.yaml` from the working directory and
-creates the interception CA if there is none, exactly as `faultline run` does.
-It also holds the default ports for as long as the agent is connected, so a
+The instance it starts reads `faultline.yaml` from the working directory, or
+the file `--config` names, and creates the interception CA if there is none,
+exactly as `faultline run` does. Its admin port is the one in `--admin`, and
+`--proxy-port` moves its forward proxy off 9001. It also holds those ports for as long as the agent is connected, so a
 `faultline run` in another shell finds them taken and says so. Either join the
 agent's instance from that shell with the `rule`, `scenario` and `session`
 commands, or give the run ports of its own with `--admin-port` and
@@ -95,7 +96,7 @@ The command is a list and is run directly, so there is no shell: wrap it in
 until its timeout, 60 seconds by default and 300 at most, which suits a test
 suite or a script rather than a development server that never exits. A timeout
 is an answer rather than a failure: `timed_out` comes back true with the output
-so far, and nothing is left running.
+so far, and the command and everything it started are stopped.
 
 Only the end of each stream comes back - the last hundred lines or eight
 kilobytes, whichever is smaller - with `stdout_truncated` and

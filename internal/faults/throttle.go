@@ -20,6 +20,10 @@ func init() { Register(throttle{}) }
 
 func (throttle) Name() string { return "throttle" }
 
+func (throttle) Description() string {
+	return "Deliver the real response at a crawl, capped at the bytes per second given."
+}
+
 func (throttle) Tier() Tier { return TierConnection }
 
 func (throttle) Schema() Schema {

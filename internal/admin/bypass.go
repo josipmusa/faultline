@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"net/url"
 	"strings"
 
 	"github.com/josipmusa/faultline/internal/proxy/forward"
@@ -42,11 +41,9 @@ func (s *Server) addBypass(w http.ResponseWriter, r *http.Request) {
 // removeBypass takes a host off the list, so its traffic is proxied and
 // recorded again.
 func (s *Server) removeBypass(w http.ResponseWriter, r *http.Request) {
-	host, err := url.PathUnescape(r.PathValue("host"))
-	if err != nil {
-		s.fail(w, invalid("host", "host %q is not a valid path segment", r.PathValue("host")))
-		return
-	}
+	// ServeMux hands the segment over already decoded; decoding it again would
+	// turn a host that was sent correctly into something else.
+	host := r.PathValue("host")
 	if s.bypass == nil {
 		s.fail(w, noForwardProxy())
 		return

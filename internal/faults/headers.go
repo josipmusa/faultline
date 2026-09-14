@@ -15,6 +15,10 @@ func init() { Register(headers{}) }
 
 func (headers) Name() string { return "headers" }
 
+func (headers) Description() string {
+	return "Set or strip response headers on an otherwise untouched response."
+}
+
 func (headers) Tier() Tier { return TierResponse }
 
 func (headers) Schema() Schema {

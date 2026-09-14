@@ -138,7 +138,11 @@ func (s *Server) transparentHandler(dst string) http.Handler {
 // tunnel is open, because as far as the client is concerned it already has
 // one.
 func (s *Server) transparentTLS(ctx context.Context, conn net.Conn, dst netip.AddrPort) {
-	name, client := peekClientHello(conn)
+	name, client, err := peekClientHello(conn, s.tunnelPatience())
+	if err != nil {
+		s.abandonTunnel(dst.String(), err)
+		return
+	}
 	target := dst.String()
 	if name != "" {
 		target = net.JoinHostPort(name, strconv.Itoa(int(dst.Port())))

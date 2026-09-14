@@ -10,11 +10,19 @@ faultline rule      list | add | rm | enable | disable
 faultline scenario  list | on | off
 faultline events    tail | export
 faultline upstreams
+faultline session   report | reset
+faultline save
+faultline compose   inject
 ```
 
-Two commands are exceptions. `faultline init` writes a file and talks to
-nobody, and `faultline run` starts an instance of its own around one command,
-which [Sessions and reports](#sessions-and-reports) below covers.
+The rest stand on their own. `faultline serve` and `faultline run` start an
+instance, the second around one command, which
+[Sessions and reports](#sessions-and-reports) below covers. `faultline init`
+writes a starter configuration file and talks to nobody. `faultline ca` manages
+the interception CA and `faultline trust` renders it for a runtime, both in
+[trust.md](trust.md). `faultline mcp` serves the tools for a coding agent, in
+[agents.md](agents.md). `faultline version` and `faultline completion` do what
+they say.
 
 ## The first file
 
@@ -288,19 +296,9 @@ the same check, or the second one measures the first one's leftovers.
 
 ## Traffic Faultline should not be holding
 
-The inspector shows what went over the wire, which for a real application means
-credentials. `--no-bodies`, on `run` and on `serve`, keeps the headers and drops
-the payloads:
-
-```
-faultline run --no-bodies -- npm run dev
-```
-
-Bodies are then never captured, and everything else is unchanged: the faults
-apply, the report is accurate, and the inspector still shows what was called and
-what came back. Headers are still captured, `Authorization` included -
-[docs/security.md](security.md) says what that means and what to do when even
-that is too much.
+`--no-bodies`, on `run` and on `serve`, keeps the headers and drops the
+payloads; [docs/security.md](security.md#sensitive-traffic) says what it does
+and does not hold back, and what to do when headers are too much as well.
 
 ## Events
 
@@ -364,14 +362,9 @@ wrote docker-compose.faultline.yml
 
 Inject reads the Compose file already in the directory and writes an override
 beside it that runs Faultline as a companion and points the named services at
-it. The project's own file is never changed, and neither is any application
-image. Repeat `--service` for more than one; `-f` names a Compose file other
-than the one Compose itself would read, `-o` an override other than
-`docker-compose.faultline.yml`, `--image` a Faultline image other than the
-published one, and `--force` replaces an override that is already there.
-
-[docs/docker.md](docker.md) has what the override contains and what a JVM needs
-on top of it.
+it; the project's own file is never changed. Its flags, what the override
+contains and what a JVM needs on top of it are in
+[docs/docker.md](docker.md#generating-the-override).
 
 ## In tests
 
@@ -410,18 +403,11 @@ proxy: http://127.0.0.1:52232
 ```
 
 Between two tests sharing one instance, `session reset` - `ResetSession` on
-either client - clears what was observed and re-arms every rule, so a spent
-`first_n` applies again without rebuilding it.
+either client - is the [reset described above](#sessions-and-reports).
 
 ## For coding agents
 
 `faultline mcp` serves the same capabilities to an agent over the Model Context
-Protocol, on stdio:
-
-```
-claude mcp add faultline -- faultline mcp
-```
-
-It joins the instance at `--admin` like every other command here, and starts one
-for the session if none is running. The same tools are also served at `/mcp` on
-the admin port. See [agents.md](agents.md).
+Protocol, joining the instance at `--admin` like every other command here and
+starting one for the session if none is running. [agents.md](agents.md) has the
+setup and the tools.

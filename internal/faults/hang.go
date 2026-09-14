@@ -19,6 +19,10 @@ func init() { Register(hang{}) }
 
 func (hang) Name() string { return "hang" }
 
+func (hang) Description() string {
+	return "Accept the connection and never answer, so the client waits until its own timeout fires."
+}
+
 func (hang) Tier() Tier { return TierConnection }
 
 func (hang) Schema() Schema {

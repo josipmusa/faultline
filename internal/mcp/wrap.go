@@ -70,7 +70,7 @@ func addWrapTools(s *sdk.Server, c *client.Client, mirror io.Writer) {
 			"get_report and get_events to see what it actually did.\n\n" +
 			"The command runs to completion or until its timeout, so it suits a test suite or a one-shot " +
 			"script rather than a development server that never exits. A timeout is an answer and not a " +
-			"failure: timed_out comes back true with the output so far, and nothing is left running.\n\n" +
+			"failure: timed_out comes back true with the output so far, and the command and everything it started are stopped.\n\n" +
 			"There is no shell, so the command is a list and a pipe or a redirection in it is not " +
 			"interpreted. Wrap it in `sh -c` yourself if you need one.",
 	}, func(ctx context.Context, _ *sdk.CallToolRequest, in startWrappedInput) (*sdk.CallToolResult, wrapResult, error) {
@@ -113,6 +113,9 @@ func startWrapped(ctx context.Context, c *client.Client, mirror io.Writer, in st
 		// An agent that named a timeout wants the command stopped at it, not
 		// long after, and a test suite or a script needs no time to wind down.
 		Grace: wrapGrace,
+		// The MCP child has no terminal to stay in the foreground of, and a
+		// timeout has to end `sh -c "npm test"` along with npm, not just sh.
+		OwnGroup: true,
 	}
 	code, runErr := child.Run(runCtx)
 	elapsed := time.Since(started)

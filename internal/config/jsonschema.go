@@ -176,7 +176,7 @@ func catalogueSchema(what string, variants []any) object {
 func faultVariants() []any {
 	out := make([]any, 0, len(faults.All()))
 	for _, f := range faults.All() {
-		description := fmt.Sprintf("A %s tier fault.", f.Tier())
+		description := fmt.Sprintf("%s A %s tier fault.", f.Description(), f.Tier())
 		out = append(out, variantSchema(f.Name(), description, f.Schema()))
 	}
 	return out
@@ -185,7 +185,7 @@ func faultVariants() []any {
 func behaviorVariants() []any {
 	out := make([]any, 0, len(faults.AllBehaviors()))
 	for _, b := range faults.AllBehaviors() {
-		out = append(out, variantSchema(b.Name(), "", b.Schema()))
+		out = append(out, variantSchema(b.Name(), b.Description(), b.Schema()))
 	}
 	return out
 }

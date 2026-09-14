@@ -125,14 +125,14 @@ faultline run --scenario payments-down --report report.json -- go test ./...
 
 | | |
 | --- | --- |
-| [docs/attach.md](docs/attach.md) | how traffic reaches Faultline: wrap, container companion, explicit route |
+| [docs/attach.md](docs/attach.md) | how traffic reaches Faultline: wrap, container companion, explicit route, and why browser traffic needs one |
 | [docs/faults.md](docs/faults.md) | every fault and behavior, with an example of each |
 | [docs/reference.md](docs/reference.md) | every key in `faultline.yaml` and every parameter with its bounds, generated from the catalogue |
 | [docs/config.md](docs/config.md) | the configuration file: scenarios, hot reload, what gets written back |
 | [docs/cli.md](docs/cli.md) | the command line, sessions and reports, using it from tests |
+| [docs/api.md](docs/api.md) | the HTTP API: every endpoint, the error shape, the WebSocket envelope |
 | [docs/trust.md](docs/trust.md) | HTTPS interception and what each runtime needs to trust the CA |
 | [docs/docker.md](docs/docker.md) | the container image, Compose, `compose inject`, transparent mode |
-| [docs/frontends.md](docs/frontends.md) | why browser traffic needs an explicit route, and how to set one up |
 | [docs/agents.md](docs/agents.md) | the MCP server and its tools, for coding agents |
 | [docs/ci.md](docs/ci.md) | the GitHub Action: installing Faultline on a runner, wrapping a test suite |
 | [docs/security.md](docs/security.md) | what Faultline exposes while it works: the CA, captured traffic, the unauthenticated admin port |
@@ -159,14 +159,17 @@ In Claude Code, this repository is also a plugin:
 /plugin install faultline@faultline
 ```
 
-In any other harness that reads a skills directory, copy the skill into it:
+In any other harness, the [`skills`](https://skills.sh) CLI installs it
+straight from this repository into whichever agent directories it finds on the
+machine, with nothing to clone or copy:
 
 ```
-cp -r skills/resilience-check <your skills directory>/
+npx skills add josipmusa/faultline
 ```
 
-The skill names no harness and no paths, so the copy works anywhere. An agent
-gets more out of it with the [MCP server](docs/agents.md) attached:
+The skill names no harness and no paths, so it works the same wherever it
+lands. An agent gets more out of it with the [MCP server](docs/agents.md)
+attached:
 
 ```
 claude mcp add faultline -- faultline mcp

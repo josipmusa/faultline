@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/url"
 	"path/filepath"
+	"slices"
 )
 
 // Config is what `GET /api/config` reports: whether a change made through
@@ -29,6 +30,18 @@ type Config struct {
 	// Faultline keeps for itself. It is what a file written from this instance
 	// should say the list is; NoProxy above is what a child should be told.
 	Bypass []string `json:"bypass,omitempty"`
+
+	// Routes are the explicit routes, each an address to point a client at
+	// that ignores proxy settings, and the upstream it stands in for.
+	Routes []Route `json:"routes,omitempty"`
+}
+
+// Route is one explicit route as the config endpoint reports it: Addr is the
+// URL a client sends its requests to, Upstream where they go.
+type Route struct {
+	Name     string `json:"name"`
+	Addr     string `json:"addr"`
+	Upstream string `json:"upstream"`
 }
 
 // ProxiesAt tells the server where the forward proxy ended up and whether it
@@ -39,6 +52,12 @@ func (s *Server) ProxiesAt(proxyURL string, intercepting bool) {
 	s.proxyURL, s.intercepting = proxyURL, intercepting
 }
 
+// RoutesAt tells the server which explicit routes are listening and where, so
+// GET /api/config can name them. Routes are fixed for the life of the process.
+func (s *Server) RoutesAt(routes []Route) {
+	s.explicitRoutes = slices.Clone(routes)
+}
+
 // getConfig says whether Faultline is holding its rules in memory or writing
 // them to a file, so the UI can say which of the two a change will do.
 func (s *Server) getConfig(w http.ResponseWriter, r *http.Request) {
@@ -47,11 +66,27 @@ func (s *Server) getConfig(w http.ResponseWriter, r *http.Request) {
 		NoProxy:      s.bypass.NoProxy(),
 		Intercepting: s.intercepting,
 		Bypass:       s.bypass.Configured(),
+		Routes:       reachableRoutes(s.explicitRoutes, r.Host),
 	}
 	if s.persist != nil {
 		info.Persisted, info.Path = true, absolute(s.persist.Path())
 	}
 	s.writeJSON(w, http.StatusOK, info)
+}
+
+// reachableRoutes is the routes with each address rewritten the way
+// reachableProxyURL rewrites the proxy's. Nil when there are none, so the
+// field is left out rather than published empty.
+func reachableRoutes(routes []Route, adminHost string) []Route {
+	if len(routes) == 0 {
+		return nil
+	}
+	out := make([]Route, 0, len(routes))
+	for _, route := range routes {
+		route.Addr = reachableProxyURL(route.Addr, adminHost)
+		out = append(out, route)
+	}
+	return out
 }
 
 // reachableProxyURL is the proxy address as the caller can use it. A proxy

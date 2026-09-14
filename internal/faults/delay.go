@@ -18,6 +18,10 @@ func init() { Register(delay{}) }
 
 func (delay) Name() string { return "delay" }
 
+func (delay) Description() string {
+	return "Hold the call back before letting it through; the response is the real one, later."
+}
+
 func (delay) Tier() Tier { return TierConnection }
 
 func (delay) Schema() Schema {

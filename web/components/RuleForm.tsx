@@ -7,6 +7,7 @@ import {
   blankForm,
   blankParams,
   entryFor,
+  fieldSelector,
   formToRule,
   groupByTier,
   ruleToForm,
@@ -55,9 +56,11 @@ export function RuleForm({ catalogue, rule, onClose, onSaved }: RuleFormProps) {
       (read) => {
         if (live) setWarnings(read.warnings ?? []);
       },
-      () => {
-        // The rule is on screen from the list either way; a failed read here
-        // costs only the warning, which is not worth an error of its own.
+      (err: unknown) => {
+        // The warning is the whole point of the read: a rule whose fault cannot
+        // apply must not open looking clean, so a failed read says so.
+        const message = err instanceof Error ? err.message : String(err);
+        if (live) setWarnings([`could not read this rule's warnings: ${message}`]);
       },
     );
     return () => {
@@ -72,7 +75,7 @@ export function RuleForm({ catalogue, rule, onClose, onSaved }: RuleFormProps) {
     if (!failure?.field) {
       return;
     }
-    const holder = body.current?.querySelector<HTMLElement>(`[data-field="${failure.field}"]`);
+    const holder = body.current?.querySelector<HTMLElement>(fieldSelector(failure.field));
     if (!holder) {
       return;
     }
@@ -266,6 +269,7 @@ export function RuleForm({ catalogue, rule, onClose, onSaved }: RuleFormProps) {
               ))}
             </select>
           </Labelled>
+          {faultEntry?.description && <p className="text-xs text-zinc-400">{faultEntry.description}</p>}
           {faultEntry?.tier === 'response' && (
             <p className="text-xs text-zinc-500">
               A response fault needs Faultline to see inside the request, so it cannot apply to traffic
@@ -300,6 +304,7 @@ export function RuleForm({ catalogue, rule, onClose, onSaved }: RuleFormProps) {
               ))}
             </select>
           </Labelled>
+          {behaviorEntry?.description && <p className="text-xs text-zinc-400">{behaviorEntry.description}</p>}
           <ParamFields
             entry={behaviorEntry}
             params={form.behaviorParams}

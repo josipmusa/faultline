@@ -339,3 +339,18 @@ func TestEveryParameterIsDescribed(t *testing.T) {
 		}
 	}
 }
+
+// The rule editor and the MCP tool description show what a fault does before
+// it is chosen, so every fault and behavior says so in a sentence.
+func TestEveryFaultAndBehaviorIsDescribed(t *testing.T) {
+	for _, f := range All() {
+		if d := f.Description(); d == "" || !strings.HasSuffix(d, ".") {
+			t.Errorf("fault %q: description %q, want a sentence ending in a full stop", f.Name(), d)
+		}
+	}
+	for _, b := range AllBehaviors() {
+		if d := b.Description(); d == "" || !strings.HasSuffix(d, ".") {
+			t.Errorf("behavior %q: description %q, want a sentence ending in a full stop", b.Name(), d)
+		}
+	}
+}

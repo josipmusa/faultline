@@ -5,13 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
+	"strconv"
 	"syscall"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
 
 	client "github.com/josipmusa/faultline/clients/go"
-	"github.com/josipmusa/faultline/internal/admin"
 	faultmcp "github.com/josipmusa/faultline/internal/mcp"
 	"github.com/josipmusa/faultline/internal/proxy/forward"
 	"github.com/josipmusa/faultline/internal/runner"
@@ -44,10 +45,14 @@ func newMCPCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			adminPort, err := adminPortOf(c)
+			if err != nil {
+				return err
+			}
 			// The agent owns stdout: it is the transport. Anything Faultline
 			// wants to say goes to stderr, which cobra already uses for errors.
 			return serveAgent(cmd.Context(), cmd.ErrOrStderr(), &sdk.StdioTransport{}, c,
-				configPath, admin.DefaultPort, proxyPort)
+				configPath, adminPort, proxyPort)
 		},
 	}
 
@@ -58,6 +63,28 @@ func newMCPCmd() *cobra.Command {
 		"port for the forward proxy of the instance this starts, if it starts one")
 
 	return cmd
+}
+
+// adminPortOf is the port --admin names, so that when no instance answers there
+// the one started here comes up at the address the agent was told to use,
+// rather than at the default while the help text says otherwise.
+func adminPortOf(c *client.Client) (int, error) {
+	u, err := url.Parse(c.Addr())
+	if err != nil {
+		return 0, fmt.Errorf("--admin: %w", err)
+	}
+	switch port := u.Port(); {
+	case port != "":
+		n, err := strconv.Atoi(port)
+		if err != nil {
+			return 0, fmt.Errorf("--admin: port %q is not a number", port)
+		}
+		return n, nil
+	case u.Scheme == "https":
+		return 443, nil
+	default:
+		return 80, nil
+	}
 }
 
 // serveAgent serves the tools to an agent on t. It attaches to the instance at

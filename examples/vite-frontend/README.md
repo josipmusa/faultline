@@ -33,7 +33,7 @@ API_TARGET=http://localhost:9100 faultline run --route api=https://httpbin.org -
 
 Every call the page makes then runs through Faultline, with the page's own
 loading and error states showing what a user would see.
-[docs/frontends.md](../../docs/frontends.md) explains why the route is needed
+[docs/attach.md](../../docs/attach.md#browsers-and-frontends) explains why the route is needed
 and how to do the same thing in other frameworks.
 
 ## Configuration

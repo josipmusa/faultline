@@ -32,6 +32,9 @@ type DialFunc func(ctx context.Context, network, addr string) (net.Conn, error)
 // configure one from them.
 type Fault interface {
 	Name() string
+	// Description says what the fault does, in one sentence, for a reader
+	// choosing between faults.
+	Description() string
 	Tier() Tier
 	Schema() Schema
 	// New returns the fault configured by params, which Validate has accepted.

@@ -114,7 +114,10 @@ does, and it works whatever Faultline can see of the host.
 Break the connection off. With no parameter, nothing is sent at all; with
 `after_bytes`, that much of the real response reaches the client and then the
 connection dies mid-body, which is how a dependency that crashes half way
-through an answer looks.
+through an answer looks. If the body is shorter than `after_bytes`, the
+connection is reset where the body ends: a client reading a chunked body sees
+the break, while one reading a `Content-Length` body has every byte by then and
+only loses the connection.
 
 ```yaml
 fault: { type: reset, after_bytes: 1024 }
@@ -193,7 +196,10 @@ faultline rule add --host api.stripe.com --fault headers --set 'set={"Cache-Cont
 Cut the response body off. `after_bytes` cuts after that many bytes, `percent`
 after that share of the body; write one or the other, not both. The status and
 the headers are the real ones, so the client believes it is reading a good
-response until the body ends early.
+response until the body ends early. If the body is shorter than `after_bytes`,
+it is delivered whole and the event is still recorded as faulted. On a chunked
+body the client sees a clean short body rather than a broken one, since there
+is no length for it to check against.
 
 ```yaml
 fault: { type: truncate, percent: 50 }
@@ -224,6 +230,12 @@ Deliver a correct response over `ms` milliseconds, trickling the body rather
 than holding the whole call back. Nothing about the response is wrong, which is
 the point: it is the fault for a client whose read timeout, or lack of one,
 only shows when the bytes come slowly.
+
+`slow_body`, and `truncate` with `percent`, need the body's length to pace or
+divide it. When the upstream sends no `Content-Length`, Faultline reads the
+whole body into memory before sending the first byte, so a streaming or
+long-poll response (server-sent events, say) never starts and memory grows with
+the body. Use `throttle`, or `truncate` with `after_bytes`, for those.
 
 ```yaml
 fault: { type: slow_body, ms: 5000 }
@@ -269,9 +281,12 @@ faultline rule add --host api.stripe.com --fault status --set code=503 --behavio
 
 ### `for_duration`
 
-Apply the fault for `sec` seconds after the rule is switched on, then recover.
-The shape for an outage with a length: does the application come back on its
-own once the dependency does, or does a circuit breaker stay open?
+Apply the fault for `sec` seconds, then recover. The clock starts at the first
+call the rule matches rather than when the rule was switched on, so an outage
+nobody has driven traffic through yet has not started; switching the rule off
+and on, or resetting the session, starts it over. The shape for an outage with
+a length: does the application come back on its own once the dependency does,
+or does a circuit breaker stay open?
 
 ```yaml
 behavior: { type: for_duration, sec: 30 }

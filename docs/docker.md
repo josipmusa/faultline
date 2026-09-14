@@ -134,7 +134,7 @@ namespace.
 
 ```yaml
   faultline:
-    image: ghcr.io/josipmusa/faultline:transparent
+    image: ghcr.io/josipmusa/faultline:latest-transparent
     cap_add: [NET_ADMIN]
     command: ["serve", "--bind", "0.0.0.0", "--transparent"]
 
@@ -150,7 +150,7 @@ application's image. Four things to know:
   finding out where a redirected connection was going is a Linux socket option.
   Faultline refuses `--transparent` elsewhere rather than coming up half
   attached.
-- **It needs the `transparent` image**, which carries the iptables binary the
+- **It needs the `-transparent` image**, which carries the iptables binary the
   default image deliberately does not.
 - **The application must not run as uid 65532.** Faultline's own calls to the
   upstream leave the same namespace, so the rules exempt the uid it runs as.
@@ -197,7 +197,8 @@ docker build -t faultline .
 ```
 
 The transparent-mode image is a target in the same Dockerfile, published under
-the same tags with a `-transparent` suffix:
+the same tags with a `-transparent` suffix: `:latest-transparent`,
+`:<version>-transparent`. To build it yourself:
 
 ```
 docker build --target transparent -t faultline:transparent .

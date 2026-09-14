@@ -2,10 +2,13 @@ package forward
 
 import (
 	"bufio"
+	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -234,5 +237,95 @@ func TestTunnelWithUnrecognizedBytesReportsTheHandshakeFailure(t *testing.T) {
 	}
 	if got := up.hits.Load(); got != 0 {
 		t.Errorf("upstream hits = %d, want 0", got)
+	}
+}
+
+// A paced fault has to reach a tunnelled plaintext client as it happens, the
+// same as it reaches every other client: the first bytes well before the last.
+func TestTunnelledPlaintextStreamsAPacedBody(t *testing.T) {
+	f := newInterceptFixture(t)
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(bytes.Repeat([]byte("x"), 500))
+	}))
+	t.Cleanup(up.Close)
+	target := up.Listener.Addr().String()
+	// 500 bytes at 1000 a second is half a second, delivered in tenths.
+	if err := f.store.Add(rules.Rule{
+		ID:      "slow",
+		Enabled: true,
+		Match:   rules.Match{Host: target},
+		Fault:   rules.Fault{Type: "throttle", Params: rules.Params{"bytes_per_sec": 1000}},
+	}); err != nil {
+		t.Fatalf("adding rule: %v", err)
+	}
+
+	conn := f.tunnelTo(t, target)
+	r := bufio.NewReader(conn)
+	readTunnelOpened(t, r)
+
+	start := time.Now()
+	resp := getThroughTunnel(t, conn, r, target, "/big")
+	defer func() { _ = resp.Body.Close() }()
+
+	first := make([]byte, 1)
+	if _, err := io.ReadFull(resp.Body, first); err != nil {
+		t.Fatalf("reading the first byte: %v", err)
+	}
+	firstAt := time.Since(start)
+	rest, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("reading the rest: %v", err)
+	}
+	total := time.Since(start)
+
+	if got := len(rest) + 1; got != 500 {
+		t.Errorf("received %d bytes, want 500: a throttle delivers everything", got)
+	}
+	if firstAt*2 > total {
+		t.Errorf("first byte at %v of %v total, want it to trickle rather than arrive in one burst", firstAt, total)
+	}
+}
+
+// A client that opens a tunnel and never puts anything into it must not hold
+// a goroutine and a socket for ever: the proxy hangs up on it after a while.
+func TestTunnelIsClosedWhenTheClientSendsNothing(t *testing.T) {
+	f := newInterceptFixture(t)
+	f.server.firstByteTimeout = 200 * time.Millisecond
+	target := f.plainUpstream(t).Listener.Addr().String()
+
+	conn := f.tunnelTo(t, target)
+	r := bufio.NewReader(conn)
+	readTunnelOpened(t, r)
+
+	start := time.Now()
+	if _, err := r.ReadByte(); !errors.Is(err, io.EOF) {
+		t.Fatalf("reading from the idle tunnel: %v, want the proxy to have closed it", err)
+	}
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Errorf("the tunnel was closed after %v, want it closed soon after the %v of silence", elapsed, f.server.firstByteTimeout)
+	}
+	if recorded := f.recorder.Events(); len(recorded) != 0 {
+		t.Errorf("recorded %+v, want nothing: no request was ever made", recorded)
+	}
+}
+
+// A browser preconnects and then finds it has nothing to say; a pool closes a
+// connection it never used. Neither has seen a certificate, so neither is a
+// client rejecting one.
+func TestAClientThatClosesAnUnusedTunnelIsNotRecordedAsARejection(t *testing.T) {
+	f := newInterceptFixture(t)
+	target := f.plainUpstream(t).Listener.Addr().String()
+
+	conn := f.tunnelTo(t, target)
+	r := bufio.NewReader(conn)
+	readTunnelOpened(t, r)
+	if err := conn.Close(); err != nil {
+		t.Fatalf("closing the tunnel: %v", err)
+	}
+
+	// The proxy learns of the close a moment after the test does.
+	time.Sleep(200 * time.Millisecond)
+	if recorded := f.recorder.Events(); len(recorded) != 0 {
+		t.Errorf("recorded %+v, want nothing: the client never saw a certificate to reject", recorded)
 	}
 }

@@ -35,19 +35,29 @@ var errEnoughOfTheHandshake = errors.New("client hello read")
 // split across records. The caller falls back to the original destination,
 // which is always known, so an empty name costs the identity of the upstream
 // and never the connection.
-func peekClientHello(conn net.Conn) (string, net.Conn) {
+//
+// A client has patience to send its first byte. One that hangs up first, or
+// says nothing in time, is an error rather than an empty name: there is no
+// connection left worth serving.
+func peekClientHello(conn net.Conn, patience time.Duration) (string, net.Conn, error) {
 	r := bufio.NewReaderSize(conn, maxClientHello)
 	out := &peekedConn{Conn: conn, reader: r}
 
-	header, err := r.Peek(recordHeaderLen)
-	if err != nil || header[0] != recordTypeHandshake {
-		return "", out
+	header, err := peekWithin(conn, r, recordHeaderLen, patience)
+	if len(header) == 0 {
+		return "", nil, err
 	}
-	record, err := r.Peek(recordHeaderLen + int(binary.BigEndian.Uint16(header[3:5])))
-	if err != nil {
-		return "", out
+	// From here on a short read is an answer, not a failure: whatever the
+	// client sent, it is not a ClientHello with a name in it.
+	if len(header) < recordHeaderLen || header[0] != recordTypeHandshake {
+		return "", out, nil
 	}
-	return serverNameIn(record), out
+	recordLen := recordHeaderLen + int(binary.BigEndian.Uint16(header[3:5]))
+	record, _ := peekWithin(conn, r, recordLen, patience)
+	if len(record) < recordLen {
+		return "", out, nil
+	}
+	return serverNameIn(record), out, nil
 }
 
 // serverNameIn parses the record with the standard library's own handshake

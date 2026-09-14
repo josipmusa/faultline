@@ -56,6 +56,11 @@ type Server struct {
 	// transparent mode be tested off Linux.
 	origDst func(net.Conn) (netip.AddrPort, error)
 
+	// firstByteTimeout is how long a client has to put something into a
+	// tunnel it opened before the proxy hangs up on it. Zero means
+	// handshakeTimeout; a test shortens it.
+	firstByteTimeout time.Duration
+
 	mu   sync.Mutex
 	http *http.Server
 	addr string
@@ -113,6 +118,16 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.handler.ServeHTTP(w, r)
+}
+
+// tunnelPatience is how long a client has to put its first byte into a tunnel
+// it opened. The TLS handshake that normally follows gets the same, so a
+// client that never speaks is cut off as promptly as one that stalls part way.
+func (s *Server) tunnelPatience() time.Duration {
+	if s.firstByteTimeout > 0 {
+		return s.firstByteTimeout
+	}
+	return handshakeTimeout
 }
 
 // bypassed reports whether the upstream at addr is on the bypass list, and

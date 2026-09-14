@@ -18,7 +18,7 @@ application sees a bare TLS error and Faultline sees a client that hung up.
 | git | nothing to do; reads `GIT_SSL_CAINFO` | set `GIT_SSL_CAINFO` |
 | Java | nothing to do; `JAVA_TOOL_OPTIONS` points at a trust store Faultline builds | `faultline trust java -- <command>` as the entrypoint, see [below](#a-process-faultline-did-not-start) |
 | .NET, Rust, Ruby, anything else | depends on what its TLS library reads; `faultline ca install` covers the ones that read the system store | add `faultline ca path` to whatever store it reads |
-| Browsers | not the child; use an [explicit route](frontends.md) instead | `faultline ca install`, and Firefox has its own store |
+| Browsers | not the child; use an [explicit route](attach.md#browsers-and-frontends) instead | `faultline ca install`, and Firefox has its own store |
 | Clients that pin certificates | cannot be intercepted; use connection faults | same |
 
 `faultline compose inject` sets the container column's variables for the
@@ -26,8 +26,7 @@ services it is given, so a Go, Node, Python or curl-based service under Compose
 needs no change to its image. The rest of this page is the detail behind each
 row.
 
-That is the case this document is about. You get here from a line like this
-during a run:
+You get here from a line like this during a run:
 
 ```
 trust: api.stripe.com: client did not trust the Faultline CA; see docs/trust.md (Faultline set SSL_CERT_FILE, REQUESTS_CA_BUNDLE, CURL_CA_BUNDLE, NODE_EXTRA_CA_CERTS, GIT_SSL_CAINFO)
@@ -46,21 +45,13 @@ the runtime ignores the variable, or it is not reading the CA you think it is.
 
 ## What `faultline run` does for you
 
-`faultline run` creates the CA on first use and hands the child the variables
-each runtime reads:
-
-| Variable | Read by |
-| --- | --- |
-| `SSL_CERT_FILE` | Go (Linux, not macOS), OpenSSL, anything built on either |
-| `REQUESTS_CA_BUNDLE` | Python `requests`, `httpx` |
-| `CURL_CA_BUNDLE` | curl |
-| `NODE_EXTRA_CA_CERTS` | Node, in addition to its built-in roots |
-| `GIT_SSL_CAINFO` | git |
-| `JAVA_TOOL_OPTIONS` | the JVM, pointed at a trust store built for it |
-
-These are set only while Faultline is intercepting. Without a CA the
-certificates the child sees are the real ones, so its own bundle is still the
-right answer and Faultline leaves the variables alone.
+`faultline run` creates the CA on first use and hands the child every variable
+in the `faultline run` column above: `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`,
+`CURL_CA_BUNDLE`, `NODE_EXTRA_CA_CERTS` (which Node reads in addition to its
+built-in roots), `GIT_SSL_CAINFO`, and `JAVA_TOOL_OPTIONS`. They are set only
+while Faultline is intercepting. Without a CA the certificates the child sees
+are the real ones, so its own bundle is still the right answer and Faultline
+leaves the variables alone.
 
 The JVM cannot be handed a single extra certificate, so Faultline copies the
 JDK's own `cacerts`, imports the Faultline CA into the copy with the JDK's
@@ -86,8 +77,8 @@ ENTRYPOINT ["faultline", "trust", "java", "--", "java", "-jar", "/app/app.jar"]
 
 With no command it prints the assignment for a shell to export instead. The
 certificate is the only half of the CA it needs, so the CA directory can be
-mounted read-only; the trust store is written to the temporary directory, or
-wherever `--out` says. [examples/compose](../examples/compose) is the whole
+mounted read-only; `--ca` names a certificate somewhere else. The trust store
+is written to the temporary directory, or wherever `--out` says. [examples/compose](../examples/compose) is the whole
 arrangement.
 
 ## Runtimes that need more
@@ -100,8 +91,8 @@ On Linux, `SSL_CERT_FILE` is enough.
 
 **Browsers.** A browser is not the child process and does not read any of these
 variables. It also is not usually the traffic you want: see
-[frontends.md](frontends.md) for why, and for the explicit route that puts
-Faultline in front of the dependency instead. If you do want the browser itself
+[attach.md](attach.md#browsers-and-frontends) for why, and for the explicit
+route that puts Faultline in front of the dependency instead. If you do want the browser itself
 to trust the CA, install it system-wide, and note that Firefox keeps its own
 store and needs the certificate imported in its own settings.
 

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net"
 	"net/http"
@@ -555,5 +556,45 @@ func TestServeBindsEveryListenerToTheGivenAddress(t *testing.T) {
 	cancel()
 	if err := <-served; err != nil {
 		t.Fatalf("serve: %v", err)
+	}
+}
+
+// A route's address is something to point an application at, so a running
+// instance reports it from /api/config the way the banner prints it.
+func TestServeReportsItsRoutesFromTheAPI(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	upstream, err := url.Parse("https://api.stripe.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := &syncWriter{}
+	served := make(chan error, 1)
+	go func() {
+		served <- serve(ctx, out, nil, DefaultBind, 0, 0, []reverse.Route{{Name: "stripe", Upstream: upstream}}, nil, nil, false, true)
+	}()
+	adminAddr := waitForAddr(t, out, "admin: http://")
+	routeAddr := waitForAddr(t, out, "route stripe: http://")
+
+	resp, err := http.Get("http://" + adminAddr + "/api/config")
+	if err != nil {
+		t.Fatalf("reading config: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	var got struct {
+		Routes []admin.Route `json:"routes"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decoding config: %v", err)
+	}
+	want := []admin.Route{{Name: "stripe", Addr: "http://" + routeAddr, Upstream: "https://api.stripe.com"}}
+	if !slices.Equal(got.Routes, want) {
+		t.Errorf("config reports routes %+v, want %+v", got.Routes, want)
+	}
+
+	cancel()
+	if err := <-served; err != nil {
+		t.Errorf("serve: %v", err)
 	}
 }

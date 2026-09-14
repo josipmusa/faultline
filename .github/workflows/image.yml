@@ -63,3 +63,31 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # The transparent-mode image is the same Dockerfile's other target, on
+      # alpine with iptables, published beside the default one with a
+      # -transparent suffix on every tag: docs/docker.md names it that way.
+      - name: Tags and labels (transparent)
+        id: meta-transparent
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/${{ github.repository }}
+          flavor: |
+            suffix=-transparent,onlatest=true
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
+
+      - name: Build and push (transparent)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          target: transparent
+          platforms: ${{ startsWith(github.ref, 'refs/tags/') && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
+          push: ${{ startsWith(github.ref, 'refs/tags/') }}
+          build-args: VERSION=${{ steps.meta-transparent.outputs.version }}
+          tags: ${{ steps.meta-transparent.outputs.tags }}
+          labels: ${{ steps.meta-transparent.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

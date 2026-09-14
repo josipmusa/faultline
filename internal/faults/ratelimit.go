@@ -16,6 +16,10 @@ func init() { Register(rateLimit{}) }
 
 func (rateLimit) Name() string { return "rate_limit" }
 
+func (rateLimit) Description() string {
+	return "Answer 429 Too Many Requests with a Retry-After header, to check that a client honours the hint."
+}
+
 func (rateLimit) Tier() Tier { return TierResponse }
 
 func (rateLimit) Schema() Schema {

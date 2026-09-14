@@ -85,6 +85,7 @@ export default function Home() {
             upstreams={upstreams.upstreams}
             rules={rules}
             error={upstreams.error}
+            config={config}
             // A quick action changes a rule, and the rule list refreshes
             // itself off the stream's rules_changed; the upstream rows are
             // read again here, because a bypass shows up only in them.
@@ -112,6 +113,7 @@ export default function Home() {
                 filtering={shown.length !== events.length}
                 onClearFilters={() => setFilters(emptyFilters)}
                 seeded={seeded}
+                config={config}
                 error={error}
               />
 

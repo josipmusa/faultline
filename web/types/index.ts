@@ -143,6 +143,8 @@ export interface CatalogueField {
  * applies, not how much of the traffic Faultline has to see. */
 export interface CatalogueEntry {
   name: string;
+  /** What it does, in one sentence, shown under the type once chosen. */
+  description: string;
   tier?: 'connection' | 'response';
   fields: CatalogueField[];
 }
@@ -196,4 +198,15 @@ export interface Report {
 export interface ConfigInfo {
   persisted: boolean;
   path?: string;
+  /** What HTTP_PROXY should point at, absent when no proxy is running. */
+  proxy_url?: string;
+  /** The explicit routes: each an address to point a client at, and the
+   * upstream it stands in for. Absent when there are none. */
+  routes?: RouteInfo[];
+}
+
+export interface RouteInfo {
+  name: string;
+  addr: string;
+  upstream: string;
 }

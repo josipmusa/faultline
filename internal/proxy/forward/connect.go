@@ -47,7 +47,11 @@ func (s *Server) tunnel(w http.ResponseWriter, r *http.Request) {
 		}
 		defer func() { _ = client.Close() }()
 
-		kind, conn := sniffTunnel(client)
+		kind, conn, err := sniffTunnel(client, s.tunnelPatience())
+		if err != nil {
+			s.abandonTunnel(addr, err)
+			return
+		}
 		if kind == kindHTTP1 {
 			s.log.Debug("tunnel carries unencrypted http", "upstream", faults.StripDefaultPort(addr))
 			// Same as the intercepted path: the tunnel outlives the CONNECT
@@ -77,6 +81,21 @@ func (s *Server) tunnel(w http.ResponseWriter, r *http.Request) {
 	pipe(client, upstream)
 }
 
+// abandonTunnel ends a tunnel the client never put anything into; the caller
+// closes it. A client that hung up straight away is a plain close, which
+// browsers do after a preconnect and pools do to an idle connection, and is
+// not an event: it never saw a certificate, so it cannot have rejected one. A
+// client that went quiet has its tunnel taken away so it does not pin a
+// goroutine and a socket for ever.
+func (s *Server) abandonTunnel(addr string, err error) {
+	host := faults.StripDefaultPort(addr)
+	if errors.Is(err, errNothingSent) {
+		s.log.Debug("client closed its tunnel without using it", "upstream", host)
+		return
+	}
+	s.log.Debug("closing a tunnel the client sent nothing into", "upstream", host, "err", err)
+}
+
 // tunnelledHandler forwards requests that arrived unencrypted inside a
 // tunnel. They come in origin form, so the destination comes from the CONNECT
 // rather than the request line, and the Host header the client sent stays as
@@ -87,9 +106,13 @@ func tunnelledHandler(transport http.RoundTripper, target string, log *slog.Logg
 			r.Out.URL.Scheme = "http"
 			r.Out.URL.Host = target
 		},
-		Transport:    transport,
-		ErrorLog:     slog.NewLogLogger(log.Handler(), slog.LevelDebug),
-		ErrorHandler: faults.ProxyErrorHandler(log, func(*http.Request) string { return faults.StripDefaultPort(target) }),
+		Transport: transport,
+		ErrorLog:  slog.NewLogLogger(log.Handler(), slog.LevelDebug),
+		// Flush every write instead of waiting for a buffer to fill, so a fault
+		// that paces or cuts a body reaches the client as it happens rather
+		// than all at once at the end.
+		FlushInterval: -1,
+		ErrorHandler:  faults.ProxyErrorHandler(log, func(*http.Request) string { return faults.StripDefaultPort(target) }),
 	})
 }
 

@@ -2,11 +2,12 @@
 
 import { X } from 'lucide-react';
 
-import type { Event, Rule } from '@/types';
+import type { ConfigInfo, Event, Rule } from '@/types';
 import { cn } from '@/lib/utils';
 
 import { FaultBadge, MethodBadge, TierBadge } from './badges';
 import { Button } from './ui/Button';
+import { AttachHint } from './ui/AttachHint';
 import { EmptyState } from './ui/EmptyState';
 import { Notice } from './ui/Notice';
 
@@ -40,6 +41,8 @@ interface RequestStreamProps {
    * the page has not looked yet, and the view says so instead of "no
    * requests". */
   seeded: boolean;
+  /** Where this instance listens, for the empty state to name. */
+  config: ConfigInfo | null;
   /** Why the API could not be reached, when it could not. */
   error: string | null;
 }
@@ -52,6 +55,7 @@ export function RequestStream({
   filtering,
   onClearFilters,
   seeded,
+  config,
   error,
 }: RequestStreamProps) {
   return (
@@ -150,7 +154,7 @@ export function RequestStream({
         </table>
 
         {events.length === 0 && (
-          <Empty seeded={seeded} filtering={filtering} onClearFilters={onClearFilters} />
+          <Empty seeded={seeded} filtering={filtering} onClearFilters={onClearFilters} config={config} />
         )}
       </div>
     </div>
@@ -161,10 +165,12 @@ function Empty({
   seeded,
   filtering,
   onClearFilters,
+  config,
 }: {
   seeded: boolean;
   filtering: boolean;
   onClearFilters: () => void;
+  config: ConfigInfo | null;
 }) {
   if (filtering) {
     return (
@@ -184,11 +190,7 @@ function Empty({
   }
   return (
     <EmptyState>
-      No requests yet. Start your application with{' '}
-      <code className="rounded bg-zinc-800 px-1 py-0.5 font-mono text-xs text-zinc-300">
-        faultline run -- &lt;your start command&gt;
-      </code>{' '}
-      and its outbound calls appear here.
+      No requests yet. <AttachHint config={config} then="its outbound calls appear here." />
     </EmptyState>
   );
 }

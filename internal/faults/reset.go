@@ -2,6 +2,7 @@ package faults
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -17,6 +18,10 @@ type reset struct{}
 func init() { Register(reset{}) }
 
 func (reset) Name() string { return "reset" }
+
+func (reset) Description() string {
+	return "Break the connection off, before anything is sent or part way through the real response."
+}
 
 func (reset) Tier() Tier { return TierConnection }
 
@@ -77,6 +82,11 @@ func (f resetFault) Dial(ctx context.Context, ruleID, addr string, next DialFunc
 // cutBody delivers a fixed number of bytes of a real response and then resets
 // the client. The error reaches whoever is copying the body, which by then has
 // nowhere to be written anyway.
+//
+// A body shorter than the threshold is reset where it ends instead: the rule
+// promised a broken connection, and it gets one. A client reading a chunked
+// body sees the break, since the terminating chunk never comes; one reading a
+// Content-Length body has every byte by then and only its connection is lost.
 type cutBody struct {
 	io.ReadCloser
 	ctx  context.Context //nolint:containedctx // the cut happens during a read, not at construction
@@ -93,7 +103,7 @@ func (b *cutBody) Read(p []byte) (int, error) {
 	}
 	n, err := b.ReadCloser.Read(p)
 	b.left -= n
-	if b.left > 0 {
+	if b.left > 0 && !errors.Is(err, io.EOF) {
 		return n, err
 	}
 	b.cut = true

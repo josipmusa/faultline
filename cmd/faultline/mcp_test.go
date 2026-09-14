@@ -246,3 +246,28 @@ func TestMCPAttachesToAnInstanceThatIsAlreadyRunning(t *testing.T) {
 		t.Fatalf("serve: %v", err)
 	}
 }
+
+// An agent told to use --admin http://localhost:9500 must get an instance on
+// 9500 when none is there, not one on the default port.
+func TestAdminPortOfFollowsTheAdminFlag(t *testing.T) {
+	cases := map[string]int{
+		"http://localhost:9500":      9500,
+		"http://127.0.0.1:9000":      9000,
+		"http://localhost":           80,
+		"https://faultline.internal": 443,
+	}
+	for addr, want := range cases {
+		c, err := client.New(addr)
+		if err != nil {
+			t.Fatalf("client.New(%q): %v", addr, err)
+		}
+		got, err := adminPortOf(c)
+		if err != nil {
+			t.Errorf("adminPortOf(%q): %v", addr, err)
+			continue
+		}
+		if got != want {
+			t.Errorf("adminPortOf(%q) = %d, want %d", addr, got, want)
+		}
+	}
+}

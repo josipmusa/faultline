@@ -2,8 +2,10 @@ package forward
 
 import (
 	"crypto/tls"
+	"errors"
 	"io"
 	"net"
+	"os"
 	"testing"
 	"time"
 )
@@ -24,7 +26,10 @@ func TestPeekClientHelloReadsTheServerName(t *testing.T) {
 	server := helloWriter(t, &tls.Config{ServerName: "api.stripe.com", MinVersion: tls.VersionTLS12})
 	defer func() { _ = server.Close() }()
 
-	name, _ := peekClientHello(server)
+	name, _, err := peekClientHello(server, time.Second)
+	if err != nil {
+		t.Fatalf("peekClientHello: %v", err)
+	}
 	if name != "api.stripe.com" {
 		t.Fatalf("server name is %q, want api.stripe.com", name)
 	}
@@ -36,8 +41,8 @@ func TestPeekClientHelloIsEmptyWithoutSNI(t *testing.T) {
 	server := helloWriter(t, &tls.Config{ServerName: "127.0.0.1", MinVersion: tls.VersionTLS12})
 	defer func() { _ = server.Close() }()
 
-	if name, _ := peekClientHello(server); name != "" {
-		t.Fatalf("server name is %q, want empty", name)
+	if name, _, err := peekClientHello(server, time.Second); name != "" || err != nil {
+		t.Fatalf("server name is %q, err %v, want empty and no error", name, err)
 	}
 }
 
@@ -45,7 +50,10 @@ func TestPeekClientHelloLeavesTheHandshakeIntact(t *testing.T) {
 	server := helloWriter(t, &tls.Config{ServerName: "api.stripe.com", MinVersion: tls.VersionTLS12})
 	defer func() { _ = server.Close() }()
 
-	name, peeked := peekClientHello(server)
+	name, peeked, err := peekClientHello(server, time.Second)
+	if err != nil {
+		t.Fatalf("peekClientHello: %v", err)
+	}
 	if name != "api.stripe.com" {
 		t.Fatalf("server name is %q, want api.stripe.com", name)
 	}
@@ -67,7 +75,51 @@ func TestPeekClientHelloIsEmptyForSomethingThatIsNotTLS(t *testing.T) {
 	t.Cleanup(func() { _ = client.Close(); _ = server.Close() })
 	go func() { _, _ = client.Write([]byte("GET / HTTP/1.1\r\nHost: x\r\n\r\n")) }()
 
-	if name, _ := peekClientHello(server); name != "" {
-		t.Fatalf("server name is %q, want empty", name)
+	if name, _, err := peekClientHello(server, time.Second); name != "" || err != nil {
+		t.Fatalf("server name is %q, err %v, want empty and no error", name, err)
+	}
+}
+
+// tcpPair is a connected loopback socket pair. net.Pipe will not do here: it
+// refuses a deadline once its peer is closed, where a real socket accepts one
+// and reports the close on the next read, which is the case under test.
+func tcpPair(t *testing.T) (client, server net.Conn) {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listening: %v", err)
+	}
+	defer func() { _ = ln.Close() }()
+	client, err = net.Dial("tcp", ln.Addr().String())
+	if err != nil {
+		t.Fatalf("dialing: %v", err)
+	}
+	server, err = ln.Accept()
+	if err != nil {
+		t.Fatalf("accepting: %v", err)
+	}
+	t.Cleanup(func() { _ = client.Close(); _ = server.Close() })
+	return client, server
+}
+
+func TestPeekClientHelloReportsAClientThatHangsUpFirst(t *testing.T) {
+	client, server := tcpPair(t)
+	_ = client.Close()
+
+	if _, _, err := peekClientHello(server, time.Second); !errors.Is(err, errNothingSent) {
+		t.Fatalf("err = %v, want errNothingSent", err)
+	}
+}
+
+func TestPeekClientHelloGivesUpOnASilentClient(t *testing.T) {
+	client, server := net.Pipe()
+	t.Cleanup(func() { _ = client.Close(); _ = server.Close() })
+
+	_, _, err := peekClientHello(server, 50*time.Millisecond)
+	if err == nil || errors.Is(err, errNothingSent) {
+		t.Fatalf("err = %v, want the deadline", err)
+	}
+	if !errors.Is(err, os.ErrDeadlineExceeded) {
+		t.Fatalf("err = %v, want it to wrap the deadline", err)
 	}
 }

@@ -36,6 +36,16 @@ type Cmd struct {
 	// is killed, and how long its output pipes get after that. Zero means
 	// DefaultGrace.
 	Grace time.Duration
+
+	// OwnGroup starts the child in its own process group on Unix and sends
+	// every signal, including the final kill, to that whole group, so a
+	// shell's children stop with it when the context is cancelled. It is off
+	// by default because a child in its own group is no longer in the
+	// terminal's foreground group and cannot read the tty, which is what
+	// `faultline run` needs for interactive commands. Turn it on for commands
+	// that have no terminal, such as those started by the MCP server. It has
+	// no effect on other operating systems.
+	OwnGroup bool
 }
 
 // A StartError means the command never ran at all: the executable was not
@@ -83,12 +93,15 @@ func (c Cmd) Run(ctx context.Context) (int, error) {
 	// would make a cancelled command take as long as the one it was meant to
 	// cut short, so they get a deadline of their own once the child is gone.
 	cmd.WaitDelay = grace
+	if c.OwnGroup {
+		startInOwnGroup(cmd)
+	}
 
 	if err := cmd.Start(); err != nil {
 		return 1, &StartError{Name: c.Args[0], Err: err}
 	}
 
-	stop := relay(ctx, cmd.Process, grace)
+	stop := relay(ctx, target{proc: cmd.Process, group: c.OwnGroup}, grace)
 	err := cmd.Wait()
 	stop()
 
@@ -105,7 +118,27 @@ func (c Cmd) Run(ctx context.Context) (int, error) {
 
 // relay forwards interrupts to the child until the returned function is
 // called, which the caller does once the child is reaped.
-func relay(ctx context.Context, child *os.Process, grace time.Duration) func() {
+// target is what relay signals: the child alone, or its whole process group.
+type target struct {
+	proc  *os.Process
+	group bool
+}
+
+func (t target) signal(sig os.Signal) error {
+	if t.group {
+		return signalGroup(t.proc, sig)
+	}
+	return t.proc.Signal(sig)
+}
+
+func (t target) kill() error {
+	if t.group {
+		return killGroup(t.proc)
+	}
+	return t.proc.Kill()
+}
+
+func relay(ctx context.Context, child target, grace time.Duration) func() {
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
 	done := make(chan struct{})
@@ -114,12 +147,12 @@ func relay(ctx context.Context, child *os.Process, grace time.Duration) func() {
 		for {
 			select {
 			case sig := <-sigs:
-				_ = child.Signal(sig)
+				_ = child.signal(sig)
 			case <-ctx.Done():
-				_ = child.Signal(os.Interrupt)
+				_ = child.signal(os.Interrupt)
 				select {
 				case <-time.After(grace):
-					_ = child.Kill()
+					_ = child.kill()
 				case <-done:
 				}
 				return

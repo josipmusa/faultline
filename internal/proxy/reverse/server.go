@@ -3,7 +3,7 @@
 //
 // An explicit route is the simplest way to attach Faultline to an application.
 // The application points at `localhost:9100` instead of the real upstream, and
-// everything else — matching, faults, recording — happens in the transport.
+// everything else - matching, faults, recording - happens in the transport.
 package reverse
 
 import (

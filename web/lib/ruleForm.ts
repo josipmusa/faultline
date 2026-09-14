@@ -336,3 +336,12 @@ export function groupByTier(faults: CatalogueEntry[]): TierGroup[] {
     .map((tier) => ({ tier, label: tierLabels[tier], entries: faults.filter((entry) => entry.tier === tier) }))
     .filter((group) => group.entries.length > 0);
 }
+
+/** A selector for the form element holding the field an API error names. The
+ * path comes off the wire, so it is escaped before it meets querySelector: a
+ * stray quote or bracket would otherwise throw and take the page down. */
+export function fieldSelector(field: string): string {
+  const css = (globalThis as { CSS?: { escape?: (s: string) => string } }).CSS;
+  const escaped = css?.escape ? css.escape(field) : field.replace(/["\\]/g, '\\$&');
+  return `[data-field="${escaped}"]`;
+}

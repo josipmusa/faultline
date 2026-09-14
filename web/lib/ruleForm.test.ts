@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import type { CatalogueEntry, Rule } from '@/types';
 
@@ -7,6 +7,7 @@ import {
   blankParams,
   describeFault,
   describeMatch,
+  fieldSelector,
   formToRule,
   paramsFromValues,
   paramsToValues,
@@ -18,6 +19,7 @@ import {
 
 const delay: CatalogueEntry = {
   name: 'delay',
+  description: 'Hold the call back.',
   tier: 'connection',
   fields: [
     { name: 'ms', kind: 'integer', description: 'How long', required: true, min: 1 },
@@ -27,6 +29,7 @@ const delay: CatalogueEntry = {
 
 const headers: CatalogueEntry = {
   name: 'headers',
+  description: 'Set or strip headers.',
   tier: 'response',
   fields: [
     { name: 'set', kind: 'string map', description: 'Set these', partner: 'remove' },
@@ -36,6 +39,7 @@ const headers: CatalogueEntry = {
 
 const firstN: CatalogueEntry = {
   name: 'first_n',
+  description: 'The first few calls.',
   fields: [{ name: 'n', kind: 'integer', description: 'How many', required: true, min: 1 }],
 };
 
@@ -51,7 +55,7 @@ describe('blankParams', () => {
   });
 
   it('has nothing to fill for a fault with no parameters', () => {
-    expect(blankParams({ name: 'refuse', tier: 'connection', fields: [] })).toEqual({});
+    expect(blankParams({ name: 'refuse', description: '', tier: 'connection', fields: [] })).toEqual({});
   });
 
   // A fault the catalogue does not describe cannot be rendered at all, which
@@ -128,7 +132,7 @@ describe('blankForm', () => {
   // The catalogue arrives in name order, which would put corrupt first. A new
   // rule starts on delay, the fault everyone reaches for first.
   it('starts a new rule on delay wherever the catalogue lists it', () => {
-    const corrupt: CatalogueEntry = { name: 'corrupt', tier: 'response', fields: [] };
+    const corrupt: CatalogueEntry = { name: 'corrupt', description: '', tier: 'response', fields: [] };
     const form = blankForm({ faults: [corrupt, delay], behaviors: [] });
     expect(form.faultType).toBe('delay');
     expect(form.faultParams).toEqual({ ms: '', jitter_ms: '' });
@@ -280,9 +284,9 @@ describe('placeholderFor', () => {
 describe('groupByTier', () => {
   it('splits the faults into connection and response, keeping the catalogue order', () => {
     const faults: CatalogueEntry[] = [
-      { name: 'delay', tier: 'connection', fields: [] },
-      { name: 'status', tier: 'response', fields: [] },
-      { name: 'refuse', tier: 'connection', fields: [] },
+      { name: 'delay', description: '', tier: 'connection', fields: [] },
+      { name: 'status', description: '', tier: 'response', fields: [] },
+      { name: 'refuse', description: '', tier: 'connection', fields: [] },
     ];
     expect(groupByTier(faults)).toEqual([
       { tier: 'connection', label: 'Connection faults, any traffic', entries: [faults[0], faults[2]] },
@@ -291,7 +295,28 @@ describe('groupByTier', () => {
   });
 
   it('leaves out a tier with nothing in it', () => {
-    const faults: CatalogueEntry[] = [{ name: 'delay', tier: 'connection', fields: [] }];
+    const faults: CatalogueEntry[] = [{ name: 'delay', description: '', tier: 'connection', fields: [] }];
     expect(groupByTier(faults).map((group) => group.tier)).toEqual(['connection']);
+  });
+});
+
+describe('fieldSelector', () => {
+  it('quotes a plain path', () => {
+    expect(fieldSelector('fault.ms')).toBe('[data-field="fault.ms"]');
+  });
+
+  it('escapes quotes and backslashes when CSS.escape is unavailable', () => {
+    expect(fieldSelector('a"b]c\\d')).toBe('[data-field="a\\"b]c\\\\d"]');
+  });
+
+  it('delegates to CSS.escape when the browser has it', () => {
+    const escape = vi.fn((s: string) => `E(${s})`);
+    vi.stubGlobal('CSS', { escape });
+    try {
+      expect(fieldSelector('x"y')).toBe('[data-field="E(x"y)"]');
+      expect(escape).toHaveBeenCalledWith('x"y');
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

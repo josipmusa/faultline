@@ -25,12 +25,12 @@ func faultCatalogue() string {
 		if tier := f.Tier(); tier != "" {
 			fmt.Fprintf(&b, " (needs %s traffic)", tierNeeds(string(tier)))
 		}
-		fmt.Fprintf(&b, ": %s\n", describeSchema(f.Schema()))
+		fmt.Fprintf(&b, ": %s Parameters: %s\n", f.Description(), describeSchema(f.Schema()))
 	}
 
 	b.WriteString("\nBehaviors, which gate when a fault applies, by type:\n")
 	for _, behavior := range faults.AllBehaviors() {
-		fmt.Fprintf(&b, "  %s: %s\n", behavior.Name(), describeSchema(behavior.Schema()))
+		fmt.Fprintf(&b, "  %s: %s Parameters: %s\n", behavior.Name(), behavior.Description(), describeSchema(behavior.Schema()))
 	}
 
 	return b.String()

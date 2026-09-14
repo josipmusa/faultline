@@ -17,6 +17,8 @@ import (
 // request the rule already matched.
 type Behavior interface {
 	Name() string
+	// Description says when the fault applies, in one sentence.
+	Description() string
 	Schema() Schema
 	// New returns the decider configured by params, which ValidateBehavior has
 	// accepted.
@@ -118,6 +120,10 @@ func init() { RegisterBehavior(percent{}) }
 
 func (percent) Name() string { return "percent" }
 
+func (percent) Description() string {
+	return "Apply the fault to a share of matching calls, chosen at random each time."
+}
+
 func (percent) Schema() Schema {
 	return Schema{
 		Int("percent").Required().Min(1).Max(100).Desc("What share of matching requests the fault applies to, as a percentage"),
@@ -147,6 +153,10 @@ type firstN struct{}
 func init() { RegisterBehavior(firstN{}) }
 
 func (firstN) Name() string { return "first_n" }
+
+func (firstN) Description() string {
+	return "Apply the fault to the first few matching calls, then let the rest through."
+}
 
 func (firstN) Schema() Schema {
 	return Schema{
@@ -185,9 +195,13 @@ func init() { RegisterBehavior(forDuration{}) }
 
 func (forDuration) Name() string { return "for_duration" }
 
+func (forDuration) Description() string {
+	return "Apply the fault for a number of seconds from the first matching call, then recover."
+}
+
 func (forDuration) Schema() Schema {
 	return Schema{
-		Int("sec").Required().Min(1).Desc("How many seconds after the rule is switched on the fault keeps applying"),
+		Int("sec").Required().Min(1).Desc("How many seconds the fault keeps applying, counted from the first call the rule matches"),
 	}
 }
 
@@ -222,6 +236,10 @@ type pattern struct{}
 func init() { RegisterBehavior(pattern{}) }
 
 func (pattern) Name() string { return "pattern" }
+
+func (pattern) Description() string {
+	return "Repeat a cycle of F (fault) and P (pass), one letter per matching call."
+}
 
 // patternSteps are the characters a pattern is written with.
 const patternSteps = "FP"

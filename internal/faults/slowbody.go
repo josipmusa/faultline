@@ -23,6 +23,10 @@ func init() { Register(slowBody{}) }
 
 func (slowBody) Name() string { return "slow_body" }
 
+func (slowBody) Description() string {
+	return "Deliver a correct response slowly, trickling the body over the time given."
+}
+
 func (slowBody) Tier() Tier { return TierResponse }
 
 func (slowBody) Schema() Schema {

@@ -22,6 +22,10 @@ func init() { Register(status{}) }
 
 func (status) Name() string { return "status" }
 
+func (status) Description() string {
+	return "Replace the upstream's response with a status code of your choosing; the upstream is still called."
+}
+
 func (status) Tier() Tier { return TierResponse }
 
 func (status) Schema() Schema {

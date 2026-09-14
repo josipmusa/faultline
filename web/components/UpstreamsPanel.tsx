@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { Ban, ShieldAlert, Timer, TriangleAlert, Zap } from 'lucide-react';
 
-import type { Rule, Upstream } from '@/types';
+import type { ConfigInfo, Rule, Upstream } from '@/types';
 import { addBypass, createRule, deleteRule, removeBypass } from '@/lib/api';
 import { panelState } from '@/lib/panelState';
 import { cn } from '@/lib/utils';
@@ -19,6 +19,7 @@ import {
 import { TierBadge } from './badges';
 import { Badge } from './ui/Badge';
 import { Button } from './ui/Button';
+import { AttachHint } from './ui/AttachHint';
 import { EmptyState } from './ui/EmptyState';
 import { Notice } from './ui/Notice';
 import { Toolbar } from './ui/Toolbar';
@@ -34,13 +35,15 @@ interface UpstreamsPanelProps {
   error: string | null;
   /** Re-reads the list, after an action changed something the rows show. */
   onChanged: () => void;
+  /** Where this instance listens, for the empty state to name. */
+  config: ConfigInfo | null;
 }
 
 /** What one row is waiting for, or what came back from it. Keyed by host, so
  * two rows never share a spinner or a message. */
 type Pending = Record<string, string>;
 
-export function UpstreamsPanel({ upstreams, rules, error, onChanged }: UpstreamsPanelProps) {
+export function UpstreamsPanel({ upstreams, rules, error, onChanged, config }: UpstreamsPanelProps) {
   const [pending, setPending] = useState<Pending>({});
   const [notices, setNotices] = useState<Pending>({});
 
@@ -143,11 +146,7 @@ export function UpstreamsPanel({ upstreams, rules, error, onChanged }: Upstreams
         {state === 'loading' && <EmptyState>Loading…</EmptyState>}
         {state === 'empty' && (
           <EmptyState>
-            No upstreams seen yet. Start your application with{' '}
-            <code className="rounded bg-zinc-800 px-1 py-0.5 font-mono text-xs text-zinc-300">
-              faultline run -- &lt;your start command&gt;
-            </code>{' '}
-            and every host it calls is listed here.
+            No upstreams seen yet. <AttachHint config={config} then="every host it calls is listed here." />
           </EmptyState>
         )}
       </div>

@@ -18,6 +18,10 @@ func init() { Register(refuse{}) }
 
 func (refuse) Name() string { return "refuse" }
 
+func (refuse) Description() string {
+	return "Turn the connection away, the way a host with nothing listening does."
+}
+
 func (refuse) Tier() Tier { return TierConnection }
 
 func (refuse) Schema() Schema { return Schema{} }

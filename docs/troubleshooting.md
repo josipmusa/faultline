@@ -15,7 +15,7 @@ The calls are not going through the proxy. Work down this list:
   proxy variables for the command after `--` and whatever it starts. A browser
   is not that process, and neither is a service that was already running. For
   a browser, put the dependency behind a route and point the dev server at it:
-  [frontends.md](frontends.md). For a process Faultline did not start, set
+  [attach.md](attach.md#browsers-and-frontends). For a process Faultline did not start, set
   `HTTP_PROXY` and `HTTPS_PROXY` to `http://localhost:9001` yourself.
 - **The client ignores `HTTP_PROXY`.** Some do. Give the dependency an explicit
   route with `--route name=url` and point the client's base URL at the local
@@ -85,11 +85,9 @@ report as resilience while a warning stands beside it.
 
 ## The report's retry numbers look wrong
 
-A retry, to the report, is a second call to the same method and path on the
-same host within five seconds of one that failed, whoever made it. A client
-that polls on a fixed interval scores exactly like one that retries, and
-`max_retry_wait_ms` is then the poll interval rather than a backoff. Check the
-application's own logs before describing that number as a backoff, and read
+The report cannot tell a retry from a poll, and `max_retry_wait_ms` is then the
+poll interval rather than a backoff. Check the application's own logs before
+describing that number as a backoff, and read
 [cli.md](cli.md#sessions-and-reports) for what each number does and does not
 measure.
 
@@ -152,7 +150,7 @@ Faultline's own calls to the upstream leave the same network namespace as the
 application's, so the iptables rules exempt the uid Faultline runs as, `65532`.
 An application running as that uid is mistaken for Faultline and passes
 through unrecorded. Run the application as any other uid. Transparent mode also
-needs Linux, `NET_ADMIN`, and the `transparent` image tag, which carries the
+needs Linux, `NET_ADMIN`, and the `-transparent` image tag, which carries the
 iptables binary the default image does not; Faultline refuses to start half
 attached rather than come up without them. [docker.md](docker.md).
 
@@ -168,10 +166,11 @@ xattr -d com.apple.quarantine ./faultline
 
 ## The child exited but the report counts fewer failures than the log shows
 
-`abandoned` counts a failed call only once its five second window has closed,
-and the report is taken the moment the child is gone. Calls that failed in the
-last seconds are not in it yet. `faultline session report` against a running
-instance a few seconds later has the settled number.
+`abandoned` settles only after a failed call's retry window has closed, and the
+report is taken the moment the child is gone, so calls that failed in the last
+seconds are not in it yet ([cli.md](cli.md#sessions-and-reports)). `faultline
+session report` against a running instance a few seconds later has the settled
+number.
 
 ## A synthetic response is hard to tell from the upstream's
 

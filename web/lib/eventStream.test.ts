@@ -4,6 +4,8 @@ import type { Event } from '@/types';
 
 import { EventStream, type Socket } from './eventStream';
 
+const reconnectMaxMs = 30_000;
+
 /** A stand-in for the browser's WebSocket, driven by the test. */
 class FakeSocket implements Socket {
   static opened: FakeSocket[] = [];
@@ -195,6 +197,37 @@ describe('connection state', () => {
 
       expect(open.closed).toBe(true);
       expect(FakeSocket.opened).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('start, stop, start leaves one live socket and no reconnect from the stopped one', () => {
+    vi.useFakeTimers();
+    try {
+      const { stream, socket } = newStream();
+      const first = socket();
+
+      stream.stop();
+      stream.start();
+      const second = socket();
+      expect(second).not.toBe(first);
+
+      // The browser fires the old socket's close asynchronously, after the
+      // restart. It must not be heard.
+      first.onclose?.();
+      first.onerror?.();
+      vi.advanceTimersByTime(reconnectMaxMs);
+
+      expect(FakeSocket.opened).toHaveLength(2);
+      expect(first.closed).toBe(true);
+      expect(second.closed).toBe(false);
+      expect(stream.connected).toBe(false);
+
+      second.onopen?.();
+      expect(stream.connected).toBe(true);
+      first.send({ type: 'event', event: event('1') });
+      expect(stream.events).toHaveLength(0);
     } finally {
       vi.useRealTimers();
     }

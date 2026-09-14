@@ -17,6 +17,10 @@ func init() { Register(corrupt{}) }
 
 func (corrupt) Name() string { return "corrupt" }
 
+func (corrupt) Description() string {
+	return "Flip bits in the real response body, keeping its length, so whatever parses it meets a mangled payload."
+}
+
 func (corrupt) Tier() Tier { return TierResponse }
 
 func (corrupt) Schema() Schema {

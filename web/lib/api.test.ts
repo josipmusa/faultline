@@ -245,12 +245,13 @@ describe('the catalogue', () => {
         faults: [
           {
             name: 'delay',
+            description: 'Hold the call back.',
             tier: 'connection',
             fields: [{ name: 'ms', kind: 'integer', description: 'How long', required: true, min: 1 }],
           },
         ],
         behaviors: [
-          { name: 'first_n', fields: [{ name: 'n', kind: 'integer', description: 'How many', required: true }] },
+          { name: 'first_n', description: 'The first few calls.', fields: [{ name: 'n', kind: 'integer', description: 'How many', required: true }] },
         ],
       }),
     );

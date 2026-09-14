@@ -130,7 +130,7 @@ func (s *Server) flushQueued(ctx context.Context, conn *websocket.Conn, sub *eve
 // closeBounded runs a websocket close and stops waiting for it after
 // streamCloseTimeout. Both close paths in the library end in waitGoroutines,
 // which wedges for fifteen seconds once CloseRead has started a close of its
-// own — and shutdown waits on this handler. The close frame is written before
+// own - and shutdown waits on this handler. The close frame is written before
 // that wait begins, so the client still sees a clean close either way, and the
 // abandoned goroutine dies with the process.
 func closeBounded(closer func()) {

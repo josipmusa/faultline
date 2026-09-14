@@ -155,3 +155,38 @@ func TestConfigReportsTheBypassListWithoutTheDefaults(t *testing.T) {
 		t.Errorf("bypass = %v, want only the entry somebody configured", got.Bypass)
 	}
 }
+
+// An explicit route is an address to point an application at, so the config
+// endpoint names each one the way the UI's empty states and an agent need it:
+// by the name the caller reached the admin server with when it is bound to
+// every interface, and as it is otherwise.
+func TestConfigReportsTheRoutes(t *testing.T) {
+	s := newTestServer(t)
+	s.RoutesAt([]Route{
+		{Name: "stripe", Addr: "http://127.0.0.1:9100", Upstream: "https://api.stripe.com"},
+		{Name: "search", Addr: "http://[::]:9101", Upstream: "http://search.internal"},
+	})
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/api/config", nil)
+	r.Host = "faultline:9000"
+	s.ServeHTTP(w, r)
+	got := decodeBody[Config](t, w).Routes
+
+	want := []Route{
+		{Name: "stripe", Addr: "http://127.0.0.1:9100", Upstream: "https://api.stripe.com"},
+		{Name: "search", Addr: "http://faultline:9101", Upstream: "http://search.internal"},
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("routes are %+v, want %+v", got, want)
+	}
+}
+
+func TestConfigOmitsRoutesWhenThereAreNone(t *testing.T) {
+	s := newTestServer(t)
+
+	body := do(t, s, http.MethodGet, "/api/config", "").Body.String()
+	if strings.Contains(body, `"routes"`) {
+		t.Errorf("config lists routes while none are running: %s", body)
+	}
+}

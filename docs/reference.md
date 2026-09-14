@@ -63,7 +63,7 @@ request, so it does nothing to a host that stays at tier `encrypted`.
 
 ### `corrupt`
 
-A response tier fault.
+Flip bits in the real response body, keeping its length, so whatever parses it meets a mangled payload. A response tier fault.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -71,7 +71,7 @@ A response tier fault.
 
 ### `delay`
 
-A connection tier fault.
+Hold the call back before letting it through; the response is the real one, later. A connection tier fault.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -80,7 +80,7 @@ A connection tier fault.
 
 ### `hang`
 
-A connection tier fault.
+Accept the connection and never answer, so the client waits until its own timeout fires. A connection tier fault.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -88,7 +88,7 @@ A connection tier fault.
 
 ### `headers`
 
-A response tier fault.
+Set or strip response headers on an otherwise untouched response. A response tier fault.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -99,7 +99,7 @@ Write at least one of `remove` and `set`.
 
 ### `rate_limit`
 
-A response tier fault.
+Answer 429 Too Many Requests with a Retry-After header, to check that a client honours the hint. A response tier fault.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -107,13 +107,13 @@ A response tier fault.
 
 ### `refuse`
 
-A connection tier fault.
+Turn the connection away, the way a host with nothing listening does. A connection tier fault.
 
 Takes no parameters.
 
 ### `reset`
 
-A connection tier fault.
+Break the connection off, before anything is sent or part way through the real response. A connection tier fault.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -121,7 +121,7 @@ A connection tier fault.
 
 ### `slow_body`
 
-A response tier fault.
+Deliver a correct response slowly, trickling the body over the time given. A response tier fault.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -129,7 +129,7 @@ A response tier fault.
 
 ### `status`
 
-A response tier fault.
+Replace the upstream's response with a status code of your choosing; the upstream is still called. A response tier fault.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -138,7 +138,7 @@ A response tier fault.
 
 ### `throttle`
 
-A connection tier fault.
+Deliver the real response at a crawl, capped at the bytes per second given. A connection tier fault.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -146,7 +146,7 @@ A connection tier fault.
 
 ### `truncate`
 
-A response tier fault.
+Cut the response body off part way, leaving the real status and headers in place. A response tier fault.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -164,23 +164,31 @@ it, starts its behavior over.
 
 ### `first_n`
 
+Apply the fault to the first few matching calls, then let the rest through.
+
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
 | `n` | integer, 1 or more | yes | How many matching requests the fault applies to before the rule lets the rest through |
 
 ### `for_duration`
 
+Apply the fault for a number of seconds from the first matching call, then recover.
+
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
-| `sec` | integer, 1 or more | yes | How many seconds after the rule is switched on the fault keeps applying |
+| `sec` | integer, 1 or more | yes | How many seconds the fault keeps applying, counted from the first call the rule matches |
 
 ### `pattern`
+
+Repeat a cycle of F (fault) and P (pass), one letter per matching call.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
 | `pattern` | string, matching `^[FfPp]+$` | yes | The cycle to repeat, one letter per matching request: F applies the fault, P lets it through |
 
 ### `percent`
+
+Apply the fault to a share of matching calls, chosen at random each time.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |

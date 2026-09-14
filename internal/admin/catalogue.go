@@ -22,9 +22,10 @@ type catalogue struct {
 // catalogueEntry is one fault or one behavior. A behavior has no tier: it says
 // when a fault applies, not how much of the traffic Faultline has to see.
 type catalogueEntry struct {
-	Name   string           `json:"name"`
-	Tier   string           `json:"tier,omitempty"`
-	Fields []catalogueField `json:"fields"`
+	Name        string           `json:"name"`
+	Description string           `json:"description"`
+	Tier        string           `json:"tier,omitempty"`
+	Fields      []catalogueField `json:"fields"`
 }
 
 // catalogueField is one parameter, with the constraints the form turns into
@@ -53,15 +54,17 @@ func (s *Server) listCatalogue(w http.ResponseWriter, _ *http.Request) {
 	}
 	for _, f := range faults.All() {
 		out.Faults = append(out.Faults, catalogueEntry{
-			Name:   f.Name(),
-			Tier:   string(f.Tier()),
-			Fields: catalogueFields(f.Schema()),
+			Name:        f.Name(),
+			Description: f.Description(),
+			Tier:        string(f.Tier()),
+			Fields:      catalogueFields(f.Schema()),
 		})
 	}
 	for _, b := range faults.AllBehaviors() {
 		out.Behaviors = append(out.Behaviors, catalogueEntry{
-			Name:   b.Name(),
-			Fields: catalogueFields(b.Schema()),
+			Name:        b.Name(),
+			Description: b.Description(),
+			Fields:      catalogueFields(b.Schema()),
 		})
 	}
 	s.writeJSON(w, http.StatusOK, out)

@@ -79,8 +79,17 @@ export class EventStream {
       clearTimeout(this.timer);
       this.timer = null;
     }
-    this.socket?.close();
+    const socket = this.socket;
     this.socket = null;
+    if (socket) {
+      // Detach before closing: the browser fires onclose asynchronously, and by
+      // then this stream may have been started again on a new socket.
+      socket.onopen = null;
+      socket.onmessage = null;
+      socket.onclose = null;
+      socket.onerror = null;
+      socket.close();
+    }
     this.setConnected(false);
   }
 
@@ -128,17 +137,26 @@ export class EventStream {
     const socket = this.openSocket(this.opts.url);
     this.socket = socket;
 
+    // Every handler checks it still speaks for the current socket. A socket
+    // that stop() replaced has nothing to say about this stream.
+    const current = () => this.socket === socket;
     socket.onopen = () => {
+      if (!current()) return;
       this.attempts = 0;
       this.setConnected(true);
       void this.reseed();
     };
-    socket.onmessage = (e) => this.receive(e.data);
+    socket.onmessage = (e) => {
+      if (current()) this.receive(e.data);
+    };
     socket.onclose = () => {
+      if (!current()) return;
       this.setConnected(false);
       this.reconnect();
     };
-    socket.onerror = () => this.setConnected(false);
+    socket.onerror = () => {
+      if (current()) this.setConnected(false);
+    };
   }
 
   private reconnect() {

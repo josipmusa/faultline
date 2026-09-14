@@ -17,6 +17,10 @@ func init() { Register(truncate{}) }
 
 func (truncate) Name() string { return "truncate" }
 
+func (truncate) Description() string {
+	return "Cut the response body off part way, leaving the real status and headers in place."
+}
+
 func (truncate) Tier() Tier { return TierResponse }
 
 func (truncate) Schema() Schema {

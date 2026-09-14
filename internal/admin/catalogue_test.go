@@ -116,3 +116,16 @@ func TestCataloguePublishesPairsAndAlphabets(t *testing.T) {
 		t.Errorf("behavior pattern has tier %q, want none", byName["pattern"].Tier)
 	}
 }
+
+// The editor shows the description under the type it has selected, so the
+// catalogue carries one per fault and per behavior, not only per parameter.
+func TestCatalogueDescribesEveryEntry(t *testing.T) {
+	s := newTestServer(t)
+	got := decodeBody[catalogue](t, do(t, s, http.MethodGet, "/api/catalogue", ""))
+
+	for _, entry := range append(got.Faults, got.Behaviors...) {
+		if entry.Description == "" {
+			t.Errorf("%s has no description", entry.Name)
+		}
+	}
+}

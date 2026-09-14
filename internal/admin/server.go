@@ -43,6 +43,8 @@ type Server struct {
 	// this instance; both are zero until ProxiesAt says otherwise.
 	proxyURL     string
 	intercepting bool
+	// explicitRoutes are the routes, as RoutesAt reported them.
+	explicitRoutes []Route
 	// draining is closed when Shutdown begins, so a request that would
 	// otherwise outlive the server can end itself.
 	drain     chan struct{}
@@ -134,7 +136,11 @@ func (s *Server) Start(host string, port int) error {
 		return fmt.Errorf("admin: listening on %s: %w", addr, err)
 	}
 
-	srv := &http.Server{Handler: s, ReadHeaderTimeout: readHeaderTimeout}
+	// The guard sits on the listening server rather than in ServeHTTP: a
+	// request that arrives through a socket is the only kind a browser can
+	// send, and the in-process MCP transport dispatches into the handler
+	// without one.
+	srv := &http.Server{Handler: s.guardBrowsers(host), ReadHeaderTimeout: readHeaderTimeout}
 
 	s.mu.Lock()
 	s.http = srv

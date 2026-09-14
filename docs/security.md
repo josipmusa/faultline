@@ -46,11 +46,22 @@ a shared network hands the control surface to that network. On anything but a
 machine you are alone on, put it behind something: an SSH tunnel, a host
 firewall, or a Compose network with no published ports.
 
-Faultline does not check the `Origin` or `Host` header on admin requests. What
-stands between a web page your browser visits and the admin API is the browser's
-same-origin policy, which DNS rebinding is designed to defeat. Loopback and the
-absence of anything worth stealing are the real defences today; per-service
-proxy credentials and an admin token are on the roadmap's "later" list.
+A web page you visit is the one thing that can reach a loopback port from
+outside the machine, so the admin server checks two headers a browser sets and
+a page cannot forge. While it is bound to localhost it answers only to a
+loopback name in `Host` (`localhost`, `127.0.0.1`, `::1`, or a name under
+`.localhost`): a page that points a name it controls at 127.0.0.1 (DNS
+rebinding) arrives with that name and is refused with a 403. And a request
+carrying an `Origin` that is not the admin server's own address is refused
+whatever it asks for, so a page on another site cannot create a rule with a
+request the browser sends without asking. Neither check is authentication:
+anything that can open a socket to the port, including a browser extension or
+a process on the machine, is still trusted. Per-service proxy credentials and
+an admin token are on the roadmap's "later" list.
+
+With `--bind 0.0.0.0` the `Host` check stands down, since being reached by name
+from other machines and containers is the point of widening it; the `Origin`
+check does not.
 
 ## The CA
 
@@ -62,8 +73,9 @@ certificate, `ca.crt`, is the half that gets handed to clients.
 
 `faultline run` and the Compose helper point a child at the certificate through
 environment variables (`SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS`,
-`REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`, `GIT_SSL_CAINFO`), which is trust scoped
-to that process and gone when it exits. That is the mode to prefer.
+`REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`, and for `run` also `GIT_SSL_CAINFO`),
+which is trust scoped to that process and gone when it exits. That is the mode
+to prefer.
 
 `faultline ca install` is the other kind: it adds the CA to the operating
 system's trust store, for every process and every browser, until it is removed.

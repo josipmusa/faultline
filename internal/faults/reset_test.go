@@ -123,3 +123,34 @@ func TestResetDialWithoutBytesCutsTheTunnelAtOnce(t *testing.T) {
 		t.Fatalf("reading a reset tunnel: %v, want a *ResetError", err)
 	}
 }
+
+// A body shorter than after_bytes still ends in a reset: the rule promised to
+// break the connection, and a threshold the body never reaches is no reason to
+// hand the client a clean answer while the event says it was faulted.
+func TestResetAfterMoreBytesThanTheBodyHasStillResets(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "0123456789")
+	}))
+	defer upstream.Close()
+
+	var aborted bool
+	req := httptest.NewRequest(http.MethodGet, upstream.URL, nil).
+		WithContext(withAborter(t, &aborted))
+
+	resp, err := buildReset(t, rules.Params{"after_bytes": 100}).Respond("kill", req, http.DefaultTransport)
+	if err != nil {
+		t.Fatalf("Respond: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body, err := io.ReadAll(resp.Body)
+	if string(body) != "0123456789" {
+		t.Errorf("body = %q, want all of it: the cut comes at the end, not before", body)
+	}
+	if err != ErrClientReset { //nolint:errorlint // the sentinel travels bare
+		t.Fatalf("reading to the end: %v, want ErrClientReset", err)
+	}
+	if !aborted {
+		t.Error("the client connection was not reset")
+	}
+}
