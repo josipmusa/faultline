@@ -20,7 +20,7 @@ GO_PKGS := $(shell go list ./... | grep -v /web/node_modules/)
 GOBIN   := $(shell go env GOPATH)/bin
 GOLANGCI_VERSION := v2.13.2
 
-.PHONY: build ui clients test test-go test-ui test-npm test-clients lint lint-go lint-ui lint-clients tools run schema docs clean
+.PHONY: build ui clients test test-go test-ui test-npm test-clients lint lint-go lint-ui lint-sh lint-clients tools run schema docs clean
 
 build:
 	go build $(UI_TAG) -ldflags "-X main.version=$(VERSION)" -o $(BIN) $(PKG)
@@ -49,11 +49,19 @@ test-npm:
 	@if command -v node >/dev/null 2>&1; then cd npm && node --test; \
 	else echo "skipping npm tests: node is missing"; fi
 
-lint: lint-go lint-ui lint-clients
+lint: lint-go lint-ui lint-sh lint-clients
 
 lint-go:
 	go vet $(GO_PKGS)
 	$(GOBIN)/golangci-lint run
+
+# install.sh is the first thing that runs on a stranger's machine and the only
+# shell here that ships, so it gets a linter where one exists. The GitHub Linux
+# runners carry shellcheck; a macOS runner and most laptops do not, and there a
+# syntax check is still better than nothing.
+lint-sh:
+	@if command -v shellcheck >/dev/null 2>&1; then shellcheck install.sh; \
+	else echo "skipping shellcheck: not installed, checking syntax only"; sh -n install.sh; fi
 
 # The UI halves skip rather than fail when the toolchain is absent, so `make
 # test` and `make lint` stay usable in a checkout that has never run `make ui`.
