@@ -19,7 +19,7 @@ jobs:
       contents: write
     steps:
       - name: Check out
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           # The changelog is derived from the history between tags, which a
           # shallow checkout does not have.
