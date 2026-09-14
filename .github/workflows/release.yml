@@ -34,7 +34,7 @@ jobs:
       # `make ui` runs as a GoReleaser hook, so the Node toolchain has to be
       # here before GoReleaser starts rather than inside the build.
       - name: Set up Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
