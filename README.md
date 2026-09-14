@@ -3,9 +3,6 @@
   <img src="docs/assets/logo-light.svg" alt="Faultline" width="314">
 </picture>
 
-> **Status: pre-alpha.** Nothing here works yet. The CLI is a skeleton. See
-> [ROADMAP.md](ROADMAP.md) for what is being built and in what order.
-
 Faultline shows developers what their application says to the outside world, and
 lets them make that world misbehave on purpose. It sits between an application
 and the services it depends on. It shows every outbound call live, and it can

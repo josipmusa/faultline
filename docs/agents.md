@@ -25,6 +25,11 @@ usual, and you can watch what the agent is doing.
 
 The instance it starts reads `faultline.yaml` from the working directory and
 creates the interception CA if there is none, exactly as `faultline run` does.
+It also holds the default ports for as long as the agent is connected, so a
+`faultline run` in another shell finds them taken and says so. Either join the
+agent's instance from that shell with the `rule`, `scenario` and `session`
+commands, or give the run ports of its own with `--admin-port` and
+`--proxy-port`.
 
 The same tools are served over HTTP at `/mcp` on the admin port, for an agent
 that would rather connect to a Faultline that is already up:

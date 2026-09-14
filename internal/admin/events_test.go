@@ -371,6 +371,9 @@ func TestListUpstreamsCountsErrors(t *testing.T) {
 		{Host: "httpbin.org", Method: "GET", Path: "/boom", Status: 503, Tier: events.TierPlain},
 		{Host: "httpbin.org", Method: "CONNECT", Tier: events.TierEncrypted,
 			Error: "client rejected certificate; CA not trusted or pinned"},
+		// A 503 a rule injected is the fault working, not the upstream failing.
+		{Host: "httpbin.org", Method: "GET", Path: "/boom", Status: 503, Tier: events.TierPlain,
+			Faulted: true, RuleID: "httpbin-down"},
 	} {
 		e.ID = events.NextID()
 		e.Timestamp = base.Add(time.Duration(i) * time.Second)
@@ -381,8 +384,8 @@ func TestListUpstreamsCountsErrors(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("got %d upstreams, want the one host: %+v", len(got), got)
 	}
-	if got[0].Requests != 4 || got[0].Errors != 2 {
-		t.Errorf("httpbin.org = %+v, want 4 requests of which 2 are errors", got[0])
+	if got[0].Requests != 5 || got[0].Errors != 2 || got[0].Faulted != 1 {
+		t.Errorf("httpbin.org = %+v, want 5 requests of which 2 are the upstream's own errors and 1 is faulted", got[0])
 	}
 }
 

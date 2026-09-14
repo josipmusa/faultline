@@ -45,6 +45,23 @@ faultline: faultline.yaml is already there, and init will not overwrite it; writ
 configuration that lives beside the repository rather than in it gets started,
 and `--force` replaces one in place.
 
+The other way to a first file is to build the rules first and write them down
+after. A Faultline started without a file holds everything you do in memory,
+and the header says `in-memory` to remind you. When the rules on screen are the
+ones you want to keep, `faultline save` writes them, with any scenarios and the
+bypass list, to a `faultline.yaml` the next start picks up:
+
+```
+$ faultline save
+wrote 2 rules and 1 scenario to faultline.yaml
+The running Faultline still holds them in memory. The next `faultline run` or `faultline serve`
+in this directory reads the file and writes every change back to it.
+```
+
+`faultline save <file>` names another file. Like `init`, it never writes over a
+file that is already there, and it refuses an instance that is already writing
+to a file, since that one has nothing to save.
+
 ## Two flags everything takes
 
 `--admin` is the address of the instance, `http://localhost:9000` unless you
@@ -315,9 +332,9 @@ postman-echo.com  plain  3         3        1       22:35:41   -
 
 The tier says how much Faultline could see: `plain`, `intercepted`, or
 `encrypted`, which takes connection faults only. Faulted counts the requests a
-rule acted on; errors counts the ones that went wrong - a 5xx, or a request
-that never got a status at all - so a host that is failing on its own is
-told apart from one Faultline is breaking on purpose. A 4xx is the upstream
+rule acted on; errors counts the ones that went wrong on their own - a 5xx, or
+a request that never got a status at all, with no rule involved - so a host that
+is failing on its own is told apart from one Faultline is breaking on purpose. A 4xx is the upstream
 answering and is not an error here. The note says when something is in the way
 - a host on the bypass list, or a client that did not trust the Faultline CA,
 which [docs/trust.md](trust.md) explains.
@@ -367,8 +384,8 @@ report, _ := faultline.Report(ctx)
 
 A suite that starts its own Faultline should not take the default ports, which
 belong to whatever the developer is already running. `--admin-port 0` and
-`--proxy-port 0` ask the operating system for ports nothing is on, and the
-banner says which ones it got:
+`--proxy-port 0`, on `serve` and `run` alike, ask the operating system for
+ports nothing is on, and the banner says which ones it got:
 
 ```
 $ faultline serve --admin-port 0 --proxy-port 0

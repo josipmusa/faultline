@@ -84,6 +84,33 @@ func TestASucceededAttemptIsNotRetried(t *testing.T) {
 	}
 }
 
+func TestADelayedSuccessIsNotRetried(t *testing.T) {
+	// A rule slowed the call down, and the client got its 200 all the same.
+	// The next call to that path is the next call, not a retry: the client
+	// was never given a reason to try again.
+	slow := attempt("a", 0, 2*time.Second)
+	slow.Faulted, slow.RuleID = true, "stripe-slow"
+
+	got := replay(t, slow, at("b", 3*time.Second))
+
+	if links(got) != "[]" {
+		t.Errorf("links = %s, want none; a delayed 200 is still a 200", links(got))
+	}
+}
+
+func TestAFaultedFailureIsRetriedForWhatTheClientSaw(t *testing.T) {
+	// The faults that leave the client with nothing: a refused connection is
+	// an error, a hang the client gave up on has no status.
+	refused := at("a", 0)
+	refused.Status, refused.Error, refused.Faulted, refused.RuleID = 0, "faultline: rule stripe-down refused the connection", true, "stripe-down"
+
+	got := replay(t, refused, at("b", time.Second))
+
+	if links(got) != "[b/a]" {
+		t.Errorf("links = %s, want [b/a]; the client got no answer, whoever made sure of that", links(got))
+	}
+}
+
 func TestRetryNeedsTheSameUpstreamMethodAndPath(t *testing.T) {
 	otherHost := at("b", time.Second)
 	otherHost.Host = "api.github.com"

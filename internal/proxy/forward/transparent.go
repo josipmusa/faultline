@@ -190,6 +190,8 @@ func (s *Server) logDialFailure(target string, err error) {
 		s.log.Debug("a rule cut the connection", "upstream", target)
 	case errors.As(err, &refused):
 		s.log.Debug("a rule refused the connection", "upstream", target, "rule", refused.RuleID)
+	case errors.Is(err, context.Canceled):
+		s.log.Debug("client gave up before the connection opened", "upstream", target)
 	default:
 		s.log.Error("upstream unreachable", "upstream", target, "err", err)
 	}

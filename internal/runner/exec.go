@@ -38,6 +38,18 @@ type Cmd struct {
 	Grace time.Duration
 }
 
+// A StartError means the command never ran at all: the executable was not
+// found, or could not be started. The caller can tell it from a child that
+// ran and failed, which has an exit code and a story of its own.
+type StartError struct {
+	Name string
+	Err  error
+}
+
+func (e *StartError) Error() string { return "start " + e.Name + ": " + e.Err.Error() }
+
+func (e *StartError) Unwrap() error { return e.Err }
+
 // Run starts the child, wires the streams straight through, and waits for it.
 // The returned code is the child's own exit code, or 128 plus the signal
 // number when a signal ended it, so a caller can exit with it and be
@@ -73,7 +85,7 @@ func (c Cmd) Run(ctx context.Context) (int, error) {
 	cmd.WaitDelay = grace
 
 	if err := cmd.Start(); err != nil {
-		return 1, fmt.Errorf("start %s: %w", c.Args[0], err)
+		return 1, &StartError{Name: c.Args[0], Err: err}
 	}
 
 	stop := relay(ctx, cmd.Process, grace)

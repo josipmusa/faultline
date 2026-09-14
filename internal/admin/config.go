@@ -1,7 +1,9 @@
 package admin
 
 import (
+	"net"
 	"net/http"
+	"net/url"
 	"path/filepath"
 )
 
@@ -22,6 +24,11 @@ type Config struct {
 	ProxyURL     string   `json:"proxy_url,omitempty"`
 	NoProxy      []string `json:"no_proxy,omitempty"`
 	Intercepting bool     `json:"intercepting"`
+
+	// Bypass is the bypass list as somebody configured it, without the entries
+	// Faultline keeps for itself. It is what a file written from this instance
+	// should say the list is; NoProxy above is what a child should be told.
+	Bypass []string `json:"bypass,omitempty"`
 }
 
 // ProxiesAt tells the server where the forward proxy ended up and whether it
@@ -34,16 +41,44 @@ func (s *Server) ProxiesAt(proxyURL string, intercepting bool) {
 
 // getConfig says whether Faultline is holding its rules in memory or writing
 // them to a file, so the UI can say which of the two a change will do.
-func (s *Server) getConfig(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) getConfig(w http.ResponseWriter, r *http.Request) {
 	info := Config{
-		ProxyURL:     s.proxyURL,
+		ProxyURL:     reachableProxyURL(s.proxyURL, r.Host),
 		NoProxy:      s.bypass.NoProxy(),
 		Intercepting: s.intercepting,
+		Bypass:       s.bypass.Configured(),
 	}
 	if s.persist != nil {
 		info.Persisted, info.Path = true, absolute(s.persist.Path())
 	}
 	s.writeJSON(w, http.StatusOK, info)
+}
+
+// reachableProxyURL is the proxy address as the caller can use it. A proxy
+// bound to every interface reports itself as 0.0.0.0 or [::], which is where
+// it listens and not somewhere anything can connect to. The caller reached the
+// admin server by some name, and the proxy is listening on the same
+// interfaces, so that name with the proxy's port is an address that works: the
+// Compose service name from another container, localhost from the machine the
+// ports are published on. A proxy bound to one address is reported as it is.
+func reachableProxyURL(proxyURL, adminHost string) string {
+	u, err := url.Parse(proxyURL)
+	if err != nil || u.Host == "" {
+		return proxyURL
+	}
+	ip := net.ParseIP(u.Hostname())
+	if ip == nil || !ip.IsUnspecified() {
+		return proxyURL
+	}
+	host := adminHost
+	if h, _, err := net.SplitHostPort(adminHost); err == nil {
+		host = h
+	}
+	if host == "" {
+		return proxyURL
+	}
+	u.Host = net.JoinHostPort(host, u.Port())
+	return u.String()
 }
 
 // absolute resolves the file against the working directory. The banner can

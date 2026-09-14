@@ -241,3 +241,37 @@ func TestDisabledRuleNeverMatchesAConnection(t *testing.T) {
 		t.Error("a disabled rule matched a connection")
 	}
 }
+
+func TestCovers(t *testing.T) {
+	host := Match{Host: "api.stripe.com"}
+	tests := []struct {
+		name  string
+		outer Match
+		inner Match
+		want  bool
+	}{
+		{"same host", host, host, true},
+		{"host case", host, Match{Host: "API.Stripe.com"}, true},
+		{"everything covers a host", Match{}, host, true},
+		{"a host does not cover everything", host, Match{}, false},
+		{"another host", host, Match{Host: "api.github.com"}, false},
+		{"host covers host and path", host, Match{Host: "api.stripe.com", Path: "/v1/charges"}, true},
+		{"host and path does not cover host", Match{Host: "api.stripe.com", Path: "/v1/charges"}, host, false},
+		{"method covers same method", Match{Method: "post"}, Match{Method: "POST"}, true},
+		{"method does not cover another", Match{Method: "POST"}, Match{Method: "GET"}, false},
+		{"pattern covers a literal it matches", Match{Path: "/v1/*"}, Match{Path: "/v1/charges"}, true},
+		{"pattern does not cover a literal it misses", Match{Path: "/v1/*"}, Match{Path: "/v2/charges"}, false},
+		{"pattern covers itself", Match{Path: "/v1/*"}, Match{Path: "/v1/*"}, true},
+		{"pattern is not known to cover another pattern", Match{Path: "/v1/**"}, Match{Path: "/v1/*"}, false},
+		{"header covers the same header", Match{Header: map[string]string{"X-Test": "1"}}, Match{Header: map[string]string{"x-test": "1"}}, true},
+		{"header does not cover another value", Match{Header: map[string]string{"X-Test": "1"}}, Match{Header: map[string]string{"X-Test": "2"}}, false},
+		{"header does not cover no header", Match{Header: map[string]string{"X-Test": "1"}}, Match{}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.outer.Covers(tt.inner); got != tt.want {
+				t.Errorf("%+v.Covers(%+v) = %v, want %v", tt.outer, tt.inner, got, tt.want)
+			}
+		})
+	}
+}

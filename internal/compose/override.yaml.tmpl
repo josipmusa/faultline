@@ -54,7 +54,6 @@ services:
       NODE_EXTRA_CA_CERTS: {{ $.CACertPath }}
       REQUESTS_CA_BUNDLE: {{ $.CACertPath }}
       CURL_CA_BUNDLE: {{ $.CACertPath }}
-      XDG_CONFIG_HOME: {{ $.ConfigHome }}
     volumes:
       # Read-only: the certificate is the only half of the CA an application
       # should ever see.

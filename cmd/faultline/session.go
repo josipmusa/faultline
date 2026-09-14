@@ -103,15 +103,20 @@ func (ss session) activate(ctx context.Context, c *client.Client, errOut io.Writ
 }
 
 // finish turns the scenario off again and reports what the session saw. It
-// runs whether the child succeeded, failed, or was interrupted. What it
-// returns never decides the exit code: that belongs to the child.
-func (ss session) finish(ctx context.Context, c *client.Client, errOut io.Writer) error {
+// runs whether the child succeeded, failed, or was interrupted; ran is false
+// when the child never started, in which case there is nothing to report and
+// only the scenario is put back. What it returns never decides the exit code:
+// that belongs to the child.
+func (ss session) finish(ctx context.Context, c *client.Client, errOut io.Writer, ran bool) error {
 	var errs []error
 
 	if ss.scenario != "" {
 		if _, err := c.SetScenarioActive(ctx, ss.scenario, false); err != nil {
 			errs = append(errs, fmt.Errorf("turning the scenario %q off again: %w", ss.scenario, err))
 		}
+	}
+	if !ran {
+		return errors.Join(errs...)
 	}
 
 	report, err := c.Report(ctx)

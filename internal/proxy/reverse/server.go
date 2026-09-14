@@ -10,7 +10,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -94,7 +93,7 @@ func (s *Server) Start(host string) error {
 		s.addrs[r.Name] = ln.Addr().String()
 		s.mu.Unlock()
 
-		s.log.Info("route listening", "route", r.Name, "addr", ln.Addr().String(), "upstream", r.Upstream.String())
+		s.log.Debug("route listening", "route", r.Name, "addr", ln.Addr().String(), "upstream", r.Upstream.String())
 
 		s.wg.Go(func() {
 			if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -146,16 +145,7 @@ func handler(upstream *url.URL, transport http.RoundTripper, log *slog.Logger) h
 		// that paces or cuts a body reaches the client as it happens rather
 		// than all at once at the end.
 		FlushInterval: -1,
-		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
-			if errors.Is(err, faults.ErrClientReset) {
-				return // a rule already reset the connection; there is nobody left to tell
-			}
-			// The upstream really failed. Faultline says so plainly rather than
-			// inventing a response, and keeps the detail in the log.
-			log.Error("upstream unreachable", "upstream", upstream.Host, "method", r.Method, "path", r.URL.Path, "err", err)
-			w.WriteHeader(http.StatusBadGateway)
-			_, _ = io.WriteString(w, "faultline: upstream unreachable\n")
-		},
+		ErrorHandler:  faults.ProxyErrorHandler(log, func(*http.Request) string { return upstream.Host }),
 	})
 }
 

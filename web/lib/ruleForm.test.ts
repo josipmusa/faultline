@@ -124,6 +124,22 @@ describe('writing the form back to a fault', () => {
   });
 });
 
+describe('blankForm', () => {
+  // The catalogue arrives in name order, which would put corrupt first. A new
+  // rule starts on delay, the fault everyone reaches for first.
+  it('starts a new rule on delay wherever the catalogue lists it', () => {
+    const corrupt: CatalogueEntry = { name: 'corrupt', tier: 'response', fields: [] };
+    const form = blankForm({ faults: [corrupt, delay], behaviors: [] });
+    expect(form.faultType).toBe('delay');
+    expect(form.faultParams).toEqual({ ms: '', jitter_ms: '' });
+  });
+
+  it('falls back to the first fault when the binary has no delay', () => {
+    const form = blankForm({ faults: [headers], behaviors: [] });
+    expect(form.faultType).toBe('headers');
+  });
+});
+
 describe('formToRule', () => {
   const base = blankForm(catalogue);
 

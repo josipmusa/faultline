@@ -11,14 +11,19 @@ import (
 // belongs to internal/rules and the parameters of a fault to the catalogue in
 // internal/faults, so this file only turns what they say into a 400 that names
 // the field.
+//
+// The fault goes first. One answer is all a 400 carries, and a refused fault
+// type is the answer that lists the catalogue, which is how the catalogue is
+// meant to be learnt; a rule with no name and a misspelt fault should hear
+// about the fault, not be sent back for the name.
 func validateRule(r rules.Rule) error {
-	if err := asAPIError(rules.Validate(r)); err != nil {
-		return err
-	}
 	if err := validateFault(r.Fault); err != nil {
 		return err
 	}
-	return validateBehavior(r.Behavior)
+	if err := validateBehavior(r.Behavior); err != nil {
+		return err
+	}
+	return asAPIError(rules.Validate(r))
 }
 
 // validateFault delegates to the fault named by the type: the catalogue in

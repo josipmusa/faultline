@@ -40,6 +40,55 @@ func (r Rule) MatchesConnection(host string) bool {
 	return r.Match.Host == "" || strings.EqualFold(r.Match.Host, host)
 }
 
+// Covers reports whether every request other matches, m matches too. A rule
+// whose match covers a later rule's, and which has no behavior to ever decline
+// a request, takes every request the later rule was written for, so the later
+// rule never fires. The answer is conservative: a pattern is only known to cover
+// a path it matches outright or one written identically, so a rule this says is
+// covered really is, while one it says nothing about may still be.
+func (m Match) Covers(other Match) bool {
+	if m.Host != "" && !strings.EqualFold(m.Host, other.Host) {
+		return false
+	}
+	if m.Method != "" && !strings.EqualFold(m.Method, other.Method) {
+		return false
+	}
+	if m.Path != "" && !coversPath(m.Path, other.Path) {
+		return false
+	}
+	for name, want := range m.Header {
+		if got, ok := headerValue(other.Header, name); !ok || got != want {
+			return false
+		}
+	}
+	return true
+}
+
+// coversPath reports whether every path other selects, pattern selects too.
+// A literal other is covered when pattern matches it; a pattern is covered
+// only by itself, since deciding whether one glob contains another is more
+// than a warning is worth.
+func coversPath(pattern, other string) bool {
+	if other == "" {
+		return false
+	}
+	if pattern == other {
+		return true
+	}
+	return !strings.Contains(other, "*") && MatchPath(pattern, other)
+}
+
+// headerValue looks a header name up the way requests carry them, without
+// regard to case.
+func headerValue(header map[string]string, name string) (string, bool) {
+	for k, v := range header {
+		if strings.EqualFold(k, name) {
+			return v, true
+		}
+	}
+	return "", false
+}
+
 // hostOnly reports whether the match constrains nothing but the host.
 func (m Match) hostOnly() bool {
 	return m.Method == "" && m.Path == "" && len(m.Header) == 0

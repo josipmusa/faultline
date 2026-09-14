@@ -1,6 +1,7 @@
 package forward
 
 import (
+	"runtime"
 	"strings"
 
 	"github.com/josipmusa/faultline/internal/events"
@@ -23,8 +24,21 @@ func Distrusted(e events.Event) bool { return e.Error == ErrClientRejectedCertif
 // that it was already pointed at: a runtime that ignores them, like Go on
 // macOS, needs the CA in the system trust store instead.
 func DistrustHint(trustVars []string) string {
-	if len(trustVars) == 0 {
-		return distrustHint
+	return distrustHintOn(runtime.GOOS, trustVars)
+}
+
+// distrustHintOn is DistrustHint for a given operating system. On macOS the
+// variables are not enough for one common runtime: Go reads the system trust
+// store there and ignores SSL_CERT_FILE, so a Go client keeps refusing the CA
+// until it is installed, and the hint says so rather than sending the reader
+// back to a variable that was already set.
+func distrustHintOn(goos string, trustVars []string) string {
+	hint := distrustHint
+	if len(trustVars) > 0 {
+		hint += " (Faultline set " + strings.Join(trustVars, ", ") + ")"
 	}
-	return distrustHint + " (Faultline set " + strings.Join(trustVars, ", ") + ")"
+	if goos == "darwin" {
+		hint += "; a Go client on macOS ignores SSL_CERT_FILE, so run `faultline ca install` to trust the CA in the login keychain"
+	}
+	return hint
 }

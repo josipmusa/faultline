@@ -2,6 +2,7 @@ package admin
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/josipmusa/faultline/internal/rules"
@@ -247,4 +248,22 @@ func TestEnableAndDisableRule(t *testing.T) {
 
 	wantError(t, do(t, s, http.MethodPost, "/api/rules/nope/enable", ""), http.StatusNotFound, "")
 	wantError(t, do(t, s, http.MethodPost, "/api/rules/nope/disable", ""), http.StatusNotFound, "")
+}
+
+// One answer is all a 400 carries, and the one that lists the catalogue is the
+// one worth giving: a rule with no name and a misspelt fault should learn the
+// fault types, not be sent back for the name first.
+func TestCreateRuleRefusesTheFaultBeforeTheName(t *testing.T) {
+	s := newTestServer(t)
+
+	w := do(t, s, http.MethodPost, "/api/rules", `{"match":{"host":"api.stripe.com"},"fault":{"type":"delya","ms":10}}`)
+
+	wantStatus(t, w, http.StatusBadRequest)
+	got := decodeBody[map[string]string](t, w)
+	if got["field"] != "fault.type" {
+		t.Errorf("field = %q, want fault.type: %s", got["field"], w.Body.String())
+	}
+	if !strings.Contains(got["error"], "delay") {
+		t.Errorf("error %q does not list the fault types on offer", got["error"])
+	}
 }

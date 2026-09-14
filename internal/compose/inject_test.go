@@ -59,6 +59,9 @@ func TestTheOverrideAddsTheCompanionAndAttachesTheNamedService(t *testing.T) {
 	if !ok {
 		t.Fatal("the override does not mention the named service")
 	}
+	if _, leaked := app.Environment["XDG_CONFIG_HOME"]; leaked {
+		t.Error("the override sets XDG_CONFIG_HOME on the application, which is Faultline's own directory and not the application's business")
+	}
 	for key, want := range map[string]string{
 		"HTTP_PROXY":          "http://faultline:9001",
 		"HTTPS_PROXY":         "http://faultline:9001",

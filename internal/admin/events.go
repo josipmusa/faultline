@@ -28,10 +28,12 @@ type Upstream struct {
 	Requests int         `json:"requests"`
 	Faulted  int         `json:"faulted"`
 
-	// Errors counts the requests that went wrong rather than the ones a rule
-	// broke on purpose: a request that never got a status, and one answered
-	// 5xx. A 4xx is the upstream answering and is not counted, or an API that
-	// deals in 404s would read as broken.
+	// Errors counts the requests that went wrong on their own: a request that
+	// never got a status, and one answered 5xx, when no rule made it so. A
+	// faulted request is in Faulted and not here, or a 503 Faultline injected
+	// would read as the upstream failing, which is the one thing the column
+	// exists to tell apart. A 4xx is the upstream answering and is not counted
+	// either, or an API that deals in 404s would read as broken.
 	Errors int `json:"errors"`
 
 	// Bypassed says this host's requests were passed through untouched, which
@@ -158,7 +160,7 @@ func upstreamsOf(all []events.Event, bypass *forward.Bypass, trustVars []string)
 		if e.Faulted {
 			u.Faulted++
 		}
-		if e.Error != "" || e.Status >= 500 {
+		if !e.Faulted && (e.Error != "" || e.Status >= 500) {
 			u.Errors++
 		}
 		if !e.Timestamp.Before(u.LastSeen) {

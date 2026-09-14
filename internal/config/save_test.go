@@ -560,3 +560,133 @@ func loadBypass(t *testing.T, path string) []string {
 	}
 	return cfg.Bypass
 }
+
+// The file spells the delay's parameters ms then jitter_ms, the way the docs
+// do. Changing one of them changes that line and nothing about the others.
+func TestSaveEditsARuleInPlaceAndKeepsItsOrder(t *testing.T) {
+	const ordered = `rules:
+  - id: slow
+    name: Slow
+    match:
+      host: api.stripe.com
+    fault:
+      type: delay
+      ms: 2000 # two seconds
+      jitter_ms: 500
+`
+	path := writeConfig(t, ordered)
+
+	edited := loadRules(t, path)
+	edited[0].Fault.Params["ms"] = 50
+	mustSave(t, path, edited)
+
+	body := read(t, path)
+	if strings.Index(body, "ms: 50") > strings.Index(body, "jitter_ms") {
+		t.Errorf("the edit reordered the parameters:\n%s", body)
+	}
+	if !strings.Contains(body, "ms: 50 # two seconds") {
+		t.Errorf("the edit lost the comment on the line it changed:\n%s", body)
+	}
+	if strings.Contains(body, "enabled") {
+		t.Errorf("the edit wrote an enabled the file never had:\n%s", body)
+	}
+}
+
+// Activating a scenario turns its rules on and deactivating turns them off,
+// each of which is a save. A file that never said enabled for a rule inside a
+// scenario should not say it once the rehearsal is over: a `faultline run
+// --scenario` against a committed file must leave no diff behind.
+func TestSaveLeavesNoTraceOfAScenarioTurnedOnAndOffAgain(t *testing.T) {
+	path := writeConfig(t, commentedFile)
+
+	on := loadRules(t, path)
+	for i := range on {
+		if on[i].ID == "stripe-503" {
+			on[i].Enabled = true
+		}
+	}
+	mustSave(t, path, on)
+	if body := read(t, path); !strings.Contains(body, "enabled: true") {
+		t.Fatalf("turning the scenario rule on was not written, so a reload would turn it off again:\n%s", body)
+	}
+
+	off := loadRules(t, path)
+	for i := range off {
+		if off[i].ID == "stripe-503" {
+			off[i].Enabled = false
+		}
+	}
+	mustSave(t, path, off)
+
+	if got := read(t, path); got != commentedFile {
+		t.Errorf("the file differs from the one that was committed:\n%s", got)
+	}
+}
+
+func TestSaveKeepsAnEnabledTheFileAlreadyWrites(t *testing.T) {
+	const explicit = `rules:
+  - id: slow
+    name: Slow
+    enabled: true
+    fault:
+      type: delay
+      ms: 2000
+`
+	path := writeConfig(t, explicit)
+
+	edited := loadRules(t, path)
+	edited[0].Enabled = false
+	mustSave(t, path, edited)
+
+	if body := read(t, path); !strings.Contains(body, "enabled: false") {
+		t.Errorf("the file said enabled and the edit dropped it:\n%s", body)
+	}
+}
+
+func TestSaveAddsAndDropsKeysWhereTheyBelong(t *testing.T) {
+	const bare = `rules:
+  - id: slow
+    name: Slow
+    fault:
+      type: delay
+      ms: 2000
+    behavior:
+      type: first_n
+      n: 2
+`
+	path := writeConfig(t, bare)
+
+	edited := loadRules(t, path)
+	edited[0].Match = rules.Match{Host: "api.stripe.com"}
+	edited[0].Behavior = nil
+	mustSave(t, path, edited)
+
+	body := read(t, path)
+	if strings.Contains(body, "behavior") {
+		t.Errorf("the behavior the rule lost is still written:\n%s", body)
+	}
+	match, fault := strings.Index(body, "match:"), strings.Index(body, "fault:")
+	if match < 0 || match > fault {
+		t.Errorf("the match the rule gained is not written above its fault:\n%s", body)
+	}
+	if got, _ := find(loadRules(t, path), "slow"); !rules.Same(got, edited[0]) {
+		t.Errorf("the rule reloaded as %+v, want %+v", got, edited[0])
+	}
+}
+
+// A new rule is written with its parameters in the catalogue's order, which is
+// the order a person writes them and the rule editor shows them.
+func TestSaveWritesANewRulesParametersInCatalogueOrder(t *testing.T) {
+	path := writeConfig(t, "")
+
+	added := rules.Rule{
+		ID: "slow", Name: "Slow", Enabled: true,
+		Fault: rules.Fault{Type: "delay", Params: rules.Params{"jitter_ms": 500, "ms": 2000}},
+	}
+	mustSave(t, path, []rules.Rule{added})
+
+	body := read(t, path)
+	if strings.Index(body, "ms: 2000") > strings.Index(body, "jitter_ms: 500") {
+		t.Errorf("the parameters are written in name order rather than the catalogue's:\n%s", body)
+	}
+}

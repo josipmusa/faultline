@@ -141,7 +141,9 @@ func (s *Server) Start(host string, port int) error {
 	s.addr = ln.Addr().String()
 	s.mu.Unlock()
 
-	s.log.Info("admin listening", "addr", ln.Addr().String())
+	// The banner says where the admin server is; this line is for a log being
+	// read on its own.
+	s.log.Debug("admin listening", "addr", ln.Addr().String())
 
 	s.wg.Go(func() {
 		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {

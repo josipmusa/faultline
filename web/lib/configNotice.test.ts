@@ -33,7 +33,7 @@ describe('configNotice', () => {
 
     expect(notice?.persisted).toBe(false);
     expect(notice?.label).toBe('in-memory');
-    expect(notice?.title).toContain('faultline init');
+    expect(notice?.title).toContain('faultline save');
   });
 
   // Nothing is claimed before the answer arrives: a chip asserting either

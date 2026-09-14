@@ -18,11 +18,13 @@ func (e Event) start() time.Time {
 }
 
 // retryable reports whether an attempt is one a resilient client would make
-// again: Faultline broke it, it never got a response at all, or the response
-// blamed the upstream rather than the request.
+// again: it never got a response at all, or the response blamed the upstream
+// rather than the request. It is judged by what the client saw, not by whether
+// a rule touched the call. A delayed, throttled or slowed 200 is still a 200,
+// and counting the next call to that path as a retry of it would report a
+// client that retries where there is one that merely polls.
 func (e Event) retryable() bool {
-	return e.Faulted ||
-		e.Error != "" ||
+	return e.Error != "" ||
 		e.Status == 0 ||
 		e.Status >= http.StatusInternalServerError ||
 		e.Status == http.StatusTooManyRequests

@@ -57,7 +57,9 @@ export interface Upstream {
   requests: number;
   /** Requests a rule acted on, on purpose. */
   faulted: number;
-  /** Requests that went wrong: a 5xx, or one that never got a status. */
+  /** Requests that went wrong on their own: a 5xx, or one that never got a
+   * status, when no rule made it so. A 503 Faultline injected is in `faulted`
+   * and not here. */
   errors: number;
   /** Its requests were passed through untouched, so nothing was recorded. */
   bypassed: boolean;

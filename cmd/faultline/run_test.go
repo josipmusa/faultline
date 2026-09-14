@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/josipmusa/faultline/internal/proxy/reverse"
@@ -84,6 +86,39 @@ func TestRunReportsACommandItCannotStart(t *testing.T) {
 	var out, errOut bytes.Buffer
 	if _, err := run(context.Background(), &out, &errOut, nil, nil, 0, 0, nil, nil, nil, session{}, []string{"faultline-no-such-command"}); err == nil {
 		t.Fatal("run accepted a command that does not exist")
+	}
+	// There was no run, so there is no report: a table of zeros above the
+	// error would only be in the way of it.
+	if strings.Contains(errOut.String(), "report:") || strings.Contains(errOut.String(), "REQUESTS") {
+		t.Errorf("run printed a report for a child that never started:\n%s", errOut.String())
+	}
+}
+
+func TestRunHelpDocumentsThePortFlags(t *testing.T) {
+	out := runCmd(t, "run", "--help")
+	for _, flag := range []string{"--admin-port", "--proxy-port"} {
+		if !strings.Contains(out, flag) {
+			t.Errorf("run --help does not mention %s", flag)
+		}
+	}
+}
+
+// The bind error alone says a port is taken; the reader's next question is by
+// what and what to do about it, and on a developer's machine the answer is
+// almost always another Faultline.
+func TestExplainBindNamesTheLikelyHolderAndTheWayPast(t *testing.T) {
+	err := explainBind(fmt.Errorf("forward proxy: listening on 127.0.0.1:9001: %w", syscall.EADDRINUSE))
+
+	for _, want := range []string{"another Faultline", "faultline mcp", "--proxy-port"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not mention %q", err, want)
+		}
+	}
+	if !errors.Is(err, syscall.EADDRINUSE) {
+		t.Error("the explanation lost the error it explains")
+	}
+	if got := explainBind(errors.New("boom")); got.Error() != "boom" {
+		t.Errorf("an error that is not a taken port was rewritten to %q", got)
 	}
 }
 

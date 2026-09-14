@@ -7,6 +7,7 @@ import (
 
 	yaml "go.yaml.in/yaml/v3"
 
+	"github.com/josipmusa/faultline/internal/faults"
 	"github.com/josipmusa/faultline/internal/rules"
 )
 
@@ -74,12 +75,16 @@ func matchNode(match rules.Match) (*yaml.Node, bool, error) {
 }
 
 // taggedNode writes a fault or a behavior: its type first, then its parameters
-// in name order so the file does not churn between two saves.
+// in the order the catalogue declares them, which is the order the docs and
+// the rule editor show them in and the order a person writes them - ms before
+// jitter_ms, code before body. A parameter the catalogue does not know, which
+// can only come from a newer binary, goes after them in name order. Either way
+// the order is fixed, so the file does not churn between two saves.
 func taggedNode(what, name string, params rules.Params) (*yaml.Node, error) {
 	m := newMapping()
 	m.add("type", scalarNode(name))
 
-	for _, key := range slices.Sorted(maps.Keys(params)) {
+	for _, key := range paramOrder(what, name, params) {
 		value, err := valueNode(params[key])
 		if err != nil {
 			return nil, fmt.Errorf("config: writing %s parameter %q: %w", what, key, err)
@@ -87,6 +92,35 @@ func taggedNode(what, name string, params rules.Params) (*yaml.Node, error) {
 		m.add(key, value)
 	}
 	return m.node, nil
+}
+
+// paramOrder is the order taggedNode writes params in: declaration order for
+// the ones the catalogue declares, name order for the rest.
+func paramOrder(what, name string, params rules.Params) []string {
+	var declared []string
+	switch what {
+	case "fault":
+		if f, ok := faults.Get(name); ok {
+			declared = f.Schema().Names()
+		}
+	case "behavior":
+		if b, ok := faults.GetBehavior(name); ok {
+			declared = b.Schema().Names()
+		}
+	}
+
+	order := make([]string, 0, len(params))
+	for _, key := range declared {
+		if _, set := params[key]; set {
+			order = append(order, key)
+		}
+	}
+	for _, key := range slices.Sorted(maps.Keys(params)) {
+		if !slices.Contains(order, key) {
+			order = append(order, key)
+		}
+	}
+	return order
 }
 
 type mappingBuilder struct{ node *yaml.Node }

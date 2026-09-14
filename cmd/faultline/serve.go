@@ -152,6 +152,20 @@ func resolveInterception(caDir string, flagSet, want bool) (*tlsmitm.CA, error) 
 	return ca, nil
 }
 
+// explainBind turns a port that is already taken into advice. On a developer's
+// machine the port is almost always held by another Faultline: a `serve` left
+// running, or the instance `faultline mcp` brought up for a coding agent. The
+// raw bind error says none of that, and the way past it is a flag the reader
+// would otherwise have to go looking for.
+func explainBind(err error) error {
+	if !errors.Is(err, syscall.EADDRINUSE) {
+		return err
+	}
+	return fmt.Errorf("%w; another Faultline is probably holding that port (a `faultline serve`, "+
+		"or the instance `faultline mcp` starts for a coding agent); stop it, join it with the "+
+		"rule, scenario and session commands, or pass --admin-port and --proxy-port to use other ports", err)
+}
+
 // stack is everything a command brings up: the forward proxy, the admin
 // server, and a listener for each explicit route. serve and run differ only
 // in what they wait for while it is up.
@@ -306,6 +320,14 @@ func (s *stack) banner(out io.Writer) error {
 			return err
 		}
 	}
+	// A rule the file declares that can never fire is worth knowing before the
+	// run, not at the end of it: a shadowed rule looks exactly like an
+	// application that coped until someone reads the report's warnings.
+	for _, warning := range s.api.Warnings() {
+		if _, err := fmt.Fprintf(out, "warning: %s\n", warning); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -352,7 +374,7 @@ func serve(ctx context.Context, out io.Writer, cfg *config.Config, bind string, 
 
 	s, err := start(cfg, bind, adminPort, proxyPort, routes, ca, bypass, nil)
 	if err != nil {
-		return err
+		return explainBind(err)
 	}
 
 	// Transparent mode goes on last, once everything it redirects traffic to

@@ -65,7 +65,9 @@ file that is not there is an error, because you meant that file.
 Which of the two you are in is on screen. The header names the file in use, with
 its whole path on hover, and says `in-memory` when there is none, so a rule
 typed into the UI never leaves you guessing whether it will still be there
-tomorrow.
+tomorrow. `faultline save` is the way out of the second state: it writes the
+rules, scenarios and bypass list the running instance holds to a file, which
+the next start reads.
 
 ```
 faultline run --config ../ops/faultline.yaml -- npm run dev

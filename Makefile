@@ -11,6 +11,11 @@ TS_DIR  := clients/ts
 # rather than failing to compile. `make ui` is what produces the export.
 UI_TAG  := $(if $(wildcard $(UI_OUT)/index.html),-tags ui,)
 
+# The UI's dependency tree happens to carry a Go package (flatted ships one),
+# and ./... walks into web/node_modules to find it. Nothing of ours builds it,
+# so the Go targets take the module's own packages instead.
+GO_PKGS := $(shell go list ./... | grep -v /web/node_modules/)
+
 # golangci-lint is installed into GOPATH/bin by `make tools`.
 GOBIN   := $(shell go env GOPATH)/bin
 GOLANGCI_VERSION := v2.13.2
@@ -33,7 +38,7 @@ clients:
 test: test-go test-ui test-clients
 
 test-go:
-	go test -race ./...
+	go test -race $(GO_PKGS)
 # The tag changes what internal/admin serves at /, so that package is the one
 # worth a second pass; nothing else behaves differently under it.
 	$(if $(UI_TAG),go test -race $(UI_TAG) ./internal/admin/,@true)
@@ -41,7 +46,7 @@ test-go:
 lint: lint-go lint-ui lint-clients
 
 lint-go:
-	go vet ./...
+	go vet $(GO_PKGS)
 	$(GOBIN)/golangci-lint run
 
 # The UI halves skip rather than fail when the toolchain is absent, so `make

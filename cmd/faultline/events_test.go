@@ -160,3 +160,21 @@ func TestEventsTailAgainstNothingPrintsOnlyTheError(t *testing.T) {
 		t.Errorf("printed %q, want no table header for a stream that never opened", out.String())
 	}
 }
+
+// - is standard output on --out, the way it is standard input on --from, so
+// nobody finds a file called "-" in the working directory afterwards.
+func TestEventsExportToDashIsStandardOutput(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	i := newInstance(t)
+	i.record(t, "1", "httpbin.org", false)
+
+	out := i.run(t, "events", "export", "-o", "-")
+
+	if !strings.Contains(out, `"host":"httpbin.org"`) {
+		t.Errorf("export -o - printed %q, want the events on standard output", out)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "-")); err == nil {
+		t.Error("export -o - wrote a file called -")
+	}
+}

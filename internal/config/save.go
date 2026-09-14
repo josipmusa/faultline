@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"slices"
 
 	yaml "go.yaml.in/yaml/v3"
 
@@ -191,6 +192,11 @@ func (e *edit) dropGone(want map[string]rules.Rule) {
 	}
 }
 
+// rewriteChanged writes every rule that no longer says what the file says
+// into the mapping the file already holds, key by key. The order the author
+// wrote the keys in, the comments on each of them and the line they sit on all
+// survive an edit to one value, so a save that changed a number changes one
+// line of the file.
 func (e *edit) rewriteChanged(want map[string]rules.Rule) error {
 	for id, p := range e.defs {
 		rule := want[id]
@@ -201,14 +207,80 @@ func (e *edit) rewriteChanged(want map[string]rules.Rule) error {
 		if err != nil {
 			return err
 		}
-		// The comment above a rule is about the rule, not about the version of
-		// it that is being replaced, and the line it was on is what says
-		// whether a blank line separated it from what came before.
-		node.HeadComment, node.LineComment, node.FootComment = p.node.HeadComment, p.node.LineComment, p.node.FootComment
-		node.Line = p.node.Line
-		*p.node = *node
+		// Enabled is written only when leaving it out would mean the opposite:
+		// a rule inside a scenario is off unless the file says so, one at the
+		// top level on. Turning a scenario on writes enabled on its rules, so
+		// the flags survive a reload while the rehearsal runs; turning it off
+		// again takes them out, so the file is left exactly as it was
+		// committed.
+		if rule.Enabled == p.enabled {
+			dropKey(node, "enabled")
+		}
+		mergeMapping(resolve(p.node), node)
 	}
 	return nil
+}
+
+// mergeMapping makes dst say what src says while keeping dst's own order and
+// comments. A key both hold keeps its place, and its value is merged the same
+// way when both are mappings or replaced when they are not; a key only dst
+// holds is dropped; a key only src holds is inserted after the key that
+// precedes it in src, so a new key lands where the canonical order puts it
+// among the keys already there.
+func mergeMapping(dst, src *yaml.Node) {
+	content := make([]*yaml.Node, 0, len(src.Content))
+	kept := make(map[string]bool, len(src.Content)/2)
+
+	for i := 0; i+1 < len(dst.Content); i += 2 {
+		key, value := dst.Content[i], dst.Content[i+1]
+		name := resolve(key).Value
+		next, ok := child(src, name)
+		if !ok {
+			continue
+		}
+		kept[name] = true
+		if old := resolve(value); old.Kind == yaml.MappingNode && next.Kind == yaml.MappingNode {
+			mergeMapping(old, next)
+			content = append(content, key, value)
+			continue
+		}
+		// The comment on a value's line is about the key, so it moves to the
+		// new value the way the key itself stays.
+		next.HeadComment, next.LineComment, next.FootComment = value.HeadComment, value.LineComment, value.FootComment
+		content = append(content, key, next)
+	}
+
+	for i := 0; i+1 < len(src.Content); i += 2 {
+		name := src.Content[i].Value
+		if kept[name] {
+			continue
+		}
+		at := 0
+		if i > 0 {
+			at = indexOfKey(content, src.Content[i-2].Value) + 2
+		}
+		content = slices.Insert(content, at, src.Content[i], src.Content[i+1])
+		kept[name] = true
+	}
+	dst.Content = content
+}
+
+// indexOfKey is the position of key in a mapping's content, or -2 so that the
+// slot after a key nothing holds is the start.
+func indexOfKey(content []*yaml.Node, key string) int {
+	for i := 0; i+1 < len(content); i += 2 {
+		if resolve(content[i]).Value == key {
+			return i
+		}
+	}
+	return -2
+}
+
+// dropKey removes key and its value from a mapping.
+func dropKey(m *yaml.Node, key string) {
+	if i := indexOfKey(m.Content, key); i >= 0 {
+		m.Content = slices.Delete(m.Content, i, i+2)
+	}
 }
 
 func (e *edit) appendNew(rs []rules.Rule) error {

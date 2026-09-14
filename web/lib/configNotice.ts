@@ -29,7 +29,7 @@ export function configNotice(config: ConfigInfo | null): ConfigNotice | null {
       persisted: false,
       label: 'in-memory',
       title:
-        'rules live in memory and are gone when Faultline stops; run faultline init to write a faultline.yaml',
+        'rules live in memory and are gone when Faultline stops; run faultline save to write them to a faultline.yaml',
     };
   }
   return {

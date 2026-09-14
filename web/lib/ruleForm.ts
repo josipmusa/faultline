@@ -66,9 +66,16 @@ function blankValue(kind: string): ParamValue {
   }
 }
 
-/** A new rule, on the first fault the binary offers. */
+/** The fault a new rule starts on: a delay is the fault everyone reaches for
+ * first and the one that works on any tier, so it is what the form shows
+ * before anything is chosen. The catalogue is in name order, and its first
+ * entry would otherwise be `corrupt`. */
+export const defaultFaultType = 'delay';
+
+/** A new rule, on the default fault when the binary offers it and on the
+ * first fault it offers otherwise. */
 export function blankForm(catalogue: Catalogue): RuleForm {
-  const fault = catalogue.faults[0];
+  const fault = entryFor(catalogue.faults, defaultFaultType) ?? catalogue.faults[0];
   return {
     id: '',
     name: '',

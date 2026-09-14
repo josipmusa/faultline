@@ -111,8 +111,16 @@ export function UpstreamsPanel({ upstreams, rules, error, onChanged }: Upstreams
               <th scope="col" className="px-4 py-2 text-left font-medium">Host</th>
               <th scope="col" className="w-36 px-4 py-2 text-left font-medium">Tier</th>
               <th scope="col" className="w-24 px-4 py-2 text-right font-medium">Requests</th>
-              <th scope="col" className="w-24 px-4 py-2 text-right font-medium">Faulted</th>
-              <th scope="col" className="w-24 px-4 py-2 text-right font-medium">Errors</th>
+              <th scope="col" className="w-24 px-4 py-2 text-right font-medium" title="Requests a rule acted on">
+                Faulted
+              </th>
+              <th
+                scope="col"
+                className="w-24 px-4 py-2 text-right font-medium"
+                title="Requests that failed on their own: a 5xx or no response, with no rule involved"
+              >
+                Errors
+              </th>
               <th scope="col" className="w-24 px-4 py-2 text-right font-medium">Last seen</th>
               <th scope="col" className="w-64 px-4 py-2 text-left font-medium">Quick actions</th>
             </tr>

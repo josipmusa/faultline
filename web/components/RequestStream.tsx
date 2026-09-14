@@ -65,9 +65,13 @@ export function RequestStream({
       {/* A container query rather than a viewport one: what squeezes the
           table is the inspector opening beside it, not the window. Below
           64rem the Time and Tier columns go, since the inspector's header
-          carries the tier and the rows keep their order without the clock. */}
+          carries the tier and the rows keep their order without the clock;
+          below 48rem the Duration goes too, since the inspector shows it.
+          The table never shrinks past the width the path is still readable
+          at: narrower than that, the container scrolls sideways rather than
+          the columns collapsing into one another. */}
       <div className="@container flex flex-1 flex-col overflow-auto">
-        <table className="w-full table-fixed text-sm">
+        <table className="w-full min-w-[36rem] table-fixed text-sm">
           <thead className="sticky top-0 z-10 border-b border-zinc-800 bg-zinc-900 text-xs text-zinc-400">
             <tr>
               <th scope="col" className="w-24 px-4 py-2 text-left font-medium @max-5xl:hidden">Time</th>
@@ -75,9 +79,9 @@ export function RequestStream({
               <th scope="col" className="w-[24%] px-4 py-2 text-left font-medium">Host</th>
               <th scope="col" className="px-4 py-2 text-left font-medium">Path</th>
               <th scope="col" className="w-20 px-4 py-2 text-left font-medium">Status</th>
-              <th scope="col" className="w-24 px-4 py-2 text-right font-medium">Duration</th>
+              <th scope="col" className="w-24 px-4 py-2 text-right font-medium @max-3xl:hidden">Duration</th>
               <th scope="col" className="w-28 px-4 py-2 text-left font-medium @max-5xl:hidden">Tier</th>
-              <th scope="col" className="w-44 px-4 py-2 text-left font-medium @max-5xl:w-36">Fault</th>
+              <th scope="col" className="w-44 px-4 py-2 text-left font-medium @max-5xl:w-32">Fault</th>
             </tr>
           </thead>
           <tbody>
@@ -130,7 +134,7 @@ export function RequestStream({
                   <td className={cn('px-4 py-2 font-semibold', statusColor(event.status))}>
                     {event.status === 0 ? '-' : event.status}
                   </td>
-                  <td className="px-4 py-2 text-right font-mono text-xs text-zinc-400">{event.duration_ms}ms</td>
+                  <td className="px-4 py-2 text-right font-mono text-xs text-zinc-400 @max-3xl:hidden">{event.duration_ms}ms</td>
                   <td className="px-4 py-2 @max-5xl:hidden">
                     <TierBadge tier={event.tier} />
                   </td>

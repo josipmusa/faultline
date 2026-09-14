@@ -2,6 +2,7 @@ package forward
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -86,16 +87,9 @@ func tunnelledHandler(transport http.RoundTripper, target string, log *slog.Logg
 			r.Out.URL.Scheme = "http"
 			r.Out.URL.Host = target
 		},
-		Transport: transport,
-		ErrorLog:  slog.NewLogLogger(log.Handler(), slog.LevelDebug),
-		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
-			if errors.Is(err, faults.ErrClientReset) {
-				return // a rule already reset the connection; there is nobody left to tell
-			}
-			log.Error("upstream unreachable", "upstream", faults.StripDefaultPort(target), "method", r.Method, "path", r.URL.Path, "err", err)
-			w.WriteHeader(http.StatusBadGateway)
-			_, _ = io.WriteString(w, "faultline: upstream unreachable\n")
-		},
+		Transport:    transport,
+		ErrorLog:     slog.NewLogLogger(log.Handler(), slog.LevelDebug),
+		ErrorHandler: faults.ProxyErrorHandler(log, func(*http.Request) string { return faults.StripDefaultPort(target) }),
 	})
 }
 
@@ -223,6 +217,12 @@ func (s *Server) answerDialError(w http.ResponseWriter, addr string, err error) 
 	if errors.As(err, &refused) {
 		w.Header().Set(faults.FaultHeader, refused.RuleID)
 		http.Error(w, "faultline: "+refused.Error(), http.StatusBadGateway)
+		return
+	}
+	if errors.Is(err, context.Canceled) {
+		// A hang held the tunnel open until the client gave up. Nothing is
+		// wrong with the upstream, and there is nobody left to answer.
+		s.log.Debug("client gave up before the tunnel opened", "upstream", addr)
 		return
 	}
 	s.log.Error("upstream unreachable", "upstream", addr, "method", http.MethodConnect, "err", err)

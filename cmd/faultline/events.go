@@ -129,13 +129,15 @@ func newEventsExportCmd(flags *apiFlags) *cobra.Command {
 	cmd.Flags().IntVar(&query.Limit, "limit", 0, "keep only the most recent N events")
 	cmd.Flags().BoolVar(&faulted, "faulted", false,
 		"only faulted events, or only unfaulted ones with --faulted=false")
-	cmd.Flags().StringVarP(&path, "out", "o", "", "write to this file instead of standard output")
+	cmd.Flags().StringVarP(&path, "out", "o", "", "write to this file instead of standard output; - is standard output")
 
 	return cmd
 }
 
 func exportEvents(cmd *cobra.Command, asJSON bool, path string, list []client.Event) error {
-	if path == "" {
+	// - means standard output here as it means standard input on --from, so
+	// nobody ends up with a file called "-" in the working directory.
+	if path == "" || path == "-" {
 		return writeEvents(cmd.OutOrStdout(), asJSON, list)
 	}
 	if err := writeEventFile(path, asJSON, list); err != nil {

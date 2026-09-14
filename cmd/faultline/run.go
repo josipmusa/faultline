@@ -27,6 +27,7 @@ func (e exitError) Error() string { return fmt.Sprintf("exit status %d", int(e))
 func newRunCmd() *cobra.Command {
 	var routeSpecs []string
 	var configPath, scenario, reportPath string
+	var adminPort, proxyPort int
 
 	cmd := &cobra.Command{
 		Use:   "run -- <command> [args...]",
@@ -93,7 +94,7 @@ func newRunCmd() *cobra.Command {
 			}
 
 			code, err := run(cmd.Context(), cmd.OutOrStdout(), cmd.ErrOrStderr(), cmd.InOrStdin(),
-				cfg, admin.DefaultPort, forward.DefaultPort, routes, ca, bypass, sess, args)
+				cfg, adminPort, proxyPort, routes, ca, bypass, sess, args)
 			if err != nil {
 				return err
 			}
@@ -113,6 +114,12 @@ func newRunCmd() *cobra.Command {
 	cmd.Flags().StringArrayVar(&routeSpecs, "route", nil,
 		"explicit route as name=url, repeatable; point a dev server's own proxy "+
 			"at the port it prints (--route api=https://api.stripe.com)")
+	cmd.Flags().IntVar(&adminPort, "admin-port", admin.DefaultPort,
+		"port for the admin API, the UI, and the MCP endpoint, for when another Faultline "+
+			"already holds the default; 0 lets the operating system choose one")
+	cmd.Flags().IntVar(&proxyPort, "proxy-port", forward.DefaultPort,
+		"port for the forward proxy the child is pointed at, for when another Faultline "+
+			"already holds the default; 0 lets the operating system choose one")
 
 	// Everything after the command name belongs to the child, flags included.
 	cmd.Flags().SetInterspersed(false)
@@ -133,7 +140,7 @@ func run(ctx context.Context, out, errOut io.Writer, in io.Reader, cfg *config.C
 
 	s, err := start(cfg, DefaultBind, adminPort, proxyPort, routes, ca, bypass, trustVars)
 	if err != nil {
-		return 1, err
+		return 1, explainBind(err)
 	}
 	fail := func(err error) (int, error) {
 		_ = s.stop(context.Background())
@@ -170,9 +177,13 @@ func run(ctx context.Context, out, errOut io.Writer, in io.Reader, cfg *config.C
 	stopWatching()
 
 	// Whatever ended the child, the scenario comes off and the report goes out,
-	// so an interrupted run says as much as a clean one.
+	// so an interrupted run says as much as a clean one. A child that never
+	// started is the exception: there was no run to report on, and a table of
+	// zeros above "executable file not found" would only be in the way.
+	var notStarted *runner.StartError
+	ran := !errors.As(runErr, &notStarted)
 	finishCtx, cancelFinish := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
-	sessionErr := sess.finish(finishCtx, c, errOut)
+	sessionErr := sess.finish(finishCtx, c, errOut, ran)
 	cancelFinish()
 
 	// The child is gone, so nothing new will arrive; the timeout is only there

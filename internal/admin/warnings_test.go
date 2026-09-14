@@ -169,3 +169,79 @@ func TestTheReportIsUnchangedWhenEveryRuleCanFire(t *testing.T) {
 		t.Errorf("report = %v, want no warnings field at all", got)
 	}
 }
+
+const delayRuleFor = `{"name":"slow","match":{"host":"api.stripe.com"},"fault":{"type":"delay","ms":10}}`
+
+func TestCreateWarnsAboutARuleShadowedByAnEarlierOne(t *testing.T) {
+	// The delay has no behavior, so it takes every request to the host and the
+	// status rule written after it never gets one. Nothing about either rule
+	// is invalid; the order is the mistake.
+	s := newTestServer(t)
+	first := decodeBody[ruleResponse](t, do(t, s, http.MethodPost, "/api/rules", delayRuleFor))
+
+	w := do(t, s, http.MethodPost, "/api/rules", statusRuleFor)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d: a shadowed rule is a warning, not an error", w.Code, http.StatusCreated)
+	}
+	got := decodeBody[ruleResponse](t, w)
+	if len(got.Warnings) != 1 {
+		t.Fatalf("warnings = %v, want one", got.Warnings)
+	}
+	if !strings.Contains(got.Warnings[0], "never fires") || !strings.Contains(got.Warnings[0], first.ID) {
+		t.Errorf("warning %q does not say the rule never fires, or does not name %s", got.Warnings[0], first.ID)
+	}
+}
+
+func TestNoShadowWarningWhenTheEarlierRuleHasABehavior(t *testing.T) {
+	// first_n declines every request after the second, and those fall through
+	// to the status rule, so both fire: that is what rule order is for.
+	s := newTestServer(t)
+	gated := `{"name":"slow","match":{"host":"api.stripe.com"},"fault":{"type":"delay","ms":10},"behavior":{"type":"first_n","n":2}}`
+	do(t, s, http.MethodPost, "/api/rules", gated)
+
+	got := decodeBody[ruleResponse](t, do(t, s, http.MethodPost, "/api/rules", statusRuleFor))
+
+	if len(got.Warnings) != 0 {
+		t.Errorf("warnings = %v, want none", got.Warnings)
+	}
+}
+
+func TestNoShadowWarningWhenTheEarlierRuleIsNarrower(t *testing.T) {
+	s := newTestServer(t)
+	narrow := `{"name":"slow","match":{"host":"api.stripe.com","path":"/v1/charges"},"fault":{"type":"delay","ms":10}}`
+	do(t, s, http.MethodPost, "/api/rules", narrow)
+
+	got := decodeBody[ruleResponse](t, do(t, s, http.MethodPost, "/api/rules", statusRuleFor))
+
+	if len(got.Warnings) != 0 {
+		t.Errorf("warnings = %v, want none: the delay only takes one path", got.Warnings)
+	}
+}
+
+func TestNoShadowWarningWhenTheEarlierRuleIsDisabled(t *testing.T) {
+	s := newTestServer(t)
+	first := decodeBody[ruleResponse](t, do(t, s, http.MethodPost, "/api/rules", delayRuleFor))
+	do(t, s, http.MethodPost, "/api/rules/"+first.ID+"/disable", "")
+
+	got := decodeBody[ruleResponse](t, do(t, s, http.MethodPost, "/api/rules", statusRuleFor))
+
+	if len(got.Warnings) != 0 {
+		t.Errorf("warnings = %v, want none: a disabled rule takes nothing", got.Warnings)
+	}
+}
+
+func TestTheReportNamesAShadowedRule(t *testing.T) {
+	s := newTestServer(t)
+	do(t, s, http.MethodPost, "/api/rules", delayRuleFor)
+	id := decodeBody[ruleResponse](t, do(t, s, http.MethodPost, "/api/rules", statusRuleFor)).ID
+
+	got := decodeBody[reportResponse](t, do(t, s, http.MethodGet, "/api/sessions/current/report", ""))
+
+	if len(got.Warnings) != 1 {
+		t.Fatalf("warnings = %v, want one", got.Warnings)
+	}
+	if !strings.HasPrefix(got.Warnings[0], "rule "+id+": never fires") {
+		t.Errorf("warning %q does not lead with the rule that never fires", got.Warnings[0])
+	}
+}

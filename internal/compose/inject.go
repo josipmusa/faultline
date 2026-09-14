@@ -15,11 +15,12 @@ const (
 	// DefaultOutput is the override `faultline compose inject` writes.
 	DefaultOutput = "docker-compose.faultline.yml"
 
-	// configHome is what the application's XDG_CONFIG_HOME is set to, and
-	// caDir is where the CA volume is mounted, which is the per-user config
-	// directory underneath it.
-	configHome = "/var/lib"
-	caDir      = configHome + "/faultline"
+	// caDir is where the CA volume is mounted: the image sets XDG_CONFIG_HOME
+	// to /var/lib, so this is where `ca init` inside it writes and where the
+	// proxy reads. The application is only ever pointed at the certificate
+	// file itself; nothing about Faultline's own directories reaches its
+	// environment.
+	caDir = "/var/lib/faultline"
 
 	// CACertPath is the certificate inside the mounted volume, the one every
 	// trust variable in the override points at.
@@ -72,7 +73,6 @@ type templateData struct {
 	NoProxy    string
 	CADir      string
 	CACertPath string
-	ConfigHome string
 	AdminPort  int
 	ProxyPort  int
 	Services   []templateService
@@ -117,7 +117,6 @@ func Inject(src *Source, opts Options) (Result, error) {
 		NoProxy:    noProxy,
 		CADir:      caDir,
 		CACertPath: CACertPath,
-		ConfigHome: configHome,
 		AdminPort:  adminPort,
 		ProxyPort:  proxyPort,
 	}
