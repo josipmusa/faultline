@@ -23,7 +23,7 @@ func TestServeMountsTheAgentInterface(t *testing.T) {
 	out := &syncWriter{}
 	served := make(chan error, 1)
 	go func() {
-		served <- serve(ctx, out, nil, DefaultBind, 0, 0, nil, nil, nil, false)
+		served <- serve(ctx, out, nil, DefaultBind, 0, 0, nil, nil, nil, false, true)
 	}()
 
 	adminAddr := waitForAddr(t, out, "admin: http://")
@@ -89,7 +89,7 @@ func TestServeShutsDownPromptlyWithAnAgentAttached(t *testing.T) {
 	out := &syncWriter{}
 	served := make(chan error, 1)
 	go func() {
-		served <- serve(ctx, out, nil, DefaultBind, 0, 0, nil, nil, nil, false)
+		served <- serve(ctx, out, nil, DefaultBind, 0, 0, nil, nil, nil, false, true)
 	}()
 
 	adminAddr := waitForAddr(t, out, "admin: http://")
@@ -212,7 +212,7 @@ func TestMCPAttachesToAnInstanceThatIsAlreadyRunning(t *testing.T) {
 
 	running := &syncWriter{}
 	serveErr := make(chan error, 1)
-	go func() { serveErr <- serve(ctx, running, nil, DefaultBind, 0, 0, nil, nil, nil, false) }()
+	go func() { serveErr <- serve(ctx, running, nil, DefaultBind, 0, 0, nil, nil, nil, false, true) }()
 	adminAddr := waitForAddr(t, running, "admin: http://")
 
 	errOut := &syncWriter{}

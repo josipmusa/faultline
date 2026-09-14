@@ -134,6 +134,8 @@ faultline run --scenario payments-down --report report.json -- go test ./...
 | [docs/docker.md](docs/docker.md) | the container image, Compose, `compose inject`, transparent mode |
 | [docs/frontends.md](docs/frontends.md) | why browser traffic needs an explicit route, and how to set one up |
 | [docs/agents.md](docs/agents.md) | the MCP server and its tools, for coding agents |
+| [docs/ci.md](docs/ci.md) | the GitHub Action: installing Faultline on a runner, wrapping a test suite |
+| [docs/security.md](docs/security.md) | what Faultline exposes while it works: the CA, captured traffic, the unauthenticated admin port |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | symptom by symptom |
 | [examples/](examples/) | small Go, Node, Spring Boot and Vite applications, and two Compose arrangements |
 

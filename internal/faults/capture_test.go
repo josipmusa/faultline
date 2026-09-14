@@ -34,7 +34,7 @@ func TestCaptureHoldsBothSidesOfARealExchange(t *testing.T) {
 	up, _ := upstream(t)
 	rec, caps := events.NewRecorder(10), capture.NewStore(0)
 	tr := New(http.DefaultTransport, rules.New(), rec, events.TierPlain, nil)
-	tr.CaptureTo(caps)
+	tr.CaptureTo(caps, true)
 
 	req := mustRequest(context.Background(), t, http.MethodPost, up.URL+"/orders", "who=me")
 	req.Header.Set("X-Test", "1")
@@ -61,7 +61,7 @@ func TestCaptureHoldsTheFaultedResponseNotTheUpstreamOne(t *testing.T) {
 	up, hits := upstream(t)
 	rec, caps := events.NewRecorder(10), capture.NewStore(0)
 	tr := New(http.DefaultTransport, storeWith(t, statusRule("broken", 503, "upstream is down")), rec, events.TierPlain, nil)
-	tr.CaptureTo(caps)
+	tr.CaptureTo(caps, true)
 
 	c := captured(t, tr, rec, caps, mustRequest(context.Background(), t, http.MethodGet, up.URL+"/orders", ""))
 
@@ -77,7 +77,7 @@ func TestCaptureIsFiledAgainstTheEventId(t *testing.T) {
 	up, _ := upstream(t)
 	rec, caps := events.NewRecorder(10), capture.NewStore(0)
 	tr := New(http.DefaultTransport, rules.New(), rec, events.TierPlain, nil)
-	tr.CaptureTo(caps)
+	tr.CaptureTo(caps, true)
 
 	c := captured(t, tr, rec, caps, mustRequest(context.Background(), t, http.MethodGet, up.URL+"/orders", ""))
 
@@ -92,7 +92,7 @@ func TestCaptureHoldsHeadersBeforeTheBodyIsDrained(t *testing.T) {
 	up, _ := upstream(t)
 	rec, caps := events.NewRecorder(10), capture.NewStore(0)
 	tr := New(http.DefaultTransport, rules.New(), rec, events.TierPlain, nil)
-	tr.CaptureTo(caps)
+	tr.CaptureTo(caps, true)
 
 	resp, err := tr.RoundTrip(mustRequest(context.Background(), t, http.MethodGet, up.URL+"/orders", ""))
 	if err != nil {
@@ -131,7 +131,7 @@ func TestATransportWithNoCaptureStoreStillWorks(t *testing.T) {
 func TestCaptureOfAFailedRequestHoldsTheRequestSide(t *testing.T) {
 	rec, caps := events.NewRecorder(10), capture.NewStore(0)
 	tr := New(http.DefaultTransport, rules.New(), rec, events.TierPlain, nil)
-	tr.CaptureTo(caps)
+	tr.CaptureTo(caps, true)
 
 	// Port 1 on loopback: nothing listens there, so the dial fails.
 	req := mustRequest(context.Background(), t, http.MethodPost, "http://127.0.0.1:1/orders", "who=me")
@@ -163,7 +163,7 @@ func TestCaptureHoldsATruncatedBodyAtItsCutLength(t *testing.T) {
 		ID: "cut", Name: "cut short", Enabled: true,
 		Fault: rules.Fault{Type: "truncate", Params: rules.Params{"after_bytes": 4}},
 	}), rec, events.TierPlain, nil)
-	tr.CaptureTo(caps)
+	tr.CaptureTo(caps, true)
 
 	resp, err := tr.RoundTrip(mustRequest(context.Background(), t, http.MethodGet, up.URL+"/orders", ""))
 	if err != nil {
@@ -180,5 +180,49 @@ func TestCaptureHoldsATruncatedBodyAtItsCutLength(t *testing.T) {
 	}
 	if got := string(c.Response.Body); got != "real" {
 		t.Errorf("captured response body = %q, want the cut %q", got, "real")
+	}
+}
+
+// With bodies turned off, --no-bodies, the exchange is still captured and
+// still shows its headers: the flag is about payloads, not about what was
+// called. Bodies says so, because an empty body would otherwise be
+// indistinguishable from a request that had none.
+func TestCaptureWithoutBodiesKeepsHeadersAndSaysSo(t *testing.T) {
+	up, _ := upstream(t)
+	rec, caps := events.NewRecorder(10), capture.NewStore(0)
+	tr := New(http.DefaultTransport, rules.New(), rec, events.TierPlain, nil)
+	tr.CaptureTo(caps, false)
+
+	req := mustRequest(context.Background(), t, http.MethodPost, up.URL+"/orders", "who=me")
+	req.Header.Set("X-Test", "1")
+
+	c := captured(t, tr, rec, caps, req)
+
+	if c.Bodies {
+		t.Error("bodies = true, want false: this transport was told not to capture them")
+	}
+	if got := c.Request.Headers.Get("X-Test"); got != "1" {
+		t.Errorf("captured request header X-Test = %q, want 1", got)
+	}
+	if got := c.Response.Headers.Get("X-Upstream"); got != "yes" {
+		t.Errorf("captured response header X-Upstream = %q, want yes", got)
+	}
+	if len(c.Request.Body) != 0 || len(c.Response.Body) != 0 {
+		t.Errorf("captured bodies = %q and %q, want neither", c.Request.Body, c.Response.Body)
+	}
+}
+
+// The other half of the same claim: a capture taken the usual way says its
+// bodies are there, so a reader can tell the two apart.
+func TestCaptureWithBodiesSaysSo(t *testing.T) {
+	up, _ := upstream(t)
+	rec, caps := events.NewRecorder(10), capture.NewStore(0)
+	tr := New(http.DefaultTransport, rules.New(), rec, events.TierPlain, nil)
+	tr.CaptureTo(caps, true)
+
+	c := captured(t, tr, rec, caps, mustRequest(context.Background(), t, http.MethodGet, up.URL+"/orders", ""))
+
+	if !c.Bodies {
+		t.Error("bodies = false, want true")
 	}
 }

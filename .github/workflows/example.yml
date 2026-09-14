@@ -1,0 +1,50 @@
+# The example workflow from docs/ci.md, run here so it cannot rot: it installs
+# a released Faultline through the action and puts the Go example's own test
+# through it, the way an application's repository would.
+name: Example
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  go-example:
+    name: the Go example under Faultline
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # `./setup` is this repository's own action, so a change to it is tested
+      # by the pull request that makes it. An application would write
+      # `josipmusa/faultline/setup@v0.1.0`.
+      #
+      # Pinned rather than `latest` until v0.1.0 is tagged: a prerelease is
+      # never the latest, so `latest` has nothing to resolve to yet.
+      - name: Install Faultline
+        uses: ./setup
+        with:
+          version: v0.1.0-rc1
+
+      # The test breaks example.com through the API and asserts on the report,
+      # so a pass means the binary, the proxy, the CA and the environment the
+      # runner injects all did their part.
+      - name: Test under Faultline
+        run: faultline run --report report.json -- go test -run TestUnderFaultline ./examples/go-client
+
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: faultline-report
+          path: report.json
+          if-no-files-found: ignore

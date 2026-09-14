@@ -8,11 +8,19 @@ import (
 	"github.com/josipmusa/faultline/internal/capture"
 )
 
-// CaptureTo files the headers and bodies of every exchange this transport
-// handles into store, so a human can open an event and read what went over
-// the wire. A transport with no store captures nothing, which is the default:
-// the pipeline works the same either way.
-func (t *Transport) CaptureTo(store *capture.Store) { t.captures = store }
+// CaptureTo files the headers of every exchange this transport handles into
+// store, so a human can open an event and read what went over the wire. A
+// transport with no store captures nothing, which is the default: the
+// pipeline works the same either way.
+//
+// bodies says whether the payloads are captured with the headers. It is false
+// under --no-bodies, where the traffic is sensitive enough that Faultline
+// should not be holding it; the headers are still captured, and are still
+// sensitive, which docs/security.md says out loud.
+func (t *Transport) CaptureTo(store *capture.Store, bodies bool) {
+	t.captures = store
+	t.bodies = bodies
+}
 
 // teeRequest routes the request body through a tee, so what the pipeline
 // sends upstream is also what gets captured. It returns the request to use
@@ -22,7 +30,7 @@ func (t *Transport) CaptureTo(store *capture.Store) { t.captures = store }
 // A request with no body is left alone. Handing http.Transport a non-nil body
 // that reads as empty is not the same thing as handing it none.
 func (t *Transport) teeRequest(req *http.Request) (*http.Request, *capture.Tee) {
-	if t.captures == nil || req.Body == nil || req.Body == http.NoBody {
+	if t.captures == nil || !t.bodies || req.Body == nil || req.Body == http.NoBody {
 		return req, nil
 	}
 	tee := capture.NewTee(req.Body)
@@ -41,7 +49,7 @@ func (t *Transport) file(id string, req *http.Request, sent *capture.Tee, resp *
 		return
 	}
 
-	c := capture.Capture{EventID: id, Request: capture.Side{Headers: req.Header.Clone()}}
+	c := capture.Capture{EventID: id, Bodies: t.bodies, Request: capture.Side{Headers: req.Header.Clone()}}
 	if sent != nil {
 		c.Request.Body, c.Request.Truncated = sent.Captured()
 	}
@@ -50,7 +58,7 @@ func (t *Transport) file(id string, req *http.Request, sent *capture.Tee, resp *
 	}
 	t.captures.Put(c)
 
-	if resp == nil || resp.Body == nil {
+	if !t.bodies || resp == nil || resp.Body == nil {
 		return
 	}
 	tee := capture.NewTee(resp.Body)

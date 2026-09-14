@@ -114,7 +114,7 @@ func TestRunReportExplainsARuleThatCouldNotFire(t *testing.T) {
 func TestRunPrintsTheReportOnStderrWithNoScenario(t *testing.T) {
 	var out, errOut bytes.Buffer
 	code, err := run(context.Background(), &out, &errOut, nil, nil, 0, 0, nil, nil, nil,
-		session{}, []string{"sh", "-c", "exit 0"})
+		session{}, []string{"sh", "-c", "exit 0"}, true)
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -132,7 +132,7 @@ func TestRunPrintsTheReportOnStderrWithNoScenario(t *testing.T) {
 func TestRunReportsEvenWhenTheChildFails(t *testing.T) {
 	var out, errOut bytes.Buffer
 	code, err := run(context.Background(), &out, &errOut, nil, nil, 0, 0, nil, nil, nil,
-		session{}, []string{"sh", "-c", "exit 7"})
+		session{}, []string{"sh", "-c", "exit 7"}, true)
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -149,7 +149,7 @@ func TestRunWritesTheReportFile(t *testing.T) {
 
 	var out, errOut bytes.Buffer
 	code, err := run(context.Background(), &out, &errOut, nil, nil, 0, 0, nil, nil, nil,
-		session{report: path}, []string{"sh", "-c", "exit 0"})
+		session{report: path}, []string{"sh", "-c", "exit 0"}, true)
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -203,7 +203,7 @@ func TestRunActivatesTheScenarioForTheChildAndTurnsItOffAfter(t *testing.T) {
 	go func() {
 		var runErr error
 		code, runErr = run(context.Background(), &out, errOut, nil, cfg, 0, 0, cfg.Routes, nil, nil,
-			session{scenario: "api-down", report: reportPath}, child)
+			session{scenario: "api-down", report: reportPath}, child, true)
 		ran <- runErr
 	}()
 	// Releasing the child is how run ends, so it happens even if the test

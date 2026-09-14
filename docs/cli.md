@@ -286,6 +286,22 @@ which is the point: a reset is for measuring the same setup twice, not for
 tearing down the setup a person arranged in the UI. Run it between two runs of
 the same check, or the second one measures the first one's leftovers.
 
+## Traffic Faultline should not be holding
+
+The inspector shows what went over the wire, which for a real application means
+credentials. `--no-bodies`, on `run` and on `serve`, keeps the headers and drops
+the payloads:
+
+```
+faultline run --no-bodies -- npm run dev
+```
+
+Bodies are then never captured, and everything else is unchanged: the faults
+apply, the report is accurate, and the inspector still shows what was called and
+what came back. Headers are still captured, `Authorization` included -
+[docs/security.md](security.md) says what that means and what to do when even
+that is too much.
+
 ## Events
 
 `events tail` follows the live stream and prints a line per call until you

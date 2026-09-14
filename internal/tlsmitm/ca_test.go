@@ -49,6 +49,17 @@ func TestCreateWritesSelfSignedCAValidForTenYears(t *testing.T) {
 	if perm := info.Mode().Perm(); perm != 0o600 {
 		t.Errorf("key mode = %o, want 600", perm)
 	}
+
+	// A world-readable directory around an owner-only key is the same mistake
+	// one level up: the key is unreadable, its neighbours are not, and the
+	// next thing written here inherits the looser default.
+	dirInfo, err := os.Stat(filepath.Dir(ca.KeyPath))
+	if err != nil {
+		t.Fatalf("stat the CA directory: %v", err)
+	}
+	if perm := dirInfo.Mode().Perm(); perm != 0o700 {
+		t.Errorf("CA directory mode = %o, want 700", perm)
+	}
 }
 
 func TestLoadReadsBackWhatCreateWrote(t *testing.T) {

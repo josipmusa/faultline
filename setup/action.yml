@@ -1,0 +1,187 @@
+name: Setup Faultline
+description: Install the Faultline fault-injection proxy, and optionally start one for the rest of the job.
+branding:
+  icon: activity
+  color: orange
+
+inputs:
+  version:
+    description: 'Release to install: a tag such as v0.1.0, or "latest" for the newest non-prerelease.'
+    default: latest
+  start:
+    description: Start a Faultline and point the rest of the job at it.
+    default: 'false'
+  bind:
+    description: Address the started instance listens on. Widening it exposes full control of the proxy.
+    default: 127.0.0.1
+  admin-port:
+    description: Port for the UI, the API and the MCP endpoint.
+    default: '9000'
+  proxy-port:
+    description: Port for the forward proxy.
+    default: '9001'
+  github-token:
+    description: Token used to read the releases API and download the archive.
+    default: ${{ github.token }}
+
+outputs:
+  version:
+    description: The tag actually installed.
+    value: ${{ steps.install.outputs.version }}
+  admin-url:
+    description: The admin address, empty unless the action started an instance.
+    value: ${{ steps.start.outputs.admin-url }}
+  proxy-url:
+    description: The forward proxy address, empty unless the action started an instance.
+    value: ${{ steps.start.outputs.proxy-url }}
+  ca-path:
+    description: The interception CA certificate, empty unless the action started an instance.
+    value: ${{ steps.start.outputs.ca-path }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install Faultline
+      id: install
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+
+        repo=josipmusa/faultline
+        api=https://api.github.com/repos/$repo
+
+        # A release candidate is published as a prerelease, and /releases/latest
+        # skips those, so "latest" never hands a workflow an rc by accident.
+        if [ "$VERSION" = latest ]; then
+          body=$(curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -H "X-GitHub-Api-Version: 2022-11-28" "$api/releases/latest" || true)
+          tag=$(printf '%s' "$body" | grep -o '"tag_name"[[:space:]]*:[[:space:]]*"[^"]*"' | head -n 1 | sed 's/.*"\([^"]*\)"$/\1/' || true)
+          if [ -z "$tag" ]; then
+            echo "$repo has no latest release: a prerelease is never the latest, so pass version: explicitly" >&2
+            exit 1
+          fi
+        else
+          tag=$VERSION
+        fi
+        case "$tag" in v*) ;; *) tag=v$tag ;; esac
+        number=${tag#v}
+
+        # The names GoReleaser writes. An unrecognised runner says what it saw,
+        # rather than failing later as a 404 on a URL nobody can read.
+        case "$RUNNER_OS" in
+          Linux) os=linux ;;
+          macOS) os=darwin ;;
+          Windows) os=windows ;;
+          *) echo "no Faultline build for runner os $RUNNER_OS" >&2; exit 1 ;;
+        esac
+        case "$RUNNER_ARCH" in
+          X64) arch=amd64 ;;
+          ARM64) arch=arm64 ;;
+          *) echo "no Faultline build for runner arch $RUNNER_ARCH" >&2; exit 1 ;;
+        esac
+        ext=tar.gz
+        [ "$os" = windows ] && ext=zip
+        asset=faultline_${number}_${os}_${arch}.${ext}
+
+        dir=$RUNNER_TEMP/faultline
+        mkdir -p "$dir"
+        base=https://github.com/$repo/releases/download/$tag
+        curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -o "$dir/$asset" "$base/$asset"
+        curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -o "$dir/checksums.txt" "$base/checksums.txt"
+
+        # Verified before anything is extracted: a tampered or truncated
+        # download is the one failure that must not be allowed to proceed.
+        want=$(awk -v f="$asset" '$2 == f || $2 == "*" f { print $1 }' "$dir/checksums.txt")
+        if [ -z "$want" ]; then
+          echo "$asset is not listed in the checksums of $tag" >&2
+          exit 1
+        fi
+        if command -v sha256sum >/dev/null 2>&1; then
+          got=$(sha256sum "$dir/$asset" | awk '{print $1}')
+        else
+          got=$(shasum -a 256 "$dir/$asset" | awk '{print $1}')
+        fi
+        if [ "$got" != "$want" ]; then
+          echo "checksum mismatch for $asset: got $got, want $want" >&2
+          exit 1
+        fi
+
+        if [ "$ext" = zip ]; then
+          if command -v unzip >/dev/null 2>&1; then
+            unzip -q -o "$dir/$asset" -d "$dir"
+          else
+            powershell -NoProfile -Command "Expand-Archive -Force -Path '$dir/$asset' -DestinationPath '$dir'"
+          fi
+        else
+          tar -xzf "$dir/$asset" -C "$dir"
+        fi
+
+        echo "$dir" >> "$GITHUB_PATH"
+        echo "version=$tag" >> "$GITHUB_OUTPUT"
+
+        # The smoke check belongs here: a broken install fails in this step
+        # rather than in the step that was trying to use it.
+        "$dir/faultline" version
+
+    - name: Start Faultline
+      id: start
+      if: ${{ inputs.start == 'true' }}
+      shell: bash
+      env:
+        BIND: ${{ inputs.bind }}
+        ADMIN_PORT: ${{ inputs.admin-port }}
+        PROXY_PORT: ${{ inputs.proxy-port }}
+      run: |
+        set -euo pipefail
+
+        dir=$RUNNER_TEMP/faultline
+        log=$dir/serve.log
+
+        # `serve` does not create a CA the way `run` does. Without one it
+        # tunnels blindly and every response-tier rule is accepted and never
+        # applies, which reads as an application that coped.
+        faultline ca init
+        ca=$(faultline ca path)
+
+        nohup faultline serve --bind "$BIND" --admin-port "$ADMIN_PORT" --proxy-port "$PROXY_PORT" >"$log" 2>&1 &
+
+        admin=http://127.0.0.1:$ADMIN_PORT
+        ready=
+        for _ in $(seq 1 30); do
+          if curl -fsS --noproxy '*' "$admin/api/rules" >/dev/null 2>&1; then
+            ready=yes
+            break
+          fi
+          sleep 0.5
+        done
+        if [ -z "$ready" ]; then
+          # A job whose proxy never came up must not run its tests unproxied
+          # and report a pass.
+          echo "Faultline did not answer at $admin within 15s" >&2
+          cat "$log" >&2 || true
+          exit 1
+        fi
+
+        proxy=http://127.0.0.1:$PROXY_PORT
+        {
+          echo "HTTP_PROXY=$proxy"
+          echo "HTTPS_PROXY=$proxy"
+          echo "http_proxy=$proxy"
+          echo "https_proxy=$proxy"
+          echo "NO_PROXY=localhost,127.0.0.1,::1"
+          echo "no_proxy=localhost,127.0.0.1,::1"
+          echo "NODE_USE_ENV_PROXY=1"
+          echo "SSL_CERT_FILE=$ca"
+          echo "REQUESTS_CA_BUNDLE=$ca"
+          echo "CURL_CA_BUNDLE=$ca"
+          echo "NODE_EXTRA_CA_CERTS=$ca"
+          echo "GIT_SSL_CAINFO=$ca"
+        } >> "$GITHUB_ENV"
+
+        {
+          echo "admin-url=$admin"
+          echo "proxy-url=$proxy"
+          echo "ca-path=$ca"
+        } >> "$GITHUB_OUTPUT"
