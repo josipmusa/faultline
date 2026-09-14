@@ -14,12 +14,21 @@ import (
 	"time"
 )
 
+// backgroundSleep leaves the grandchild holding the output pipes, so Run only
+// reaps the shell once WaitDelay is up. detachedBackgroundSleep keeps it off
+// them, so the shell is reaped almost at once and the group outlives it while
+// there is still grace left to run.
+const (
+	backgroundSleep         = "sleep 30 & echo $!; wait"
+	detachedBackgroundSleep = "sleep 30 >/dev/null 2>&1 & echo $!; wait"
+)
+
 // A shell does not pass signals on to what it started, so cancelling a
 // wrapped `sh -c "npm test"` ends the shell and leaves npm running with the
 // proxy environment. OwnGroup puts the child in its own process group and
 // signals the group, so the grandchild goes too.
 func TestRunWithOwnGroupEndsTheGrandchildOnCancel(t *testing.T) {
-	pid, _ := runShellWithBackgroundSleep(t, true)
+	pid, _ := runShellWithBackgroundSleep(t, true, backgroundSleep)
 
 	if !waitForProcessToVanish(pid, 5*time.Second) {
 		t.Fatalf("grandchild %d is still running five seconds after the context was cancelled", pid)
@@ -30,10 +39,22 @@ func TestRunWithOwnGroupEndsTheGrandchildOnCancel(t *testing.T) {
 // behavior `faultline run` relies on for interactive commands and the reason
 // the group behavior is opt-in.
 func TestRunWithoutOwnGroupLeavesTheGrandchildRunning(t *testing.T) {
-	pid, _ := runShellWithBackgroundSleep(t, false)
+	pid, _ := runShellWithBackgroundSleep(t, false, backgroundSleep)
 
 	if err := syscall.Kill(pid, 0); err != nil {
 		t.Fatalf("grandchild %d is gone (%v); Run without OwnGroup should have signalled only its own child", pid, err)
+	}
+}
+
+// Reaping the shell is not the end of its group. When the grandchild is not
+// holding the output pipes the shell is reaped almost at once, long before the
+// grace is up, and the interrupt it ignored leaves it running: Run still owes
+// the group the kill it promised.
+func TestRunWithOwnGroupEndsAGrandchildThatOutlivesTheChild(t *testing.T) {
+	pid, _ := runShellWithBackgroundSleep(t, true, detachedBackgroundSleep)
+
+	if !waitForProcessToVanish(pid, 5*time.Second) {
+		t.Fatalf("grandchild %d outlived the shell and was left running", pid)
 	}
 }
 
@@ -41,7 +62,7 @@ func TestRunWithoutOwnGroupLeavesTheGrandchildRunning(t *testing.T) {
 // the sleep's pid and waits, then cancels the run once the pid is known and
 // returns that pid after Run has come back. Any surviving sleep is killed
 // when the test ends.
-func runShellWithBackgroundSleep(t *testing.T, ownGroup bool) (int, int) {
+func runShellWithBackgroundSleep(t *testing.T, ownGroup bool, script string) (int, int) {
 	t.Helper()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -55,7 +76,7 @@ func runShellWithBackgroundSleep(t *testing.T, ownGroup bool) (int, int) {
 	done := make(chan result, 1)
 	go func() {
 		code, err := Cmd{
-			Args:     []string{"sh", "-c", "sleep 30 & echo $!; wait"},
+			Args:     []string{"sh", "-c", script},
 			Stdout:   pw,
 			Grace:    200 * time.Millisecond,
 			OwnGroup: ownGroup,

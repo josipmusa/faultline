@@ -138,23 +138,49 @@ func (t target) kill() error {
 	return t.proc.Kill()
 }
 
+// lingers reports whether anything the target covers is still running once the
+// child itself has been reaped. Only a group can outlive its leader.
+func (t target) lingers() bool {
+	return t.group && groupLingers(t.proc)
+}
+
+// end interrupts the child, gives it grace to go of its own accord, and kills
+// what is left. done closing means the child has been reaped.
+func end(child target, grace time.Duration, done <-chan struct{}) {
+	_ = child.signal(os.Interrupt)
+
+	deadline := time.NewTimer(grace)
+	defer deadline.Stop()
+
+	select {
+	case <-deadline.C:
+	case <-done:
+		// Reaping the child does not empty its group. A shell exits the
+		// moment it is interrupted while the grandchild it backgrounded
+		// ignores the signal and runs on, and ending that grandchild is what
+		// OwnGroup is for. Whatever is left keeps the rest of its grace.
+		if !child.lingers() {
+			return
+		}
+		<-deadline.C
+	}
+	_ = child.kill()
+}
+
 func relay(ctx context.Context, child target, grace time.Duration) func() {
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
 	done := make(chan struct{})
+	finished := make(chan struct{})
 
 	go func() {
+		defer close(finished)
 		for {
 			select {
 			case sig := <-sigs:
 				_ = child.signal(sig)
 			case <-ctx.Done():
-				_ = child.signal(os.Interrupt)
-				select {
-				case <-time.After(grace):
-					_ = child.kill()
-				case <-done:
-				}
+				end(child, grace, done)
 				return
 			case <-done:
 				return
@@ -170,5 +196,8 @@ func relay(ctx context.Context, child target, grace time.Duration) func() {
 		once = true
 		signal.Stop(sigs)
 		close(done)
+		// Waiting here is what makes the guarantee real: when Run returns
+		// after a cancellation, the group it was asked to end is gone.
+		<-finished
 	}
 }

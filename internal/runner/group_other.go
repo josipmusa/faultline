@@ -15,3 +15,5 @@ func startInOwnGroup(*exec.Cmd) {}
 func signalGroup(proc *os.Process, sig os.Signal) error { return proc.Signal(sig) }
 
 func killGroup(proc *os.Process) error { return proc.Kill() }
+
+func groupLingers(*os.Process) bool { return false }
