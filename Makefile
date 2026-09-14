@@ -20,7 +20,7 @@ GO_PKGS := $(shell go list ./... | grep -v /web/node_modules/)
 GOBIN   := $(shell go env GOPATH)/bin
 GOLANGCI_VERSION := v2.13.2
 
-.PHONY: build ui clients test test-go test-ui test-clients lint lint-go lint-ui lint-clients tools run schema docs clean
+.PHONY: build ui clients test test-go test-ui test-npm test-clients lint lint-go lint-ui lint-clients tools run schema docs clean
 
 build:
 	go build $(UI_TAG) -ldflags "-X main.version=$(VERSION)" -o $(BIN) $(PKG)
@@ -35,13 +35,19 @@ ui:
 clients:
 	cd $(TS_DIR) && npm ci
 
-test: test-go test-ui test-clients
+test: test-go test-ui test-npm test-clients
 
 test-go:
 	go test -race $(GO_PKGS)
 # The tag changes what internal/admin serves at /, so that package is the one
 # worth a second pass; nothing else behaves differently under it.
 	$(if $(UI_TAG),go test -race $(UI_TAG) ./internal/admin/,@true)
+
+# The npm launcher and the script that packages it have no dependencies, so
+# this suite needs node and nothing else, no `npm ci` first.
+test-npm:
+	@if command -v node >/dev/null 2>&1; then cd npm && node --test; \
+	else echo "skipping npm tests: node is missing"; fi
 
 lint: lint-go lint-ui lint-clients
 

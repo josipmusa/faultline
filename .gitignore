@@ -7,6 +7,9 @@
 coverage.*
 vendor/
 
+# npm packaging output, assembled from dist/ at release time
+npm/dist/
+
 # UI (Next.js)
 web/node_modules/
 web/.next/
