@@ -19,7 +19,7 @@ jobs:
       packages: write
     steps:
       - name: Check out
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       # arm64 is emulated, which is slow enough that only a tag pays for it.
       - name: Set up QEMU
