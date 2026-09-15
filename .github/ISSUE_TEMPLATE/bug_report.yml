@@ -1,0 +1,80 @@
+name: Bug report
+description: Faultline did something other than what it says it does
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        If the bug is exploitable, do not file it here. Use the private
+        [security advisory form](https://github.com/josipmusa/faultline/security/advisories/new)
+        instead; [SECURITY.md](https://github.com/josipmusa/faultline/blob/main/SECURITY.md) says what to expect.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: The command you ran, what Faultline printed, and what you expected instead.
+      placeholder: |
+        $ faultline run -- npm run dev
+        ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: rule
+    attributes:
+      label: The rule in play
+      description: >-
+        If a fault was involved, the rule as JSON or the relevant part of your
+        faultline.yaml. Redact anything private; hostnames are usually the
+        useful part.
+      render: yaml
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The output of `faultline version`.
+      placeholder: faultline 0.1.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install
+    attributes:
+      label: How you installed it
+      options:
+        - install.sh
+        - Homebrew
+        - npm
+        - Release archive
+        - Docker image
+        - go install
+        - Built from source
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS
+        - Linux
+        - Windows
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: tier
+    attributes:
+      label: Traffic tier
+      description: >-
+        Every event carries one, and it is usually the first thing that explains
+        a fault that did not apply. Leave it blank if the bug is not about traffic.
+      options:
+        - plain
+        - intercepted
+        - encrypted
+        - Not sure

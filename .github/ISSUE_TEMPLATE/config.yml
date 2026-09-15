@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a vulnerability
+    url: https://github.com/josipmusa/faultline/security/advisories/new
+    about: Private disclosure for anything exploitable. Never open a public issue for one.
+  - name: Ask a question
+    url: https://github.com/josipmusa/faultline/discussions/categories/q-a
+    about: How to do something, or why Faultline behaved the way it did.
+  - name: Documentation
+    url: https://github.com/josipmusa/faultline/tree/main/docs
+    about: The fault catalogue, the API, the CLI and the trust model.

@@ -1,0 +1,36 @@
+name: Feature request
+description: Something Faultline should do and does not
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The Fixed decisions section of
+        [AGENTS.md](https://github.com/josipmusa/faultline/blob/main/AGENTS.md)
+        lists what is settled and will not change: no database, no mock mode, no
+        fabricated responses for an unreachable upstream. Arguing one of those is
+        fine, but say so directly rather than proposing it as new.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What you were trying to find out about your application, and where Faultline stopped being useful.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you have in mind
+      description: >-
+        Roughly what it would look like to use. A new fault type, a flag, an API
+        field. It does not need to be a design.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you tried instead
+      description: Existing faults or workarounds you used, and why they fell short.
