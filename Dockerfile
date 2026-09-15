@@ -2,14 +2,23 @@
 
 # The UI is built from source rather than taken from the checkout, so the image
 # never depends on whether someone ran `make ui` first.
-FROM node:22-alpine AS ui
+#
+# Pinned to the build platform. A Next.js static export is the same bytes
+# whatever machine will run the binary, so building it once natively is both
+# correct and the difference between a multi-arch build that takes minutes and
+# one that takes most of an hour: without this, `npm ci` and `next build` run
+# under QEMU for every non-native target.
+FROM --platform=$BUILDPLATFORM node:22-alpine AS ui
 WORKDIR /src/web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci
 COPY web/ ./
 RUN npm run build
 
-FROM golang:1.25-alpine AS build
+# Also pinned to the build platform. Go is a cross compiler by default, so the
+# toolchain runs natively and only its output is built for the target. Emulating
+# the compiler instead would produce the same binary, slowly.
+FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
@@ -18,7 +27,13 @@ COPY . .
 # up telling the operator the UI is missing.
 COPY --from=ui /src/web/out ./web/out
 ARG VERSION=dev
-RUN CGO_ENABLED=0 go build -tags ui -ldflags "-s -w -X main.version=${VERSION}" -o /out/faultline ./cmd/faultline
+# Supplied by buildx for the platform being built, and the reason this stage can
+# be pinned above: they are what aim the compiler at the target. CGO is already
+# off, which is what keeps cross compilation a matter of two variables.
+ARG TARGETOS
+ARG TARGETARCH
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+	go build -tags ui -ldflags "-s -w -X main.version=${VERSION}" -o /out/faultline ./cmd/faultline
 # The runtime has no shell to create directories with, so they are made here
 # and copied in owned by the user that will write to them.
 RUN mkdir -p /state/faultline /work
