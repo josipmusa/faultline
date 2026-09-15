@@ -2,6 +2,14 @@ name: Image
 
 # Tags publish; pull requests only build. Without the pull request half, a
 # broken Dockerfile would not be found until the day of a release.
+#
+# Both architectures are built either way. They used to be built only on tags,
+# because emulating arm64 took most of an hour - which meant the arm64 build
+# was never exercised until the release that needed it, and that is exactly how
+# v0.1.0 spent forty minutes on a build nobody had ever watched. The Dockerfile
+# now cross compiles instead of emulating, so the full matrix is affordable on
+# every pull request, and a regression in that shows up as the build time
+# climbing back.
 on:
   push:
     tags: ["v*"]
@@ -29,9 +37,12 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         uses: ./.github/actions/require-green-ci
 
-      # arm64 is emulated, which is slow enough that only a tag pays for it.
+      # Still needed: the builder stages cross compile on the native platform,
+      # but the runtime stages are the target's own userspace and the
+      # transparent one runs apk and setcap inside it. That is seconds of
+      # emulation rather than a Next.js build's worth, so it runs on pull
+      # requests too.
       - name: Set up QEMU
-        if: startsWith(github.ref, 'refs/tags/')
         uses: docker/setup-qemu-action@v4
 
       - name: Set up Buildx
@@ -59,7 +70,7 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: .
-          platforms: ${{ startsWith(github.ref, 'refs/tags/') && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
+          platforms: linux/amd64,linux/arm64
           push: ${{ startsWith(github.ref, 'refs/tags/') }}
           # The version the binary reports is the one in the image tag, so
           # `faultline version` in a container answers for the image too. It
@@ -92,7 +103,7 @@ jobs:
         with:
           context: .
           target: transparent
-          platforms: ${{ startsWith(github.ref, 'refs/tags/') && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
+          platforms: linux/amd64,linux/arm64
           push: ${{ startsWith(github.ref, 'refs/tags/') }}
           build-args: VERSION=${{ steps.meta-transparent.outputs.version }}
           tags: ${{ steps.meta-transparent.outputs.tags }}
