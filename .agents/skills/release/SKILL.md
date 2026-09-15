@@ -53,11 +53,30 @@ pushing one.
 `make test` and `make lint` are not re-run locally. CI runs both on Linux and
 macOS for the commit being released, and that is the same check.
 
-Confirm the publishing credentials exist. `gh secret list` needs a token with
-repository admin scope and may well be refused; if it is, say so rather than
-reporting the secrets as present:
+Confirm the publishing credentials exist.
 
-- `NPM_TOKEN` - npm. Never yet exercised by a real release.
+npm needs none. It publishes through trusted publishing: GitHub mints a
+short-lived OIDC token for the run and npm checks it against a rule naming
+this repository and `release.yml`. Nothing expires and there is nothing to
+rotate. What can go wrong is the rule, not a token, so check that instead:
+
+```
+npm trust list faultline-proxy
+```
+
+It must name `josipmusa/faultline`, `release.yml`, and allow `npm publish`.
+All seven packages carry the same rule; if one publish fails with `ENEEDAUTH`
+while the others succeed, that package is the one missing it.
+
+A rule can only be attached to a package that already exists, so a release
+that adds a new platform package cannot publish it this way: its first version
+has to go up from a laptop with `npm publish`, and the rule is added
+afterwards. Check for this whenever `.goreleaser.yaml` grows a target.
+
+The tap still uses a key. `gh secret list` needs a token with repository admin
+scope and may well be refused; if it is, say so rather than reporting the
+secret as present:
+
 - `HOMEBREW_TAP_DEPLOY_KEY` - the tap. Known good.
 
 ## 3. Prepare the repository
