@@ -35,6 +35,22 @@ archives:
 checksum:
   name_template: checksums.txt
 
+# Keyless signing, over the checksum file rather than each archive: verify the
+# signature once, then every archive is covered by the line that names it. The
+# identity baked into the certificate is this repository's release workflow, so
+# what a verifier learns is where the binary was built, which is the question
+# worth asking. There is no key to store and none to rotate.
+signs:
+  - cmd: cosign
+    signature: "${artifact}.sigstore.json"
+    args:
+      - sign-blob
+      - "--bundle=${signature}"
+      - "${artifact}"
+      - "--yes"
+    artifacts: checksum
+    output: true
+
 changelog:
   use: github
   filters:

@@ -1,0 +1,33 @@
+{
+  "name": "faultline-proxy",
+  "version": "0.0.0-dev",
+  "description": "HTTP and HTTPS fault-injection proxy for development and testing",
+  "keywords": [
+    "fault-injection",
+    "resilience",
+    "testing",
+    "proxy",
+    "chaos"
+  ],
+  "homepage": "https://github.com/josipmusa/faultline",
+  "bugs": "https://github.com/josipmusa/faultline/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/josipmusa/faultline.git",
+    "directory": "npm"
+  },
+  "license": "MIT",
+  "author": "Josip Musa",
+  "bin": {
+    "faultline": "bin/faultline.js"
+  },
+  "files": [
+    "bin"
+  ],
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
