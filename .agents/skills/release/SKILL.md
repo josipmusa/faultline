@@ -129,16 +129,52 @@ run. Never answer this with a new tag.
 
 ## 6. Verify
 
-The smoke job already proves `install.sh` and `npx` against the real release,
-and the Image workflow proves the container. What it cannot check from inside
-the run:
+The smoke job proves `install.sh` against the real release and the Image
+workflow proves the container. What neither can check from inside a run:
 
 ```
 gh release view <version>                        # notes read sensibly, 6 archives + checksums
-npm view faultline-proxy dist-tags               # latest moved, or next for a candidate
 gh api repos/josipmusa/homebrew-tap/commits --jq '.[0].commit.message'
 git ls-remote --tags origin v0                   # stable only
 ```
+
+### npm
+
+This one is checked here rather than in CI, and it is the check most worth
+doing properly. npm accepts a publish, prints `+ name@version`, and then
+processes it asynchronously. On 0.1.1 one platform package took nine minutes
+to appear and another longer still, so a green publish step means the upload
+was accepted, not that anyone can install it.
+
+All seven packages have to be there. The launcher declares the six platform
+packages as optional dependencies, so a missing one does not fail the
+launcher's own publish: it fails `npm install` later, on that platform only.
+That is how 0.1.1 came to work on Apple Silicon and Windows while it was
+broken on Linux x64.
+
+Ask the registry directly. `npm view` answers from a cache and will happily
+report a version that is not yet servable, and the reverse:
+
+```
+V=<version without the leading v>
+for p in faultline-proxy faultline-proxy-{darwin,linux}-{x64,arm64} faultline-proxy-win32-{x64,arm64}; do
+  code=$(curl -s -o /dev/null -w '%{http_code}' "https://registry.npmjs.org/$p/-/$p-$V.tgz")
+  echo "$p $code"
+done
+```
+
+Every line must say 200. Re-run it every few minutes until they do; ten
+minutes is normal and is not a reason to act. Then confirm the dist-tag moved
+and that an install really resolves:
+
+```
+npm view faultline-proxy dist-tags               # latest, or next for a candidate
+npx --yes faultline-proxy@$V version
+```
+
+If a tarball is still 404 long after the others landed, the version number has
+been taken without the content behind it. npm does not allow republishing a
+version, so the fix is the next patch version, never a re-tag.
 
 Read the generated release notes properly. Dependabot bumps are filtered out
 by `^Bump `; anything else in the history appears verbatim, so a careless
