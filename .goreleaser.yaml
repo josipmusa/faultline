@@ -55,9 +55,11 @@ changelog:
   use: github
   filters:
     exclude:
-      - "^docs:"
-      - "^test:"
-      - "^chore:"
+      # Dependabot's subject line, which is the only commit shape here worth
+      # keeping out of the notes. Conventional-commit prefixes are not filtered
+      # because this repository does not write them: AGENTS.md asks for a plain
+      # imperative subject, so a "^chore:" filter would match nothing.
+      - "^Bump "
 
 release:
   # A tag like v0.1.0-rc1 is a release candidate, so the GitHub release is
