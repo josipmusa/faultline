@@ -26,7 +26,7 @@ jobs:
 
       # `./setup` is this repository's own action, so a change to it is tested
       # by the pull request that makes it. An application would write
-      # `josipmusa/faultline/setup@v0.1.0`.
+      # `josipmusa/faultline/setup@v0`.
       #
       # Pinned rather than `latest` until v0.1.0 is tagged: a prerelease is
       # never the latest, so `latest` has nothing to resolve to yet.

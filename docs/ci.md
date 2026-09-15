@@ -22,10 +22,16 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - uses: josipmusa/faultline/setup@v0.1.0
+      - uses: josipmusa/faultline/setup@v0
 
       - run: faultline run --report report.json -- go test ./...
 ```
+
+`@v0` is a tag that moves to each new release once that release has been
+verified, so a workflow written this way keeps up without being edited. Pin an
+exact tag such as `@v0.1.0` instead if you would rather decide when to move.
+Note that this is the version of the *action*; the version of Faultline it
+installs is the `version` input below, and the two are independent.
 
 The tests add their own rules through the API at `http://127.0.0.1:9000`, the
 way `docs/cli.md` describes for a local run. Nothing in the test code names
@@ -39,7 +45,7 @@ proxied without being wrapped. Use it when the thing to exercise is not a test
 command - a built binary, a `curl`, a service started by another action.
 
 ```yaml
-      - uses: josipmusa/faultline/setup@v0.1.0
+      - uses: josipmusa/faultline/setup@v0
         id: faultline
         with:
           start: true
