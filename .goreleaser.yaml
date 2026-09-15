@@ -60,8 +60,9 @@ changelog:
       - "^chore:"
 
 release:
-  # A tag like v0.1.0-rc1 is a release candidate, and Homebrew hands out the
-  # latest non-prerelease, so this is what keeps `brew install` off an rc.
+  # A tag like v0.1.0-rc1 is a release candidate, so the GitHub release is
+  # marked as a prerelease and /releases/latest skips it. That is all this
+  # setting does: it does not gate the cask, which has its own skip_upload.
   prerelease: auto
 
 # Homebrew expects a pre-built binary to arrive as a cask; the older formula
@@ -69,6 +70,11 @@ release:
 # or the container image.
 homebrew_casks:
   - name: faultline
+    # "auto" skips the upload when the tag is a prerelease. Without it a
+    # release candidate overwrites the cask and `brew install` hands out an rc
+    # to everyone, which is what v0.1.0-rc1 did. The release section's
+    # prerelease setting does not cover this; only this does.
+    skip_upload: "auto"
     repository:
       owner: josipmusa
       name: homebrew-tap
