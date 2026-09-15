@@ -230,6 +230,14 @@ jobs:
           major=${TAG%%.*}
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -f "$major" "$TAG"
+          # ^{commit}, not the tag name. Release tags are annotated, so naming
+          # one here would point v0 at its tag object, and that object carries
+          # the name v0.1.1 rather than v0. `git describe` then refuses to
+          # treat the tag as a clean match ("externally known as"), which is
+          # how GoReleaser finds the previous tag: it got nothing back and
+          # wrote every commit in the repository into the release notes.
+          # Pointing at the commit keeps v0 a plain lightweight tag, which
+          # describe passes over in favour of the annotated release tag.
+          git tag -f "$major" "${TAG}^{commit}"
           git push -f origin "refs/tags/${major}"
           echo "${major} now points at ${TAG}"
