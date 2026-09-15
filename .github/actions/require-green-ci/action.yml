@@ -1,0 +1,53 @@
+name: Require a green CI run
+description: Fail unless the CI workflow completed successfully for the commit being released.
+
+# A tag publishes to four places at once - the GitHub release, the Homebrew
+# tap, GHCR and npm - and none of those can be taken back cleanly. Nothing
+# otherwise stops a tag on a commit CI never built, or built and failed, so
+# this is the check that a release is a release of something known to work.
+
+inputs:
+  sha:
+    description: The commit to check. Defaults to the commit being built.
+    default: ${{ github.sha }}
+  github-token:
+    description: Token used to read the Actions API.
+    default: ${{ github.token }}
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        SHA: ${{ inputs.sha }}
+        REPO: ${{ github.repository }}
+      run: |
+        set -euo pipefail
+
+        # Newest first, so a re-run of a previously failed CI is what counts.
+        run=$(gh api "repos/${REPO}/actions/workflows/ci.yml/runs?head_sha=${SHA}&per_page=1" \
+          --jq '.workflow_runs[0] // empty')
+
+        if [ -z "$run" ]; then
+          echo "::error::CI has never run for ${SHA}. Release only a commit that CI has built."
+          exit 1
+        fi
+
+        status=$(printf '%s' "$run" | jq -r .status)
+        conclusion=$(printf '%s' "$run" | jq -r .conclusion)
+        url=$(printf '%s' "$run" | jq -r .html_url)
+
+        # A run still in progress is not a pass. Waiting here would hold a
+        # publishing job open on something that may yet fail; re-tagging after
+        # CI finishes is the cheaper move.
+        if [ "$status" != completed ]; then
+          echo "::error::CI for ${SHA} is ${status}, not finished: ${url}"
+          exit 1
+        fi
+        if [ "$conclusion" != success ]; then
+          echo "::error::CI for ${SHA} concluded ${conclusion}: ${url}"
+          exit 1
+        fi
+
+        echo "CI passed for ${SHA}: ${url}"
