@@ -117,10 +117,26 @@ jobs:
           *-*) tag=next ;;
           *) tag=latest ;;
           esac
+          # npm refuses to republish a version that already exists, so without
+          # this a run that died between the platform packages and the launcher
+          # could never be retried: the re-run would fail on the first package
+          # it had already put up, and the launcher would stay unpublished
+          # forever. Skipping what is already there makes the whole step safe
+          # to run again.
+          publish() {
+            name=$(jq -r .name "$1/package.json")
+            version=$(jq -r .version "$1/package.json")
+            if npm view "${name}@${version}" version >/dev/null 2>&1; then
+              echo "${name}@${version} is already published, skipping"
+              return
+            fi
+            npm publish --provenance --access public --tag "$tag" "$1"
+          }
+
           # Platform packages before the launcher that depends on them. In the
           # other order there is a window where installing the launcher
           # resolves no binary at all.
           for dir in npm/dist/faultline-proxy-*; do
-            npm publish --provenance --access public --tag "$tag" "$dir"
+            publish "$dir"
           done
-          npm publish --provenance --access public --tag "$tag" npm/dist/faultline-proxy
+          publish npm/dist/faultline-proxy
