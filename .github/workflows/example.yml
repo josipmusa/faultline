@@ -28,12 +28,14 @@ jobs:
       # by the pull request that makes it. An application would write
       # `josipmusa/faultline/setup@v0`.
       #
-      # Pinned rather than `latest` until v0.1.0 is tagged: a prerelease is
-      # never the latest, so `latest` has nothing to resolve to yet.
+      # `latest` rather than a pin, so this example keeps working against the
+      # newest release without being edited. It is only meaningful now that a
+      # stable release exists: `latest` skips prereleases, so while v0.1.0-rc1
+      # was the only release it resolved to nothing.
       - name: Install Faultline
         uses: ./setup
         with:
-          version: v0.1.0-rc1
+          version: latest
 
       # The test breaks example.com through the API and asserts on the report,
       # so a pass means the binary, the proxy, the CA and the environment the
