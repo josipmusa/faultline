@@ -140,3 +140,69 @@ jobs:
             publish "$dir"
           done
           publish npm/dist/faultline-proxy
+
+  # What the README promises, run against what was actually published. Every
+  # install route here has been broken at some point without anyone noticing,
+  # because nothing downstream of the release job ever exercised them.
+  smoke:
+    name: verify the published release (${{ matrix.os }})
+    needs: release
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    permissions:
+      contents: read
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      # The archives carry the tag without its leading v, and so does what the
+      # binary prints.
+      - name: The version under test
+        id: version
+        run: echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Install with install.sh
+        env:
+          FAULTLINE_VERSION: ${{ github.ref_name }}
+          FAULTLINE_INSTALL_DIR: ${{ runner.temp }}/smoke-bin
+        run: ./install.sh
+
+      - name: The installed binary reports the released version
+        env:
+          WANT: faultline ${{ steps.version.outputs.value }}
+        run: |
+          set -euo pipefail
+          got=$("${{ runner.temp }}/smoke-bin/faultline" version)
+          [ "$got" = "$WANT" ] || { echo "::error::install.sh gave '$got', wanted '$WANT'"; exit 1; }
+          echo "$got"
+
+      # Pinned to the exact version rather than the dist-tag: this is checking
+      # that the publish landed, not which tag it landed under, and the tag
+      # takes its own moment to move.
+      - name: npx runs the published package
+        env:
+          WANT: faultline ${{ steps.version.outputs.value }}
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          set -euo pipefail
+          # The registry needs a moment to serve a version it has just taken.
+          for attempt in 1 2 3 4 5 6; do
+            if got=$(npx --yes "faultline-proxy@${VERSION}" version 2>/dev/null); then
+              [ "$got" = "$WANT" ] || { echo "::error::npx gave '$got', wanted '$WANT'"; exit 1; }
+              echo "$got"
+              exit 0
+            fi
+            echo "attempt ${attempt}: faultline-proxy@${VERSION} not resolvable yet"
+            sleep 15
+          done
+          echo "::error::faultline-proxy@${VERSION} never became installable"
+          exit 1
