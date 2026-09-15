@@ -64,9 +64,28 @@ func capturedThrough(t *testing.T, bodies bool) capture.Capture {
 		t.Fatalf("recorded %d events, want 1", len(recorded))
 	}
 
+	return waitForCapture(t, "http://"+adminAddr+"/api/events/"+recorded[0].ID+"/capture", bodies)
+}
+
+// waitForCapture reads a capture back, waiting for the response body when one
+// is expected. A response body is filed once the proxy has closed the upstream
+// body, which is after the client has been served the last of it: the client
+// can be through and asking about the capture while the capture is still a
+// moment from being complete. Waiting here is the difference between testing
+// that Faultline captures bodies and testing that it captures them faster than
+// a local round trip, which is not a promise it makes.
+func waitForCapture(t *testing.T, url string, bodies bool) capture.Capture {
+	t.Helper()
+
 	var c capture.Capture
-	getJSON(t, "http://"+adminAddr+"/api/events/"+recorded[0].ID+"/capture", &c)
-	return c
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		getJSON(t, url, &c)
+		if !bodies || len(c.Response.Body) > 0 || time.Now().After(deadline) {
+			return c
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
 }
 
 // getJSON reads one admin endpoint into out.
