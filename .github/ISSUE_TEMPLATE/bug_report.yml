@@ -44,6 +44,7 @@ body:
     attributes:
       label: How you installed it
       options:
+        - Please select
         - install.sh
         - Homebrew
         - npm
@@ -59,6 +60,7 @@ body:
     attributes:
       label: Operating system
       options:
+        - Please select
         - macOS
         - Linux
         - Windows
