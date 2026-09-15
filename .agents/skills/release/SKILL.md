@@ -70,12 +70,13 @@ not describe it.
 - `.claude-plugin/plugin.json` - set `version` to the release without its
   leading `v`. Nothing generates this and nothing checks it, so it is the one
   file that silently goes stale.
-- `.github/workflows/example.yml` - on the first stable release only, change
-  the pinned `version: v0.1.0-rc1` to `latest`. It is pinned because `latest`
-  resolves to nothing while the only release is a candidate; once a stable
-  release exists the pin is what rots instead.
 - `docs/` - if anything user-visible changed and was not documented, it is
   documented now, not after.
+
+Anything that depends on the release already existing belongs in step 8, not
+here. `.github/workflows/example.yml` is the standing example: while the only
+release is a candidate, `latest` resolves to nothing, so a PR that unpins it
+before the tag fails its own Example check.
 
 Open the PR, wait for CI, get it merged, then pull `main` again and re-run the
 preflight on the new HEAD.
@@ -108,9 +109,23 @@ gh run watch <id>
   checks the version it reports.
 - **major-tag** - runs behind the smoke job, stable only, and moves `v0`.
 
-The npm publish is safe to re-run: it skips versions already on the registry.
-If the Release workflow fails partway through, re-running the job is the
-correct move, not a new tag.
+The npm publish is safe to re-run on its own: it skips versions already on the
+registry. The job around it is not, and this is the trap. Once GoReleaser has
+created the GitHub release, re-running the job fails at the Release step with
+`422 already_exists` on every asset, and never reaches npm. `release.mode`
+defaults to `keep-existing`, which keeps the release but still attempts every
+upload; it does not skip assets that are already there.
+
+So to retry a Release run that got past GoReleaser and failed later:
+
+```
+gh release delete <version> --yes      # keeps the tag
+gh run rerun <id> --failed
+```
+
+GoReleaser then recreates the release, re-signs, re-pushes the cask and
+carries on to npm, and everything in the release comes from one consistent
+run. Never answer this with a new tag.
 
 ## 6. Verify
 
@@ -129,7 +144,19 @@ Read the generated release notes properly. Dependabot bumps are filtered out
 by `^Bump `; anything else in the history appears verbatim, so a careless
 subject line is now published.
 
-## 7. If it goes wrong
+## 7. After the release
+
+The things that could not be done earlier because they need the release to
+exist. These go up as an ordinary PR.
+
+- `.github/workflows/example.yml` - once a stable release exists, replace the
+  pinned `version:` with `latest`, so the example stops naming a version that
+  ages. Only after the first stable release; a prerelease does not satisfy
+  `latest`.
+- Anything else that resolves against `/releases/latest` or the moving `v0`
+  tag, which likewise only mean something once the release has landed.
+
+## 8. If it goes wrong
 
 Be honest with the human about what is and is not recoverable.
 
