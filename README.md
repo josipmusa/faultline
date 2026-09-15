@@ -37,16 +37,42 @@ macOS, from the tap:
 brew install josipmusa/tap/faultline
 ```
 
-In a Node project, with nothing to install first:
+From npm, which works anywhere Node does, Windows included:
+
+```
+npm install -g faultline-proxy
+```
+
+The command it installs is `faultline`; the package is named `faultline-proxy`
+because an unrelated package already holds `faultline` on npm. To try it without
+installing anything at all:
 
 ```
 npx faultline-proxy run -- npm run dev
 ```
 
-Windows, and anywhere you would rather read a script before you run it, from the
-[latest release](https://github.com/josipmusa/faultline/releases/latest): unpack
-the archive for your platform and put `faultline` on your `PATH`. There is a
-container image too, described in [docs/docker.md](docs/docker.md):
+Or pinned to the project, so everyone working on it and CI all get the same
+version and the fault setup travels with the repository. The binary lands in
+`node_modules/.bin` rather than on your `PATH`, so reach it through `npx` or a
+`package.json` script:
+
+```
+npm install --save-dev faultline-proxy
+npx faultline run -- npm run dev
+```
+
+The package is a launcher with no dependencies; the binary arrives in a platform
+package npm selects for your machine, so nothing runs at install time and you
+download one binary rather than six. It is the same binary as the release
+archives, web UI included.
+
+Windows has no install script and no tap, so `npm install -g faultline-proxy`
+above is the one-line route there; Intel and ARM are both published. Anywhere you
+would rather fetch the binary yourself than pipe a script into a shell, take it
+from the [latest release](https://github.com/josipmusa/faultline/releases/latest):
+unpack the archive for your platform, a `.zip` on Windows and a `.tar.gz`
+elsewhere, and put `faultline` on your `PATH`. There is a container image too,
+described in [docs/docker.md](docs/docker.md):
 
 ```
 docker run --rm -p 9000:9000 -p 9001:9001 ghcr.io/josipmusa/faultline:latest
