@@ -141,9 +141,16 @@ jobs:
           done
           publish npm/dist/faultline-proxy
 
-  # What the README promises, run against what was actually published. Every
-  # install route here has been broken at some point without anyone noticing,
-  # because nothing downstream of the release job ever exercised them.
+  # install.sh, run against what was actually published rather than against the
+  # repository. It was broken once without anyone noticing, because nothing
+  # downstream of the release job ever exercised it.
+  #
+  # The npm side of the release is deliberately not checked here. npm accepts a
+  # publish and processes it asynchronously: 0.1.1 took nine minutes to serve
+  # one platform package and longer for another, which no job timeout can be
+  # tuned for. Waiting on that made the release fail for a reason that was not
+  # the release's, and held up the major tag behind it. It is checked in the
+  # release runbook instead, where waiting costs nothing.
   smoke:
     name: verify the published release (${{ matrix.os }})
     needs: release
@@ -158,11 +165,6 @@ jobs:
     steps:
       - name: Check out
         uses: actions/checkout@v7
-
-      - name: Set up Node
-        uses: actions/setup-node@v7
-        with:
-          node-version: 22
 
       # The archives carry the tag without its leading v, and so does what the
       # binary prints.
@@ -185,33 +187,11 @@ jobs:
           [ "$got" = "$WANT" ] || { echo "::error::install.sh gave '$got', wanted '$WANT'"; exit 1; }
           echo "$got"
 
-      # Pinned to the exact version rather than the dist-tag: this is checking
-      # that the publish landed, not which tag it landed under, and the tag
-      # takes its own moment to move.
-      - name: npx runs the published package
-        env:
-          WANT: faultline ${{ steps.version.outputs.value }}
-          VERSION: ${{ steps.version.outputs.value }}
-        run: |
-          set -euo pipefail
-          # The registry needs a moment to serve a version it has just taken.
-          for attempt in 1 2 3 4 5 6; do
-            if got=$(npx --yes "faultline-proxy@${VERSION}" version 2>/dev/null); then
-              [ "$got" = "$WANT" ] || { echo "::error::npx gave '$got', wanted '$WANT'"; exit 1; }
-              echo "$got"
-              exit 0
-            fi
-            echo "attempt ${attempt}: faultline-proxy@${VERSION} not resolvable yet"
-            sleep 15
-          done
-          echo "::error::faultline-proxy@${VERSION} never became installable"
-          exit 1
-
   # `josipmusa/faultline/setup@v0` is what a consumer of a composite action
   # expects to be able to write, and it only means anything if something moves
   # it. Behind the smoke job, so the major tag never points at a release whose
-  # install routes did not work, and off for prereleases, so it tracks what
-  # `brew` and `latest` track.
+  # binary did not install, and off for prereleases, so it tracks what `brew`
+  # and `latest` track.
   major-tag:
     name: move the major version tag
     needs: smoke
