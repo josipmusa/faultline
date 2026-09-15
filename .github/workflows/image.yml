@@ -99,3 +99,19 @@ jobs:
           labels: ${{ steps.meta-transparent.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # The tag the metadata step resolved is the one the binary was built
+      # with, so pulling it back and asking is a real check that the image
+      # published and that its version was wired through, not just that the
+      # push returned success.
+      - name: The published image reports the released version
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          image="ghcr.io/${GITHUB_REPOSITORY}:${VERSION}"
+          got=$(docker run --rm "$image" version)
+          want="faultline ${VERSION}"
+          [ "$got" = "$want" ] || { echo "::error::${image} gave '$got', wanted '$want'"; exit 1; }
+          echo "$got"
