@@ -99,18 +99,37 @@ jobs:
         with:
           subject-checksums: ./dist/checksums.txt
 
+      # Trusted publishing needs npm 11.5.1 or newer and Node 22 bundles npm
+      # 10, so the runner's npm is replaced before the publish. The major is
+      # pinned rather than `@latest`: npm 12 is out, and a major that changes
+      # how publishing behaves should be adopted by a pull request that says
+      # so, not picked up silently on the morning of a release.
+      #
+      # Not gated on tags, for the same reason the packaging step below is
+      # not: if this stops resolving, that should surface on a pull request
+      # rather than on the day of a release. Safe here because the GoReleaser
+      # step above, which runs `make ui` with npm, has already finished;
+      # nothing after this point builds the UI.
+      - name: Set up npm for trusted publishing
+        run: |
+          npm install -g "npm@^11.5.1"
+          npm --version
+
       # Always, not only on tags: this reads the same dist/ a real release
       # produces, so a packaging mistake surfaces on the pull request that made
       # it rather than on the day of a release.
       - name: Build the npm packages
         run: node npm/build.mjs
 
+      # No token and no ~/.npmrc. GitHub mints a short-lived OIDC token for
+      # this run from the `id-token: write` permission above, and npm checks it
+      # against a trusted publisher rule that names this repository and this
+      # workflow file. Rules are per package, so all seven carry the same one;
+      # `npm trust list <package>` says what a package has. npm generates
+      # provenance by itself on this path, which is why `--provenance` is gone.
       - name: Publish to npm
         if: startsWith(github.ref, 'refs/tags/')
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          printf '//registry.npmjs.org/:_authToken=%s\n' "$NPM_TOKEN" > ~/.npmrc
           # A prerelease must not become what a bare `npm install` hands out,
           # for the same reason the tap only follows non-prereleases.
           case "$GITHUB_REF_NAME" in
@@ -130,7 +149,7 @@ jobs:
               echo "${name}@${version} is already published, skipping"
               return
             fi
-            npm publish --provenance --access public --tag "$tag" "$1"
+            npm publish --access public --tag "$tag" "$1"
           }
 
           # Platform packages before the launcher that depends on them. In the
