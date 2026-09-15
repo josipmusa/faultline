@@ -28,10 +28,25 @@ type frontmatter struct {
 // model matches a request against.
 const minDescription = 120
 
+// skillGlobs are the two places a skill lives. skills/ holds the ones that
+// ship to users, through the plugin and through `npx skills add`. .agents/
+// holds the ones only a maintainer of this repository has any use for, kept
+// out of skills/ precisely so they are not installed on someone else's
+// machine. Both are read by an agent the same way and both fail the same way,
+// so both are guarded here.
+var skillGlobs = []string{
+	filepath.Join("*", "SKILL.md"),
+	filepath.Join("..", ".agents", "skills", "*", "SKILL.md"),
+}
+
 func TestEverySkillHasParseableFrontmatter(t *testing.T) {
-	found, err := filepath.Glob(filepath.Join("*", "SKILL.md"))
-	if err != nil {
-		t.Fatalf("glob: %v", err)
+	var found []string
+	for _, glob := range skillGlobs {
+		matches, err := filepath.Glob(glob)
+		if err != nil {
+			t.Fatalf("glob %s: %v", glob, err)
+		}
+		found = append(found, matches...)
 	}
 	if len(found) == 0 {
 		t.Fatal("no skills found; this test is guarding nothing")
@@ -59,7 +74,7 @@ func TestEverySkillHasParseableFrontmatter(t *testing.T) {
 				t.Fatalf("%s frontmatter does not parse, so the description is dropped and the skill cannot trigger: %v", path, err)
 			}
 
-			if want := filepath.Dir(path); fm.Name != want {
+			if want := filepath.Base(filepath.Dir(path)); fm.Name != want {
 				t.Errorf("name is %q but the directory is %q; a harness addresses the skill by directory", fm.Name, want)
 			}
 			if n := len(fm.Description); n < minDescription {

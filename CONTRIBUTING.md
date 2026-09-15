@@ -45,6 +45,14 @@ must not be edited by hand: `schema/faultline.schema.json` and
 `docs/reference.md`. `make docs` rewrites both, and a test fails when they are
 stale.
 
+## Releasing
+
+Maintainers only. The runbook is
+[`.agents/skills/release/SKILL.md`](.agents/skills/release/SKILL.md): what to
+check before a tag, what a tag publishes, and what cannot be taken back. It is
+written to be read by a person or handed to an agent, and it is the only copy,
+so a change to the release flow goes there.
+
 ## License
 
 By contributing you agree that your contributions are licensed under the MIT
