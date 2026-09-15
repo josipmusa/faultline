@@ -17,9 +17,17 @@ jobs:
     permissions:
       contents: read
       packages: write
+      # Reading the CI conclusion for the tagged commit.
+      actions: read
     steps:
       - name: Check out
         uses: actions/checkout@v7
+
+      # Same gate as the release workflow: this one publishes to GHCR, so it
+      # needs its own, it cannot lean on the other workflow's.
+      - name: Require a green CI run
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: ./.github/actions/require-green-ci
 
       # arm64 is emulated, which is slow enough that only a tag pays for it.
       - name: Set up QEMU
