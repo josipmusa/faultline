@@ -173,6 +173,41 @@ faultline run --scenario payments-down --report report.json -- go test ./...
 
 ![The Faultline UI showing live calls, a rule taking effect, and the upstreams](docs/assets/ui.gif)
 
+## How it compares
+
+Breaking a dependency on purpose is not a new idea, and the tools below are good
+at it. Faultline overlaps with every one of them somewhere. This is where it
+sits, and where one of the others is the better answer.
+
+| | what it is | how Faultline differs |
+| --- | --- | --- |
+| [Toxiproxy](https://github.com/Shopify/toxiproxy) | a TCP proxy with a set of toxics: latency, bandwidth, timeouts, peer resets, packet loss. A daemon with client libraries, driven from test code. | Toxiproxy works below HTTP, so it can degrade a connection but cannot match a host, a method or a path, and cannot answer 503 to the first two calls on one endpoint. Each dependency also needs its own proxy port that the application is configured to use. Faultline matches on HTTP and attaches by wrapping the start command, so the application's configuration does not change. |
+| [mitmproxy](https://mitmproxy.org/) | the reference intercepting proxy: inspect, rewrite, record and replay HTTP/1, HTTP/2 and WebSocket traffic, with a Python addon API. | mitmproxy sees more protocols and more of each call than Faultline does, and its addons can do anything. But the faults are something you write and maintain: latency, a 500 for the first two calls, a truncated body are all Python. Faultline ships them as validated rules with documented bounds, and counts what the application did in response. For inspecting and debugging traffic rather than degrading it, mitmproxy is the better tool. |
+| [fault](https://fault-project.com/) | a Rust proxy that deliberately makes the network worse: latency, jitter, bandwidth, blackhole, connection reset and DNS failures, run as scheduled phases from a scenario file, with a live dashboard and an NDJSON journal. | fault is the closest in spirit, and it is stronger below HTTP: raw TCP and UDP, DNS faults, chained faults that change over the course of a run. It is deliberately not HTTP-aware and forwards TLS bytes without trying to understand them, so faults on the response of an HTTPS dependency are out of scope. Attaching means declaring a proxy per upstream and pointing the client at that listener. |
+| [HTTP Toolkit](https://httptoolkit.com/) | a desktop app that intercepts a browser, a terminal, a container or a phone in a click and shows every request, with rules that can mock, rewrite, redirect or break responses. | The nearest thing to Faultline's UI, and better at getting hold of traffic from a browser or a device. It is a GUI first: automated mocking and rewriting are a paid feature, and full scripting is still on its roadmap, so there is little to point at from CI. Faultline is one binary, and the same rules are reachable from the UI, the CLI, the HTTP API and the MCP server. |
+
+Two things are Faultline's own. The first is that HTTP-level faults reach real
+HTTPS traffic, and the tier on every event and every report says whether they
+did, so a `faulted` of zero is never quietly mistaken for an application that
+coped. The second is the last step: Faultline reads back what the application
+made of the fault, counting the calls it retried, how long it waited and how
+many it abandoned, as a report a test suite or a coding agent can assert on.
+The others tell you what was done to the traffic, which is the easier half.
+
+### Where Faultline is the wrong tool
+
+- It speaks HTTP and HTTPS only. gRPC, WebSocket and raw TCP are not in v0.1,
+  so a database connection dying mid-query or a DNS outage belongs to Toxiproxy
+  or fault, not here.
+- It is for development and CI. There is no Kubernetes, cloud or production
+  injection, and the admin port is unauthenticated by design; see
+  [docs/security.md](docs/security.md).
+- Response faults on an HTTPS dependency need that application to trust the
+  Faultline CA. Until it does, the host stays at tier `encrypted` and only
+  connection faults apply.
+- It is new. Toxiproxy has been running in Shopify's test suites for a decade,
+  and mitmproxy is a decade older still.
+
 ## Documentation
 
 | | |
