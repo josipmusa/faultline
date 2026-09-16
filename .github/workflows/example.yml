@@ -50,3 +50,103 @@ jobs:
           name: faultline-report
           path: report.json
           if-no-files-found: ignore
+
+  # The other shape docs/ci.md documents: no `faultline run` wrapper, an
+  # instance started for the whole job instead. On `./setup`, so a fix to the
+  # action is proved by the pull request that makes it - the job below covers
+  # the published reference.
+  started:
+    name: a started Faultline (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # One runner failing should still report the others, since which runner
+      # broke is the whole question.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Before the proxy exists, deliberately. Everything after the next step
+      # is proxied, and module traffic would both land in the session report
+      # and fail wherever Go does not read SSL_CERT_FILE.
+      - name: Warm the module cache
+        run: go mod download
+
+      - name: Start Faultline
+        id: faultline
+        uses: ./setup
+        with:
+          start: true
+
+      # The test cannot see the outputs, so they are checked here. This much
+      # runs on every runner: installing, creating the CA, serving, answering
+      # the readiness poll and reporting back is what the action claims
+      # everywhere.
+      - name: Check the outputs
+        shell: bash
+        env:
+          ADMIN: ${{ steps.faultline.outputs.admin-url }}
+          PROXY: ${{ steps.faultline.outputs.proxy-url }}
+          CA: ${{ steps.faultline.outputs.ca-path }}
+        run: |
+          set -euo pipefail
+          for pair in "admin-url=$ADMIN" "proxy-url=$PROXY" "ca-path=$CA"; do
+            case "$pair" in *=) echo "${pair%=} is empty" >&2; exit 1 ;; esac
+          done
+          [ -s "$CA" ] || { echo "no CA certificate at $CA" >&2; exit 1; }
+          curl -fsS --noproxy '*' "$ADMIN/api/rules" >/dev/null
+
+      # Linux only, and not an omission: `crypto/x509` builds its file-based
+      # root loader for Unix-other-than-macOS alone, so a Go program reads the
+      # Keychain on macOS and the system store on Windows and ignores the
+      # SSL_CERT_FILE the action sets. docs/trust.md carries the remedy
+      # (`faultline ca install`); what is being proved here is the action, so
+      # the trust-dependent half runs where the injected variables suffice.
+      #
+      # No `faultline run` wrapper: that absence is the point. The test skips
+      # unless HTTP_PROXY is set, so it runs at all only because the step above
+      # wrote the environment, and it fails on a rule accepted with warnings,
+      # which is what a missing CA looks like.
+      - name: Test against the started Faultline
+        if: runner.os == 'Linux'
+        env:
+          FAULTLINE_ADMIN: ${{ steps.faultline.outputs.admin-url }}
+        run: go test -run TestUnderFaultline ./examples/go-client
+
+  # The same shape once more, through the published reference rather than the
+  # working tree, because `josipmusa/faultline/setup@v0` is the string a reader
+  # copies out of docs/ci.md and nothing else here resolves it.
+  published:
+    name: the published action
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Warm the module cache
+        run: go mod download
+
+      - name: Start Faultline
+        id: faultline
+        uses: josipmusa/faultline/setup@v0
+        with:
+          start: true
+
+      - name: Test against the started Faultline
+        env:
+          FAULTLINE_ADMIN: ${{ steps.faultline.outputs.admin-url }}
+        run: go test -run TestUnderFaultline ./examples/go-client

@@ -92,14 +92,33 @@ never came up must not run its tests unproxied and report a pass.
 
 It does not set `JAVA_TOOL_OPTIONS`. A JVM reads neither the proxy variables nor
 the CA bundle, so a Java step needs `faultline trust java` - see
-[docs/trust.md](trust.md). It does not install the CA into the runner's OS trust
-store either; the trust variables cover Go, Node, Python, curl and git.
+[docs/trust.md](trust.md).
+
+It does not install the CA into the runner's OS trust store either. The trust
+variables cover Node, Python, curl and git on every runner, and Go on Linux.
+They do not cover Go on a macOS or Windows runner: `crypto/x509` builds its
+file-based root loader for Unix-other-than-macOS alone, so a Go program there
+reads the Keychain or the system store and ignores `SSL_CERT_FILE`. A Go step on
+those runners needs `faultline ca install` before it will trust an intercepted
+response - see [docs/trust.md](trust.md).
 
 ## A worked example
 
 [`.github/workflows/example.yml`](../.github/workflows/example.yml) in this
-repository is the first shape above, running `examples/go-client`'s own test
-under `faultline run`. The test breaks `example.com` with a `status` fault for
-the first two calls and asserts the report saw three calls, two faulted and two
-retries - so a pass means the installed binary, the proxy, the CA and the
-injected environment all did their part.
+repository runs both shapes above against `examples/go-client`'s own test. The
+test breaks `example.com` with a `status` fault for the first two calls and
+asserts the report saw three calls, two faulted and two retries - so a pass
+means the installed binary, the proxy, the CA and the injected environment all
+did their part.
+
+The first job wraps that test in `faultline run` and installs through this
+repository's copy of the action, so a change to `setup/` is tested by the pull
+request that makes it. The second starts an instance with `start: true` and
+then runs the same test with no wrapper at all: it skips unless `HTTP_PROXY` is
+set, so it runs only because the action wrote the environment. That job
+runs on Linux, macOS and Windows runners. Its Go test is Linux-only, for the
+trust reason above; the other runners still prove the install, the CA, the
+background `serve`, the readiness poll and the outputs. A third job repeats the
+shape through the published `josipmusa/faultline/setup@v0`, the way an
+application's repository would, so the reference in this document is itself
+exercised.
