@@ -98,8 +98,16 @@ store either; the trust variables cover Go, Node, Python, curl and git.
 ## A worked example
 
 [`.github/workflows/example.yml`](../.github/workflows/example.yml) in this
-repository is the first shape above, running `examples/go-client`'s own test
-under `faultline run`. The test breaks `example.com` with a `status` fault for
-the first two calls and asserts the report saw three calls, two faulted and two
-retries - so a pass means the installed binary, the proxy, the CA and the
-injected environment all did their part.
+repository runs both shapes above against `examples/go-client`'s own test. The
+test breaks `example.com` with a `status` fault for the first two calls and
+asserts the report saw three calls, two faulted and two retries - so a pass
+means the installed binary, the proxy, the CA and the injected environment all
+did their part.
+
+The first job wraps that test in `faultline run` and installs through this
+repository's copy of the action, so a change to `setup/` is tested by the pull
+request that makes it. The second starts an instance with `start: true` and
+then runs the same test with no wrapper at all: it skips unless `HTTP_PROXY` is
+set, so it runs only because the action wrote the environment. That job
+installs through the published `josipmusa/faultline/setup@v0`, the way an
+application's repository would, and runs on Linux, macOS and Windows runners.

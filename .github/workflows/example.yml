@@ -50,3 +50,62 @@ jobs:
           name: faultline-report
           path: report.json
           if-no-files-found: ignore
+
+  # The other shape docs/ci.md documents: no `faultline run` wrapper, an
+  # instance started for the whole job instead. It pins the published
+  # `@v0` rather than `./setup`, so this is the action as a reader copies it,
+  # not the working tree - the job above covers local edits.
+  started:
+    name: the Go example against a started Faultline (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # One runner failing should still report the others, since which runner
+      # broke is the whole question.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Before the proxy exists, deliberately. Everything after the next step
+      # is proxied, and module traffic would both land in the session report
+      # and fail on Windows, where Go reads the system trust store and ignores
+      # the SSL_CERT_FILE the action sets.
+      - name: Warm the module cache
+        run: go mod download
+
+      - name: Start Faultline
+        id: faultline
+        uses: josipmusa/faultline/setup@v0
+        with:
+          start: true
+
+      # The test cannot see the outputs, so they are checked here.
+      - name: Check the outputs
+        shell: bash
+        env:
+          ADMIN: ${{ steps.faultline.outputs.admin-url }}
+          PROXY: ${{ steps.faultline.outputs.proxy-url }}
+          CA: ${{ steps.faultline.outputs.ca-path }}
+        run: |
+          set -euo pipefail
+          for pair in "admin-url=$ADMIN" "proxy-url=$PROXY" "ca-path=$CA"; do
+            case "$pair" in *=) echo "${pair%=} is empty" >&2; exit 1 ;; esac
+          done
+          [ -s "$CA" ] || { echo "no CA certificate at $CA" >&2; exit 1; }
+
+      # No `faultline run` here: that absence is the point. The test skips
+      # unless HTTP_PROXY is set, so it runs at all only because the step above
+      # wrote the environment, and it fails on a rule accepted with warnings,
+      # which is what a missing CA looks like.
+      - name: Test against the started Faultline
+        env:
+          FAULTLINE_ADMIN: ${{ steps.faultline.outputs.admin-url }}
+        run: go test -run TestUnderFaultline ./examples/go-client
