@@ -98,10 +98,14 @@ runs:
           echo "$asset is not listed in the checksums of $tag" >&2
           exit 1
         fi
+        # Hashed from inside the directory, with a bare filename. On a Windows
+        # runner $dir is a C:\... path, and GNU coreutils escapes any line whose
+        # filename contains a backslash by prefixing the hash with one, which
+        # then never matches the checksums file.
         if command -v sha256sum >/dev/null 2>&1; then
-          got=$(sha256sum "$dir/$asset" | awk '{print $1}')
+          got=$(cd "$dir" && sha256sum "$asset" | awk '{print $1}')
         else
-          got=$(shasum -a 256 "$dir/$asset" | awk '{print $1}')
+          got=$(cd "$dir" && shasum -a 256 "$asset" | awk '{print $1}')
         fi
         if [ "$got" != "$want" ]; then
           echo "checksum mismatch for $asset: got $got, want $want" >&2

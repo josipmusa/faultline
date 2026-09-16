@@ -12,6 +12,7 @@ application sees a bare TLS error and Faultline sees a client that hung up.
 | --- | --- | --- |
 | Go on Linux | nothing to do; reads `SSL_CERT_FILE` | set `SSL_CERT_FILE` to the CA path |
 | Go on macOS | `faultline ca install`; Go reads the Keychain and no file | same |
+| Go on Windows | `faultline ca install`; Go reads the system store and no file | same |
 | Node | nothing to do; reads `NODE_EXTRA_CA_CERTS` | set `NODE_EXTRA_CA_CERTS` |
 | Python `requests`, `httpx` | nothing to do; read `REQUESTS_CA_BUNDLE` | set `REQUESTS_CA_BUNDLE` |
 | curl, OpenSSL-based tools | nothing to do; read `CURL_CA_BUNDLE` or `SSL_CERT_FILE` | set the same |
